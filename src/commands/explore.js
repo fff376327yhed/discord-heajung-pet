@@ -28,12 +28,7 @@ const NOT_STARTED = '아직 모험을 시작하지 않았어요! `/시작` 을 �
 
 // ───────── 화면 그리기 ─────────
 
-function chanceLabel(chance) {
-  if (chance >= 0.6) return '쉬움 😄';
-  if (chance >= 0.3) return '보통 🙂';
-  if (chance >= 0.1) return '어려움 😰';
-  return '아주 어려움 😱';
-}
+
 
 function viewExploring(snap, userId, note) {
   const loc = LOCATIONS[snap.locationId];
@@ -61,8 +56,8 @@ function viewEncounter(snap, userId, note) {
       {
         title: `❗ 야생의 ${pet.emoji} ${pet.name}(이)가 나타났다!`,
         description:
-          `${note ? note + '\n\n' : ''}${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}**\n` +
-          `잡기 난이도: **${chanceLabel(snap.chance)}**`,
+                    `${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}**`,
+
         color: 0xfee75c,
         fields: [
           { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개`, inline: true },
@@ -98,7 +93,7 @@ function viewBattle(snap, userId, note) {
         fields: [
           { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel}`, value: `${hpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}`, inline: true },
           { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level}`, value: `${hpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}`, inline: true },
-          { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개 · 잡기 난이도 ${chanceLabel(snap.chance)}`, inline: false },
+          { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개`, inline: false },
         ],
       },
     ],

@@ -4,8 +4,12 @@ export const START_GOLD = 1000;
 export const START_BALLS = 5;
 export const EMBED_COLOR = 0x5865f2;
 
-// 해정볼 던졌는데 실패했을 때, 야생 펫이 도망가 버릴 확률 (0.25 = 4번 중 1번)
-export const FLEE_CHANCE_ON_FAIL = 0.25;
+// ───────── 포획 🔴 ─────────
+// 해정볼을 던질 때마다 (한 마리 조우 기준) 포획 확률이 깎이고, 도망 확률이 올라가요
+export const CATCH_DROP_PER_TRY = 0.10; // 던질 때마다 포획 확률 -10%p
+export const FLEE_BASE = 0.25; // 첫 번째 던졌을 때 실패하면 도망갈 확률 (25%)
+export const FLEE_RISE_PER_TRY = 0.35; // 실패할 때마다 도망 확률 +35%p
+export const FLEE_MAX = 0.9; // 도망 확률 상한 (90%)
 
 // ───────── 전투 ⚔️ ─────────
 export const BATTLE_MAX_ROUNDS = 15; // 이 턴 안에 못 끝내면 야생 펫이 도망가요 (무승부)

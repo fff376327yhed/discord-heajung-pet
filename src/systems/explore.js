@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { LOCATIONS, LOCATION_LIST } from '../data/locations.js';
 import { PETS } from '../data/pets.js';
-import { FLEE_CHANCE_ON_FAIL } from '../config.js';
+import { CATCH_DROP_PER_TRY, FLEE_BASE, FLEE_RISE_PER_TRY, FLEE_MAX } from '../config.js';
 import { randInt, weightedPick } from '../utils/random.js';
 import { addExp } from './level.js';
 import { createPetInstance } from './pet.js';
@@ -17,11 +17,18 @@ const BALL = 'haejeong_ball';
 
 // 잡을 확률: 펫마다 정해진 값 × (내 대표 펫보다 야생 펫이 너무 높으면 조금 어려워져요)
 //            × (전투로 야생 펫 체력을 깎을수록 쉬워져요: 체력이 거의 0이면 최대 2배!)
-export function catchChance(petId, wildLevel, mainLevel, hpRatio = 1) {
+export function catchChance(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0) {
   const gap = Math.max(0, wildLevel - mainLevel);
   const factor = Math.max(0.3, 1 - gap * 0.02);
   const weakBonus = 1 + (1 - Math.max(0, Math.min(1, hpRatio)));
-  return Math.max(0.02, Math.min(0.95, PETS[petId].catchRate * factor * weakBonus));
+  const base = PETS[petId].catchRate * factor * weakBonus;
+  const afterTries = base - CATCH_DROP_PER_TRY * tries; // 던진 횟수만큼 -10%p
+  return Math.max(0.02, Math.min(0.95, afterTries));
+}
+
+// 도망 확률: 실패한 횟수만큼 +35%p (상한 90%)
+export function fleeChance(tries) {
+  return Math.min(FLEE_MAX, FLEE_BASE + FLEE_RISE_PER_TRY * tries);
 }
 
 // 지금 탐험 상태를 한 장의 "사진"으로 찍어요 (화면 그릴 때 써요)
@@ -37,7 +44,7 @@ export function snapshot(player, now = Date.now()) {
       ...base,
       state: b ? 'battle' : 'encounter',
       encounter: { ...ex.encounter },
-      chance: catchChance(ex.encounter.petId, ex.encounter.level, main?.level ?? 1, ratio),
+      chance: catchChance(ex.encounter.petId, ex.encounter.level, main?.level ?? 1, ratio, ex.catchTries ?? 0),
     };
     if (b) {
       snap.battle = {
@@ -90,6 +97,7 @@ export function lookAround(player, id, now = Date.now(), rng = Math.random) {
   const loc = LOCATIONS[ex.locationId];
   const spawn = weightedPick(loc.spawns, (s) => s.weight, rng);
   ex.encounter = { petId: spawn.petId, level: randInt(spawn.lv[0], spawn.lv[1], rng) };
+  ex.catchTries = 0; // 새 야생 펫이라서 던진 횟수를 0으로 되돌려요
   return { kind: 'appeared', snap: snapshot(player, now), commit: true };
 }
 
@@ -104,7 +112,8 @@ export function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
   player.inventory[BALL] = balls - 1; // 던지는 순간 해정볼은 사라져요
   const { petId, level } = ex.encounter;
   const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
-  const chance = catchChance(petId, level, getMainPet(player)?.level ?? 1, hpRatio);
+  const tries = ex.catchTries ?? 0;
+  const chance = catchChance(petId, level, getMainPet(player)?.level ?? 1, hpRatio, tries);
 
   if (rng() < chance) {
     const isNew = !player.dex?.[petId];
@@ -124,8 +133,9 @@ export function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
     };
   }
 
-  // 실패! 가끔은 도망가요
-  if (rng() < FLEE_CHANCE_ON_FAIL) {
+  // 실패! 던진 횟수가 늘어서 이제 도망이 더 쉬워져요
+  ex.catchTries = tries + 1;
+  if (rng() < fleeChance(ex.catchTries)) {
     player.exploration = null;
     return { kind: 'fled', commit: true, petId, ballsLeft: balls - 1 };
   }
