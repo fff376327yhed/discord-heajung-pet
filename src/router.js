@@ -11,10 +11,11 @@ import * as nickname from './commands/nickname.js';
 import * as release from './commands/release.js';
 import * as train from './commands/train.js';
 import * as use from './commands/use.js';
+import * as help from './commands/help.js';
 import { InteractionType, reply } from './utils/discord.js';
 
 // ✨ 새 명령어를 만들면 여기에 한 줄만 추가하면 돼요!
-const modules = [start, profile, places, explore, shop, bag, pets, dex, nickname, release, train, use];
+const modules = [start, profile, places, explore, shop, bag, pets, dex, nickname, release, train, use, help];
 
 const commands = new Map(modules.map((m) => [m.data.name, m]));
 

@@ -56,8 +56,7 @@ function viewEncounter(snap, userId, note) {
       {
         title: `❗ 야생의 ${pet.emoji} ${pet.name}(이)가 나타났다!`,
         description:
-                    `${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}**`,
-
+          `${note ? note + '\n\n' : ''}${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}**`,
         color: 0xfee75c,
         fields: [
           { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개`, inline: true },
