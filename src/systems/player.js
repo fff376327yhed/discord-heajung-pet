@@ -14,6 +14,7 @@ export function buildNewPlayer(userId, username, starterPetId) {
     pets: [starter],
     mainPetUid: starter.uid,
     dex: { [starterPetId]: true }, // 도감: 만난/잡은 펫 기록
+    exploration: null, // 지금 하고 있는 탐험 (없으면 null)
     createdAt: Date.now(),
   };
 }

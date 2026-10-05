@@ -54,3 +54,27 @@ export async function savePlayer(userId, data) {
   }
   await players().doc(userId).set(data);
 }
+
+// 플레이어를 읽고 → 고치고 → 저장을 "한 덩어리"로 처리해요.
+// 두 번 빠르게 눌러도 해정볼이 두 번 줄어드는 일이 없어요.
+// mutate(player) 는 { commit: true/false, value: 돌려줄값 } 을 돌려줘야 해요.
+// (주의: mutate 안에서는 player만 고치고, 다른 일은 하지 마세요)
+export async function updatePlayer(userId, mutate) {
+  if (useMemory()) {
+    const found = memoryStore.get(userId);
+    if (!found) return null;
+    const copy = structuredClone(found);
+    const out = mutate(copy);
+    if (out.commit) memoryStore.set(userId, copy);
+    return out.value;
+  }
+  const ref = players().doc(userId);
+  return getDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const player = snap.data();
+    const out = mutate(player);
+    if (out.commit) tx.set(ref, player);
+    return out.value;
+  });
+}

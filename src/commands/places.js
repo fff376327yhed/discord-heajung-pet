@@ -36,7 +36,7 @@ export async function execute(interaction) {
         title: '🗺️ 모험 지도',
         description: blocks.join('\n\n'),
         color: EMBED_COLOR,
-        footer: { text: '탐험 기능은 다음 단계에서 열려요!' },
+        footer: { text: '`/탐험` 으로 떠나볼 수 있어요!' },
       },
     ],
   });

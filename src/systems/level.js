@@ -3,7 +3,7 @@ import { MAX_LEVEL } from '../config.js';
 
 // 다음 레벨까지 필요한 경험치 (레벨이 높을수록 많이 필요해요)
 export function expToNext(level) {
-  return Math.floor(20 * Math.pow(level, 1.7)) + 30;
+  return Math.floor(10 * Math.pow(level, 1.6)) + 20;
 }
 
 // 경험치를 얻고, 레벨업이 있으면 처리해요. target = { level, exp } 를 직접 바꿔요.

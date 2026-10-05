@@ -2,10 +2,11 @@
 import * as start from './commands/start.js';
 import * as profile from './commands/profile.js';
 import * as places from './commands/places.js';
+import * as explore from './commands/explore.js';
 import { InteractionType, reply } from './utils/discord.js';
 
 // ✨ 새 명령어를 만들면 여기에 한 줄만 추가하면 돼요!
-const modules = [start, profile, places];
+const modules = [start, profile, places, explore];
 
 const commands = new Map(modules.map((m) => [m.data.name, m]));
 
