@@ -1,7 +1,8 @@
 // 탐험 · 포획 규칙 🌿🔴 (디스코드와 상관없는 "순수한 게임 규칙"이라 테스트하기 쉬워요)
 //
 // 탐험 흐름:  /탐험 → (랜덤 시간 기다림) → [살펴보기] → 야생 펫 등장 → [잡기] / [싸우기] / [무시하기]
-// player.exploration = { id, locationId, startedAt, appearAt, encounter: null | { petId, level } }
+// player.exploration = { id, locationId, startedAt, appearAt, encounter: null | { petId, level }, battle?: {...} }
+// (battle 은 systems/battle.js 가 만들어요. 전투 중에는 snapshot 의 state 가 'battle' 이에요)
 
 import { randomUUID } from 'node:crypto';
 import { LOCATIONS, LOCATION_LIST } from '../data/locations.js';
@@ -15,10 +16,12 @@ import { getMainPet } from './player.js';
 const BALL = 'haejeong_ball';
 
 // 잡을 확률: 펫마다 정해진 값 × (내 대표 펫보다 야생 펫이 너무 높으면 조금 어려워져요)
-export function catchChance(petId, wildLevel, mainLevel) {
+//            × (전투로 야생 펫 체력을 깎을수록 쉬워져요: 체력이 거의 0이면 최대 2배!)
+export function catchChance(petId, wildLevel, mainLevel, hpRatio = 1) {
   const gap = Math.max(0, wildLevel - mainLevel);
   const factor = Math.max(0.3, 1 - gap * 0.02);
-  return Math.max(0.02, Math.min(0.95, PETS[petId].catchRate * factor));
+  const weakBonus = 1 + (1 - Math.max(0, Math.min(1, hpRatio)));
+  return Math.max(0.02, Math.min(0.95, PETS[petId].catchRate * factor * weakBonus));
 }
 
 // 지금 탐험 상태를 한 장의 "사진"으로 찍어요 (화면 그릴 때 써요)
@@ -28,12 +31,23 @@ export function snapshot(player, now = Date.now()) {
   const base = { id: ex.id, locationId: ex.locationId, balls: player.inventory?.[BALL] ?? 0 };
   if (ex.encounter) {
     const main = getMainPet(player);
-    return {
+    const b = ex.battle ?? null;
+    const ratio = b ? b.wildHp / b.wildMax : 1;
+    const snap = {
       ...base,
-      state: 'encounter',
+      state: b ? 'battle' : 'encounter',
       encounter: { ...ex.encounter },
-      chance: catchChance(ex.encounter.petId, ex.encounter.level, main?.level ?? 1),
+      chance: catchChance(ex.encounter.petId, ex.encounter.level, main?.level ?? 1, ratio),
     };
+    if (b) {
+      snap.battle = {
+        ...b,
+        myPetId: main.petId,
+        myLevel: main.level,
+        myName: main.nickname ?? PETS[main.petId].name,
+      };
+    }
+    return snap;
   }
   return { ...base, state: 'exploring', remainingSec: Math.max(0, Math.ceil((ex.appearAt - now) / 1000)) };
 }
@@ -89,7 +103,8 @@ export function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
 
   player.inventory[BALL] = balls - 1; // 던지는 순간 해정볼은 사라져요
   const { petId, level } = ex.encounter;
-  const chance = catchChance(petId, level, getMainPet(player)?.level ?? 1);
+  const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
+  const chance = catchChance(petId, level, getMainPet(player)?.level ?? 1, hpRatio);
 
   if (rng() < chance) {
     const isNew = !player.dex?.[petId];
@@ -117,11 +132,12 @@ export function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
   return { kind: 'escaped', commit: true, snap: snapshot(player, now), ballsLeft: balls - 1 };
 }
 
-// [무시하기] / [그만두기]
+// [무시하기] / [그만두기] / [도망] (전투 중이면 'ran')
 export function leave(player, id) {
   const ex = player.exploration;
   if (!ex || ex.id !== id) return { kind: 'expired' };
   const petId = ex.encounter?.petId ?? null;
+  const inBattle = Boolean(ex.battle);
   player.exploration = null;
-  return { kind: petId ? 'ignored' : 'quit', petId, commit: true };
+  return { kind: petId ? (inBattle ? 'ran' : 'ignored') : 'quit', petId, commit: true };
 }

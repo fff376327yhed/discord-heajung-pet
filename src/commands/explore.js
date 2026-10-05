@@ -5,6 +5,7 @@ import { ITEMS } from '../data/items.js';
 import { EMBED_COLOR } from '../config.js';
 import { updatePlayer } from '../db.js';
 import * as explore from '../systems/explore.js';
+import * as battle from '../systems/battle.js';
 import { reply, update, getUser, getOption, button, row } from '../utils/discord.js';
 
 export const data = {
@@ -79,6 +80,45 @@ function viewEncounter(snap, userId, note) {
   };
 }
 
+function hpBar(cur, max, size = 10) {
+  const filled = cur <= 0 ? 0 : Math.max(1, Math.min(size, Math.ceil((cur / max) * size)));
+  return '▰'.repeat(filled) + '▱'.repeat(size - filled);
+}
+
+function viewBattle(snap, userId, note) {
+  const wild = PETS[snap.encounter.petId];
+  const mine = PETS[snap.battle.myPetId];
+  const b = snap.battle;
+  return {
+    embeds: [
+      {
+        title: `⚔️ ${mine.emoji} ${b.myName} VS ${wild.emoji} ${wild.name}`,
+        description: `${note ? note + '\n\n' : ''}${b.round}턴째 · 약해질수록 **[잡기]** 가 쉬워져요!`,
+        color: 0xed4245,
+        fields: [
+          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel}`, value: `${hpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}`, inline: true },
+          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level}`, value: `${hpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}`, inline: true },
+          { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개 · 잡기 난이도 ${chanceLabel(snap.chance)}`, inline: false },
+        ],
+      },
+    ],
+    components: [
+      row(
+        button({ label: '공격', emoji: '⚔️', customId: `explore:attack:${userId}:${snap.id}`, style: 4 }),
+        button({ label: '잡기', emoji: BALL.emoji, customId: `explore:catch:${userId}:${snap.id}`, style: 3 }),
+        button({ label: '도망', emoji: '🏃', customId: `explore:run:${userId}:${snap.id}`, style: 2 }),
+      ),
+    ],
+  };
+}
+
+// 지금 상태에 맞는 화면을 골라줘요 (전투 중이면 전투 화면!)
+function viewSnap(snap, userId, note) {
+  if (snap.state === 'battle') return viewBattle(snap, userId, note);
+  if (snap.state === 'encounter') return viewEncounter(snap, userId, note);
+  return viewExploring(snap, userId, note);
+}
+
 const viewExpired = () =>
   update({
     embeds: [{ title: '🍃 이미 지나간 탐험이에요', description: '`/탐험` 으로 새로 떠나보세요!', color: 0x99aab5 }],
@@ -105,6 +145,9 @@ export async function execute(interaction) {
     return reply({ content: msg }, { ephemeral: true });
   }
 
+  if (out.snap.state === 'battle') {
+    return reply(viewBattle(out.snap, user.id, '전투가 아직 끝나지 않았어요!'));
+  }
   if (out.snap.state === 'encounter') {
     return reply(viewEncounter(out.snap, user.id, '앗, 아직 결정하지 않은 야생 펫이 있어요!'));
   }
@@ -127,10 +170,64 @@ async function handleExplore(interaction, args) {
   }
 
   if (action === 'fight') {
-    return reply(
-      { content: '⚔️ 전투는 아직 준비 중이에요! 지금은 **[잡기]** 나 **[무시하기]** 를 골라주세요.' },
-      { ephemeral: true },
-    );
+    const out = await updatePlayer(user.id, (p) => {
+      const r = battle.startBattle(p, id, Date.now());
+      return { commit: r.commit === true, value: r };
+    });
+    if (!out || out.kind === 'expired') return viewExpired();
+    return update(viewBattle(out.snap, user.id, '⚔️ 전투 시작! **[공격]** 으로 싸워요.'));
+  }
+
+  if (action === 'attack') {
+    const out = await updatePlayer(user.id, (p) => {
+      const r = battle.battleTurn(p, id, Date.now());
+      return { commit: r.commit === true, value: r };
+    });
+    if (!out || out.kind === 'expired') return viewExpired();
+    if (out.kind === 'no_battle') {
+      return reply({ content: '아직 전투가 시작되지 않았어요! **[싸우기]** 를 먼저 눌러요 ⚔️' }, { ephemeral: true });
+    }
+    if (out.kind === 'continue') {
+      return update(viewBattle(out.snap, user.id, out.log.join('\n')));
+    }
+    if (out.kind === 'won') {
+      const wild = PETS[out.wildPetId];
+      const mine = PETS[out.myPetId];
+      const lines = [
+        out.log.join('\n'),
+        '',
+        `${wild.emoji} **${wild.name}** (Lv.${out.wildLevel}) 을(를) 쓰러뜨렸어요!`,
+        `💰 골드 +${out.gold}`,
+        `⭐ 트레이너 경험치 +${out.trainerExp}`,
+        out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
+        `${mine.emoji} ${out.myName} 경험치 +${out.petExp}`,
+        out.petLevelsGained > 0 ? `🎊 **${out.myName} 레벨 업!** → Lv.${out.petNewLevel}` : null,
+        ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
+        '\n`/탐험` 으로 계속 모험해요!',
+      ].filter((x) => x !== null);
+      return update({ embeds: [{ title: '🏆 승리!', description: lines.join('\n'), color: 0x57f287 }], components: [] });
+    }
+    if (out.kind === 'lost') {
+      const wild = PETS[out.wildPetId];
+      return update({
+        embeds: [{
+          title: `😵 ${out.myName}(이)가 쓰러졌어요...`,
+          description: `${out.log.join('\n')}\n\n${wild.emoji} ${wild.name}(이)가 떠나갔어요. 골드는 잃지 않았어요!\n\`/탐험\` 으로 다시 도전해봐요!`,
+          color: 0xed4245,
+        }],
+        components: [],
+      });
+    }
+    // draw
+    const wild = PETS[out.wildPetId];
+    return update({
+      embeds: [{
+        title: `💨 ${wild.emoji} ${wild.name}(이)가 지쳐서 떠났어요`,
+        description: `${out.log.join('\n')}\n\n승부가 나지 않았어요. \`/탐험\` 으로 다시 도전해봐요!`,
+        color: 0x99aab5,
+      }],
+      components: [],
+    });
   }
 
   if (action === 'look') {
@@ -142,7 +239,7 @@ async function handleExplore(interaction, args) {
     if (out.kind === 'waiting') {
       return update(viewExploring(out.snap, user.id, '아직 아무것도 안 나타났어요. 조금만 더 기다려봐요 ⏳'));
     }
-    return update(viewEncounter(out.snap, user.id));
+    return update(viewSnap(out.snap, user.id));
   }
 
   if (action === 'catch') {
@@ -156,7 +253,7 @@ async function handleExplore(interaction, args) {
       return reply({ content: `${BALL.emoji} ${BALL.name}이(가) 없어요 😭 \`/상점\` 에서 사올 수 있어요!` }, { ephemeral: true });
     }
     if (out.kind === 'escaped') {
-      return update(viewEncounter(out.snap, user.id, `💨 앗! 빠져나왔어요! (남은 ${BALL.name} ${out.ballsLeft}개)`));
+      return update(viewSnap(out.snap, user.id, `💨 앗! 빠져나왔어요! (남은 ${BALL.name} ${out.ballsLeft}개)`));
     }
     if (out.kind === 'fled') {
       const pet = PETS[out.petId];
@@ -179,7 +276,7 @@ async function handleExplore(interaction, args) {
     return update({ embeds: [{ title: '🎉 잡았다!', description: lines.join('\n'), color: 0x57f287 }], components: [] });
   }
 
-  if (action === 'ignore' || action === 'quit') {
+  if (action === 'ignore' || action === 'quit' || action === 'run') {
     const out = await updatePlayer(user.id, (p) => {
       const r = explore.leave(p, id);
       return { commit: r.commit === true, value: r };
@@ -188,7 +285,9 @@ async function handleExplore(interaction, args) {
     const text =
       out.kind === 'ignored'
         ? `👋 ${PETS[out.petId].emoji} ${PETS[out.petId].name}(을)를 그냥 보내줬어요.`
-        : '🚪 탐험을 마쳤어요.';
+        : out.kind === 'ran'
+          ? `🏃 ${PETS[out.petId].emoji} ${PETS[out.petId].name}에게서 도망쳤어요!`
+          : '🚪 탐험을 마쳤어요.';
     return update({ embeds: [{ title: text, description: '`/탐험` 으로 다시 떠나볼 수 있어요!', color: 0x99aab5 }], components: [] });
   }
 
