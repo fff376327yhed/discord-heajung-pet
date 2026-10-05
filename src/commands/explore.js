@@ -153,7 +153,7 @@ async function handleExplore(interaction, args) {
     if (!out || out.kind === 'expired') return viewExpired();
 
     if (out.kind === 'no_ball') {
-      return reply({ content: `${BALL.emoji} ${BALL.name}이(가) 없어요 😭 (상점은 곧 열려요!)` }, { ephemeral: true });
+      return reply({ content: `${BALL.emoji} ${BALL.name}이(가) 없어요 😭 \`/상점\` 에서 사올 수 있어요!` }, { ephemeral: true });
     }
     if (out.kind === 'escaped') {
       return update(viewEncounter(out.snap, user.id, `💨 앗! 빠져나왔어요! (남은 ${BALL.name} ${out.ballsLeft}개)`));
