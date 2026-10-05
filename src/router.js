@@ -1,21 +1,9 @@
 // 들어온 요청을 알맞은 명령어/버튼에게 나눠주는 안내 데스크예요 🧭
-import * as start from './commands/start.js';
-import * as profile from './commands/profile.js';
-import * as places from './commands/places.js';
-import * as explore from './commands/explore.js';
-import * as shop from './commands/shop.js';
-import * as bag from './commands/bag.js';
-import * as pets from './commands/pets.js';
-import * as dex from './commands/dex.js';
-import * as nickname from './commands/nickname.js';
-import * as release from './commands/release.js';
-import * as train from './commands/train.js';
-import * as use from './commands/use.js';
-import * as help from './commands/help.js';
+import { commandModules } from './commands/index.js';
 import { InteractionType, reply } from './utils/discord.js';
 
-// ✨ 새 명령어를 만들면 여기에 한 줄만 추가하면 돼요!
-const modules = [start, profile, places, explore, shop, bag, pets, dex, nickname, release, train, use, help];
+// ✨ 새 명령어는 commands/index.js 의 commandModules 목록에 추가해요!
+const modules = commandModules;
 
 const commands = new Map(modules.map((m) => [m.data.name, m]));
 
