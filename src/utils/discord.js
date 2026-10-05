@@ -32,3 +32,19 @@ export function button({ label, customId, style = 1, emoji, disabled = false }) 
 export function row(...components) {
   return { type: 1, components };
 }
+
+// 드롭다운(선택 메뉴). options: [{ label, value, description?, emoji?, default? }] (최대 25개)
+// 사용자가 고른 값은 interaction.data.values 로 들어와요.
+export function select({ customId, placeholder, options }) {
+  return {
+    type: 3,
+    custom_id: customId,
+    placeholder,
+    options: options.map((o) => {
+      const opt = { label: o.label, value: o.value, default: o.default === true };
+      if (o.description) opt.description = o.description;
+      if (o.emoji) opt.emoji = { name: o.emoji };
+      return opt;
+    }),
+  };
+}

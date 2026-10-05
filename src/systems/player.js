@@ -22,3 +22,12 @@ export function buildNewPlayer(userId, username, starterPetId) {
 export function getMainPet(player) {
   return player.pets.find((p) => p.uid === player.mainPetUid) ?? player.pets[0] ?? null;
 }
+
+// 대표 펫 바꾸기 (전투 중에는 못 바꿔요: 체력 정보가 꼬여요!)
+export function setMainPet(player, uid) {
+  if (!player.pets.some((p) => p.uid === uid)) return { kind: 'not_found' };
+  if (player.exploration?.battle) return { kind: 'in_battle' };
+  if (player.mainPetUid === uid) return { kind: 'already' };
+  player.mainPetUid = uid;
+  return { kind: 'changed', commit: true };
+}

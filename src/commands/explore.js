@@ -106,6 +106,7 @@ function viewBattle(snap, userId, note) {
       row(
         button({ label: '공격', emoji: '⚔️', customId: `explore:attack:${userId}:${snap.id}`, style: 4 }),
         button({ label: '잡기', emoji: BALL.emoji, customId: `explore:catch:${userId}:${snap.id}`, style: 3 }),
+        button({ label: '회복', emoji: '🧪', customId: `explore:heal:${userId}:${snap.id}`, style: 1 }),
         button({ label: '도망', emoji: '🏃', customId: `explore:run:${userId}:${snap.id}`, style: 2 }),
       ),
     ],
@@ -175,17 +176,34 @@ async function handleExplore(interaction, args) {
       return { commit: r.commit === true, value: r };
     });
     if (!out || out.kind === 'expired') return viewExpired();
+    if (out.kind === 'fainted') {
+      return reply(
+        {
+          content:
+            `💫 **${out.name}**(이)가 지쳐서 싸울 수 없어요!\n` +
+            '`/사용` 으로 회복약을 먹이거나, `/펫` 에서 다른 펫을 대표로 바꾸거나, 잠시 쉬면 천천히 회복돼요.\n' +
+            '(싸우지 않고 **[잡기]** 는 할 수 있어요!)',
+        },
+        { ephemeral: true },
+      );
+    }
     return update(viewBattle(out.snap, user.id, '⚔️ 전투 시작! **[공격]** 으로 싸워요.'));
   }
 
-  if (action === 'attack') {
+  if (action === 'attack' || action === 'heal') {
     const out = await updatePlayer(user.id, (p) => {
-      const r = battle.battleTurn(p, id, Date.now());
+      const r = action === 'attack' ? battle.battleTurn(p, id, Date.now()) : battle.battleHeal(p, id, Date.now());
       return { commit: r.commit === true, value: r };
     });
     if (!out || out.kind === 'expired') return viewExpired();
     if (out.kind === 'no_battle') {
       return reply({ content: '아직 전투가 시작되지 않았어요! **[싸우기]** 를 먼저 눌러요 ⚔️' }, { ephemeral: true });
+    }
+    if (out.kind === 'no_potion') {
+      return reply({ content: '🧪 회복약이 없어요 😭 `/상점` 에서 사올 수 있어요!' }, { ephemeral: true });
+    }
+    if (out.kind === 'full_hp') {
+      return reply({ content: '체력이 이미 가득해요! 약을 아껴뒀어요 😊' }, { ephemeral: true });
     }
     if (out.kind === 'continue') {
       return update(viewBattle(out.snap, user.id, out.log.join('\n')));
@@ -201,9 +219,10 @@ async function handleExplore(interaction, args) {
         `⭐ 트레이너 경험치 +${out.trainerExp}`,
         out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
         `${mine.emoji} ${out.myName} 경험치 +${out.petExp}`,
-        out.petLevelsGained > 0 ? `🎊 **${out.myName} 레벨 업!** → Lv.${out.petNewLevel}` : null,
+        out.petLevelsGained > 0 ? `🎊 **${out.myName} 레벨 업!** → Lv.${out.petNewLevel} (체력 가득!)` : null,
+        `❤️ ${out.myName} 체력 ${out.petHp}/${out.petMaxHp}`,
         ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
-        '\n`/탐험` 으로 계속 모험해요!',
+        '\n`/탐험` 으로 계속 모험해요! 체력이 모자라면 `/사용` 으로 회복해요.',
       ].filter((x) => x !== null);
       return update({ embeds: [{ title: '🏆 승리!', description: lines.join('\n'), color: 0x57f287 }], components: [] });
     }
@@ -212,7 +231,10 @@ async function handleExplore(interaction, args) {
       return update({
         embeds: [{
           title: `😵 ${out.myName}(이)가 쓰러졌어요...`,
-          description: `${out.log.join('\n')}\n\n${wild.emoji} ${wild.name}(이)가 떠나갔어요. 골드는 잃지 않았어요!\n\`/탐험\` 으로 다시 도전해봐요!`,
+          description:
+            `${out.log.join('\n')}\n\n${wild.emoji} ${wild.name}(이)가 떠나갔어요. 골드는 잃지 않았어요!\n` +
+            '💫 기절한 펫은 `/사용` 으로 회복약을 먹이거나, 시간이 지나면 조금씩 깨어나요.\n' +
+            '`/펫` 에서 다른 펫을 대표로 바꿔 계속 모험할 수도 있어요!',
           color: 0xed4245,
         }],
         components: [],

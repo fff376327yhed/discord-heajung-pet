@@ -3,7 +3,8 @@ import { PETS, GRADES } from '../data/pets.js';
 import { ITEMS } from '../data/items.js';
 import { EMBED_COLOR, MAX_LEVEL } from '../config.js';
 import { expToNext, expBar } from '../systems/level.js';
-import { calcStats } from '../systems/pet.js';
+import { calcStats, currentHp } from '../systems/pet.js';
+import { dexProgress } from '../systems/dex.js';
 import { getMainPet } from '../systems/player.js';
 import { getPlayer } from '../db.js';
 import { reply, getUser, getOption } from '../utils/discord.js';
@@ -44,11 +45,14 @@ export async function execute(interaction) {
     const name = main.nickname ?? pet.name;
     mainText =
       `${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** Lv.${main.level}\n` +
-      `체력 ${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}`;
+      `❤️ ${currentHp(main)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
+      (main.level >= MAX_LEVEL
+        ? '⭐ MAX'
+        : `⭐ ${expBar(main.exp, expToNext(main.level))}  ${main.exp}/${expToNext(main.level)}`);
   }
 
   const ball = ITEMS.haejeong_ball;
-  const dexCount = Object.keys(player.dex ?? {}).length;
+  const dex = dexProgress(player);
 
   return reply({
     embeds: [
@@ -59,7 +63,7 @@ export async function execute(interaction) {
         fields: [
           { name: '💰 골드', value: `${player.gold.toLocaleString('ko-KR')}`, inline: true },
           { name: `${ball.emoji} ${ball.name}`, value: `${player.inventory?.[ball.id] ?? 0}개`, inline: true },
-          { name: '📖 도감', value: `${dexCount} / ${Object.keys(PETS).length}`, inline: true },
+          { name: '📖 도감', value: `${dex.found} / ${dex.total}`, inline: true },
           { name: '🐾 보유 펫', value: `${player.pets.length}마리`, inline: true },
           { name: '👑 대표 펫', value: mainText },
         ],

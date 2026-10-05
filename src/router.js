@@ -5,10 +5,16 @@ import * as places from './commands/places.js';
 import * as explore from './commands/explore.js';
 import * as shop from './commands/shop.js';
 import * as bag from './commands/bag.js';
+import * as pets from './commands/pets.js';
+import * as dex from './commands/dex.js';
+import * as nickname from './commands/nickname.js';
+import * as release from './commands/release.js';
+import * as train from './commands/train.js';
+import * as use from './commands/use.js';
 import { InteractionType, reply } from './utils/discord.js';
 
 // ✨ 새 명령어를 만들면 여기에 한 줄만 추가하면 돼요!
-const modules = [start, profile, places, explore, shop, bag];
+const modules = [start, profile, places, explore, shop, bag, pets, dex, nickname, release, train, use];
 
 const commands = new Map(modules.map((m) => [m.data.name, m]));
 
