@@ -1,6 +1,6 @@
 // 디스코드에게 "내 봇은 이런 명령어가 있어요!" 하고 알려주는 스크립트예요 📣
 // 실행: npm run register   (명령어를 추가/수정할 때마다 다시 실행!)
-import { commandDefinitions } from '../src/router.js';
+import { commandDefinitions } from '../src/haejeong-pet-bot.js';
 
 const { DISCORD_APP_ID, DISCORD_BOT_TOKEN, DISCORD_GUILD_ID } = process.env;
 

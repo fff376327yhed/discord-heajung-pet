@@ -1,25 +1,931 @@
+// 해정펫 봇 — 모든 파일을 하나로 합친 버전 🐾
+// (ES Module 이라서 package.json 에 "type": "module" 이 필요해요)
+import { randomUUID } from 'node:crypto';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+
+// ============================================================
+// 설정값 (config.js)
+// ============================================================
+
+// 게임의 기본 설정값 모음 ⚙️ (숫자만 바꾸면 게임 느낌이 바뀌어요)
+const MAX_LEVEL = 100;
+const START_GOLD = 1000;
+const START_BALLS = 5;
+const EMBED_COLOR = 0x5865f2;
+
+// ───────── 포획 🔴 ─────────
+// 해정볼을 던질 때마다 (한 마리 조우 기준) 포획 확률이 깎이고, 도망 확률이 올라가요
+const CATCH_DROP_PER_TRY = 0.10; // 던질 때마다 포획 확률 -10%p
+const FLEE_BASE = 0.25; // 첫 번째 던졌을 때 실패하면 도망갈 확률 (25%)
+const FLEE_RISE_PER_TRY = 0.35; // 실패할 때마다 도망 확률 +35%p
+const FLEE_MAX = 0.9; // 도망 확률 상한 (90%)
+
+// ───────── 전투 ⚔️ ─────────
+const BATTLE_MAX_ROUNDS = 15; // 이 턴 안에 못 끝내면 야생 펫이 도망가요 (무승부)
+const CRIT_CHANCE = 0.1; // 급소 맞힐 확률 (데미지 1.5배)
+const GOLD_PER_YIELD = 3; // 승리 골드 = 펫 expYield × 이 값 (±20% 랜덤). 해정볼이 100골드라서 이 값으로 균형을 잡아요
+const WIN_TRAINER_EXP_MULT = 1.5; // 승리 시 트레이너 경험치 = expYield × 장소배율 × 이 값
+const WIN_PET_EXP_MULT = 2.0; // 승리 시 대표 펫 경험치 = expYield × 장소배율 × 이 값 (펫이 트레이너보다 빨리 크도록 더 크게)
+
+// ───────── 육성 🌱 ─────────
+const NICKNAME_MAX = 12; // 별명 최대 글자 수
+const RELEASE_BASE_GOLD = { common: 20, rare: 50, epic: 150, legendary: 500 }; // 방생 골드 = 등급별 기본값 × (1 + 레벨 × RELEASE_LEVEL_BONUS)
+const RELEASE_LEVEL_BONUS = 0.1;
+const TRAIN_BASE_COST = 30; // 훈련 1회 비용 = 이 값 + 펫 레벨 × TRAIN_COST_PER_LEVEL (골드)
+const TRAIN_COST_PER_LEVEL = 10;
+const TRAIN_EXP_RATIO = 0.4; // 훈련 1회 경험치 = "다음 레벨까지 필요한 경험치" × 이 값
+const TRAIN_LEVEL_CAP_OVER_TRAINER = 10; // 훈련으로는 펫이 트레이너 레벨 + 이 값까지만 클 수 있어요
+
+// ───────── 체력 이어가기 ❤️ ─────────
+const HP_REGEN_PCT_PER_MIN = 0.02; // 시간이 지나면 1분마다 최대 체력의 이 비율만큼 저절로 회복돼요 (0.02 = 2%, 0%에서 가득까지 약 50분)
+
+// ============================================================
+// 데이터: 해정펫 도감 (data/pets.js)
+// ============================================================
+
+// 해정펫 도감 📖 — 새 펫을 추가하려면 아래에 한 덩어리만 더 적으면 돼요!
+// grade: common(일반) / rare(희귀) / epic(영웅) / legendary(전설)
+// expYield: 이 펫을 이겼을 때 주는 기본 경험치, catchRate: 잡기 쉬운 정도(0~1, 클수록 쉬움)
+
+const GRADES = {
+  common: { name: '일반', emoji: '⚪', order: 1 },
+  rare: { name: '희귀', emoji: '🔵', order: 2 },
+  epic: { name: '영웅', emoji: '🟣', order: 3 },
+  legendary: { name: '전설', emoji: '🟡', order: 4 },
+};
+
+const stats = (hp, atk, def, spd) => ({ hp, atk, def, spd });
+
+const PETS = {
+  // ── 스타팅 펫 (처음에만 고를 수 있어요) ──
+  pyro_cat: { id: 'pyro_cat', name: '불꽃냥', emoji: '🔥', grade: 'common', starter: true, baseStats: stats(45, 12, 8, 10), expYield: 20, catchRate: 0.5 },
+  aqua_pup: { id: 'aqua_pup', name: '물방울이', emoji: '💧', grade: 'common', starter: true, baseStats: stats(50, 10, 10, 8), expYield: 20, catchRate: 0.5 },
+  leaf_bun: { id: 'leaf_bun', name: '풀잎이', emoji: '🍃', grade: 'common', starter: true, baseStats: stats(48, 11, 9, 9), expYield: 20, catchRate: 0.5 },
+
+  // ── 초원 ──
+  slime: { id: 'slime', name: '말랑이', emoji: '🟢', grade: 'common', baseStats: stats(30, 6, 5, 5), expYield: 8, catchRate: 0.8 },
+  mouse: { id: 'mouse', name: '쪼르', emoji: '🐭', grade: 'common', baseStats: stats(25, 7, 4, 12), expYield: 10, catchRate: 0.75 },
+  bee: { id: 'bee', name: '윙윙이', emoji: '🐝', grade: 'rare', baseStats: stats(28, 10, 4, 14), expYield: 16, catchRate: 0.5 },
+
+  // ── 숲 ──
+  owl: { id: 'owl', name: '부엉이', emoji: '🦉', grade: 'common', baseStats: stats(40, 11, 8, 10), expYield: 22, catchRate: 0.65 },
+  fox: { id: 'fox', name: '여우비', emoji: '🦊', grade: 'rare', baseStats: stats(42, 14, 9, 15), expYield: 35, catchRate: 0.4 },
+  treant: { id: 'treant', name: '나무지기', emoji: '🌳', grade: 'epic', baseStats: stats(80, 15, 20, 4), expYield: 70, catchRate: 0.2 },
+
+  // ── 동굴 ──
+  bat: { id: 'bat', name: '박쥐돌', emoji: '🦇', grade: 'common', baseStats: stats(45, 14, 10, 16), expYield: 45, catchRate: 0.6 },
+  golem: { id: 'golem', name: '바위거인', emoji: '🪨', grade: 'epic', baseStats: stats(110, 20, 30, 3), expYield: 120, catchRate: 0.15 },
+
+  // ── 바다 ──
+  crab: { id: 'crab', name: '집게', emoji: '🦀', grade: 'rare', baseStats: stats(60, 18, 25, 6), expYield: 90, catchRate: 0.45 },
+  shark: { id: 'shark', name: '상어왕', emoji: '🦈', grade: 'epic', baseStats: stats(100, 30, 15, 20), expYield: 200, catchRate: 0.15 },
+
+  // ── 화산 ──
+  baby_dragon: { id: 'baby_dragon', name: '아기용', emoji: '🐲', grade: 'epic', baseStats: stats(120, 35, 25, 14), expYield: 300, catchRate: 0.12 },
+  phoenix: { id: 'phoenix', name: '불사조', emoji: '🦅', grade: 'legendary', baseStats: stats(150, 45, 30, 25), expYield: 600, catchRate: 0.05 },
+};
+
+const STARTER_IDS = Object.values(PETS).filter((p) => p.starter).map((p) => p.id);
+
+// ============================================================
+// 데이터: 아이템 (data/items.js)
+// ============================================================
+
+// 아이템 목록 🎒 (이름은 나중에 전체 갈아엎기로 했으니 여기만 고치면 돼요!)
+// heal: 회복약이에요. 펫 체력을 이만큼 채워줘요 (9999 = 사실상 전부)
+const ITEMS = {
+  haejeong_ball: {
+    id: 'haejeong_ball',
+    name: '해정볼',
+    emoji: '🔴',
+    price: 100,
+    description: '야생 해정펫을 잡을 때 쓰는 공이에요.',
+  },
+  potion_small: {
+    id: 'potion_small',
+    name: '회복약',
+    emoji: '🧪',
+    price: 40,
+    heal: 60,
+    description: '펫 체력을 60 회복해요.',
+  },
+  potion_big: {
+    id: 'potion_big',
+    name: '고급 회복약',
+    emoji: '🍶',
+    price: 120,
+    heal: 200,
+    description: '펫 체력을 200 회복해요.',
+  },
+  elixir: {
+    id: 'elixir',
+    name: '엘릭서',
+    emoji: '✨',
+    price: 300,
+    heal: 9999,
+    description: '펫 체력을 전부 회복해요.',
+  },
+};
+
+// ============================================================
+// 데이터: 장소 (data/locations.js)
+// ============================================================
+
+// 장소 목록 🗺️ — 레벨이 높아야 갈 수 있는 곳일수록 강하고 경험치가 많은 펫이 나와요!
+// weight: 나올 확률의 "무게" (클수록 자주 나와요), lv: [최소, 최대] 펫 레벨
+// delay: 펫이 나타날 때까지 걸리는 시간(초) [최소, 최대] — 이 사이에서 랜덤!
+
+const LOCATIONS = {
+  meadow: {
+    id: 'meadow', name: '초록 초원', emoji: '🌾', minLevel: 1, expMultiplier: 1.0, delay: [5, 20],
+    description: '바람이 솔솔 부는 평화로운 들판이에요.',
+    spawns: [
+      { petId: 'slime', weight: 50, lv: [1, 4] },
+      { petId: 'mouse', weight: 40, lv: [1, 5] },
+      { petId: 'bee', weight: 10, lv: [3, 6] },
+    ],
+  },
+  forest: {
+    id: 'forest', name: '속삭이는 숲', emoji: '🌲', minLevel: 5, expMultiplier: 1.5, delay: [5, 25],
+    description: '나뭇잎 사이로 무언가 지나가는 소리가 나요.',
+    spawns: [
+      { petId: 'owl', weight: 50, lv: [5, 10] },
+      { petId: 'fox', weight: 35, lv: [6, 11] },
+      { petId: 'treant', weight: 15, lv: [8, 12] },
+    ],
+  },
+  cave: {
+    id: 'cave', name: '어두운 동굴', emoji: '🕳️', minLevel: 10, expMultiplier: 2.0, delay: [8, 30],
+    description: '깜깜해서 잘 안 보이지만 반짝이는 눈이 보여요.',
+    spawns: [
+      { petId: 'bat', weight: 70, lv: [10, 16] },
+      { petId: 'golem', weight: 30, lv: [13, 18] },
+    ],
+  },
+  ocean: {
+    id: 'ocean', name: '푸른 바다', emoji: '🌊', minLevel: 20, expMultiplier: 3.0, delay: [8, 30],
+    description: '파도 아래에 커다란 그림자가 보여요.',
+    spawns: [
+      { petId: 'crab', weight: 70, lv: [20, 28] },
+      { petId: 'shark', weight: 30, lv: [24, 32] },
+    ],
+  },
+  volcano: {
+    id: 'volcano', name: '불타는 화산', emoji: '🌋', minLevel: 30, expMultiplier: 5.0, delay: [10, 40],
+    description: '뜨거운 열기 속에서 전설의 울음소리가 들려요.',
+    spawns: [
+      { petId: 'baby_dragon', weight: 85, lv: [30, 40] },
+      { petId: 'phoenix', weight: 15, lv: [35, 45] },
+    ],
+  },
+};
+
+const LOCATION_LIST = Object.values(LOCATIONS).sort((a, b) => a.minLevel - b.minLevel);
+
+// ============================================================
+// 도구: 주사위 (utils/random.js)
+// ============================================================
+
+// 주사위 굴리기 🎲 (rng 자리에 가짜 주사위를 넣으면 테스트할 수 있어요)
+const randInt = (min, max, rng = Math.random) => Math.floor(rng() * (max - min + 1)) + min;
+
+// 무게(weight)가 큰 것이 더 자주 뽑혀요
+function weightedPick(items, getWeight, rng = Math.random) {
+  const total = items.reduce((sum, item) => sum + getWeight(item), 0);
+  let r = rng() * total;
+  for (const item of items) {
+    r -= getWeight(item);
+    if (r < 0) return item;
+  }
+  return items[items.length - 1];
+}
+
+// ============================================================
+// 도구: 디스코드 응답 (utils/discord.js)
+// ============================================================
+
+// 디스코드에게 대답할 때 쓰는 도구 모음 💬
+const InteractionType = { PING: 1, COMMAND: 2, COMPONENT: 3 };
+const ResponseType = { PONG: 1, MESSAGE: 4, UPDATE: 7 };
+const EPHEMERAL = 64; // "나한테만 보이는 메시지" 표시
+
+function reply(data, { ephemeral = false } = {}) {
+  return {
+    type: ResponseType.MESSAGE,
+    data: ephemeral ? { ...data, flags: EPHEMERAL } : data,
+  };
+}
+
+// 버튼을 누른 그 메시지를 새 내용으로 바꿔요
+function update(data) {
+  return { type: ResponseType.UPDATE, data };
+}
+
+function getUser(interaction) {
+  return interaction.member?.user ?? interaction.user;
+}
+
+function getOption(interaction, name) {
+  return interaction.data.options?.find((o) => o.name === name)?.value;
+}
+
+function button({ label, customId, style = 1, emoji, disabled = false }) {
+  const b = { type: 2, style, label, custom_id: customId, disabled };
+  if (emoji) b.emoji = { name: emoji };
+  return b;
+}
+
+function row(...components) {
+  return { type: 1, components };
+}
+
+// 드롭다운(선택 메뉴). options: [{ label, value, description?, emoji?, default? }] (최대 25개)
+// 사용자가 고른 값은 interaction.data.values 로 들어와요.
+function select({ customId, placeholder, options }) {
+  return {
+    type: 3,
+    custom_id: customId,
+    placeholder,
+    options: options.map((o) => {
+      const opt = { label: o.label, value: o.value, default: o.default === true };
+      if (o.description) opt.description = o.description;
+      if (o.emoji) opt.emoji = { name: o.emoji };
+      return opt;
+    }),
+  };
+}
+
+// ============================================================
+// 데이터베이스 (db.js)
+// ============================================================
+
+// 데이터를 저장하고 꺼내오는 곳이에요 🗄️ (Firebase Firestore)
+// DB_MODE=memory 로 켜면 연습용 임시 저장소를 써요 (테스트 전용, 껐다 켜면 사라져요!)
+
+const memoryStore = new Map();
+const useMemory = () => process.env.DB_MODE === 'memory';
+
+let firestore;
+function getDb() {
+  if (firestore) return firestore;
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT 환경변수가 없어요!');
+  }
+  if (getApps().length === 0) {
+    initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
+  }
+  firestore = getFirestore();
+  firestore.settings({ ignoreUndefinedProperties: true });
+  return firestore;
+}
+
+const players = () => getDb().collection('players');
+
+async function getPlayer(userId) {
+  if (useMemory()) {
+    const found = memoryStore.get(userId);
+    return found ? structuredClone(found) : null;
+  }
+  const snap = await players().doc(userId).get();
+  return snap.exists ? snap.data() : null;
+}
+
+// 새 플레이어 만들기. 이미 있으면 false (두 번 눌러도 안전해요!)
+async function createPlayer(userId, data) {
+  if (useMemory()) {
+    if (memoryStore.has(userId)) return false;
+    memoryStore.set(userId, structuredClone(data));
+    return true;
+  }
+  try {
+    await players().doc(userId).create(data);
+    return true;
+  } catch (error) {
+    if (error.code === 6) return false; // ALREADY_EXISTS
+    throw error;
+  }
+}
+
+async function savePlayer(userId, data) {
+  if (useMemory()) {
+    memoryStore.set(userId, structuredClone(data));
+    return;
+  }
+  await players().doc(userId).set(data);
+}
+
+// 플레이어를 읽고 → 고치고 → 저장을 "한 덩어리"로 처리해요.
+// 두 번 빠르게 눌러도 해정볼이 두 번 줄어드는 일이 없어요.
+// mutate(player) 는 { commit: true/false, value: 돌려줄값 } 을 돌려줘야 해요.
+// (주의: mutate 안에서는 player만 고치고, 다른 일은 하지 마세요)
+async function updatePlayer(userId, mutate) {
+  if (useMemory()) {
+    const found = memoryStore.get(userId);
+    if (!found) return null;
+    const copy = structuredClone(found);
+    const out = mutate(copy);
+    if (out.commit) memoryStore.set(userId, copy);
+    return out.value;
+  }
+  const ref = players().doc(userId);
+  return getDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const player = snap.data();
+    const out = mutate(player);
+    if (out.commit) tx.set(ref, player);
+    return out.value;
+  });
+}
+
+// ============================================================
+// 시스템: 레벨 (systems/level.js)
+// ============================================================
+
+// 레벨 시스템 ⭐ — 트레이너(플레이어)와 해정펫이 똑같은 규칙을 써요!
+
+// 다음 레벨까지 필요한 경험치 (레벨이 높을수록 많이 필요해요)
+function expToNext(level) {
+  return Math.floor(10 * Math.pow(level, 1.6)) + 20;
+}
+
+// 경험치를 얻고, 레벨업이 있으면 처리해요. target = { level, exp } 를 직접 바꿔요.
+function addExp(target, amount) {
+  const gain = Math.max(0, Math.floor(Number(amount) || 0));
+  const startLevel = target.level;
+
+  if (target.level >= MAX_LEVEL) {
+    target.level = MAX_LEVEL;
+    target.exp = 0;
+    return { gained: 0, levelsGained: 0, level: target.level };
+  }
+
+  target.exp += gain;
+  while (target.level < MAX_LEVEL && target.exp >= expToNext(target.level)) {
+    target.exp -= expToNext(target.level);
+    target.level += 1;
+  }
+  if (target.level >= MAX_LEVEL) {
+    target.level = MAX_LEVEL;
+    target.exp = 0;
+  }
+
+  return { gained: gain, levelsGained: target.level - startLevel, level: target.level };
+}
+
+// 경험치 막대기 ▰▰▰▱▱▱
+function expBar(exp, need, size = 10) {
+  const filled = Math.max(0, Math.min(size, Math.floor((exp / need) * size)));
+  return '▰'.repeat(filled) + '▱'.repeat(size - filled);
+}
+
+// ============================================================
+// 시스템: 펫 계산 (systems/pet.js)
+// ============================================================
+
+// 해정펫 계산 도우미 🐾
+
+// 레벨에 따른 능력치 (레벨이 오르면 쑥쑥 강해져요)
+function calcStats(petId, level) {
+  const b = PETS[petId].baseStats;
+  return {
+    hp: b.hp + level * 6,
+    atk: b.atk + level * 2,
+    def: b.def + level * 2,
+    spd: b.spd + level,
+  };
+}
+
+// 내가 가진 펫 한 마리의 "정보 카드" 만들기
+function createPetInstance(petId, level = 1) {
+  if (!PETS[petId]) throw new Error(`없는 펫이에요: ${petId}`);
+  return {
+    uid: randomUUID(),
+    petId,
+    level,
+    exp: 0,
+    nickname: null,
+    caughtAt: Date.now(),
+  };
+}
+
+function petLabel(petInstanceOrId) {
+  const id = typeof petInstanceOrId === 'string' ? petInstanceOrId : petInstanceOrId.petId;
+  const pet = PETS[id];
+  return `${GRADES[pet.grade].emoji} ${pet.emoji} ${pet.name}`;
+}
+
+// ───────── 체력 ❤️ ─────────
+// 펫 정보 카드에 hp(저장된 체력)와 hpAt(저장한 시각)이 없으면 "가득 찬 상태"예요.
+// 시간이 지나면 1분마다 최대 체력의 일부씩 저절로 차올라요.
+const maxHp = (inst) => calcStats(inst.petId, inst.level).hp;
+
+function currentHp(inst, now = Date.now()) {
+  const max = maxHp(inst);
+  if (typeof inst.hp !== 'number') return max;
+  const mins = Math.max(0, (now - (inst.hpAt ?? now)) / 60000);
+  return Math.min(max, Math.max(0, Math.floor(inst.hp + max * HP_REGEN_PCT_PER_MIN * mins)));
+}
+
+function setHp(inst, hp, now = Date.now()) {
+  inst.hp = Math.max(0, Math.min(maxHp(inst), Math.round(hp)));
+  inst.hpAt = now;
+}
+
+// ============================================================
+// 시스템: 플레이어 (systems/player.js)
+// ============================================================
+
+// 플레이어(트레이너) 만들기 🧑‍🎤
+
+function buildNewPlayer(userId, username, starterPetId) {
+  const starter = createPetInstance(starterPetId, 1);
+  return {
+    userId,
+    name: username,
+    level: 1,
+    exp: 0,
+    gold: START_GOLD,
+    inventory: { haejeong_ball: START_BALLS },
+    pets: [starter],
+    mainPetUid: starter.uid,
+    dex: { [starterPetId]: true }, // 도감: 만난/잡은 펫 기록
+    exploration: null, // 지금 하고 있는 탐험 (없으면 null)
+    createdAt: Date.now(),
+  };
+}
+
+function getMainPet(player) {
+  return player.pets.find((p) => p.uid === player.mainPetUid) ?? player.pets[0] ?? null;
+}
+
+// 대표 펫 바꾸기 (전투 중에는 못 바꿔요: 체력 정보가 꼬여요!)
+function setMainPet(player, uid) {
+  if (!player.pets.some((p) => p.uid === uid)) return { kind: 'not_found' };
+  if (player.exploration?.battle) return { kind: 'in_battle' };
+  if (player.mainPetUid === uid) return { kind: 'already' };
+  player.mainPetUid = uid;
+  return { kind: 'changed', commit: true };
+}
+
+// ============================================================
+// 시스템: 아이템 사용 (systems/use.js)
+// ============================================================
+
+// 아이템 사용 규칙 🧪 (디스코드와 상관없는 순수한 규칙)
+
+// 회복약 목록 (약한 것 → 센 것 순서)
+const POTIONS = Object.values(ITEMS).filter((i) => i.heal).sort((a, b) => a.heal - b.heal);
+
+// 전투 중 쓸 약 고르기: 모자란 체력을 채울 수 있는 "가장 약한" 약, 없으면 가진 것 중 제일 센 약
+function pickPotion(player, missing) {
+  const owned = POTIONS.filter((p) => (player.inventory?.[p.id] ?? 0) > 0);
+  if (owned.length === 0) return null;
+  return owned.find((p) => p.heal >= missing) ?? owned[owned.length - 1];
+}
+
+// index: /펫 목록 번호(1부터). 비우면 대표 펫
+function useItem(player, itemId, index, now = Date.now()) {
+  const item = ITEMS[itemId];
+  if (!item?.heal) return { kind: 'unknown' };
+
+  const inst = index ? player.pets[index - 1] : getMainPet(player);
+  if (!inst) return { kind: 'not_found' };
+  if (player.exploration?.battle && inst.uid === player.mainPetUid) return { kind: 'in_battle' };
+
+  const owned = player.inventory?.[itemId] ?? 0;
+  if (owned <= 0) return { kind: 'none', item };
+
+  const max = maxHp(inst);
+  const cur = currentHp(inst, now);
+  if (cur >= max) return { kind: 'full', inst: { ...inst } };
+
+  const next = Math.min(max, cur + item.heal);
+  player.inventory[itemId] = owned - 1;
+  setHp(inst, next, now);
+  return { kind: 'used', commit: true, item, inst: { ...inst }, before: cur, after: next, max, left: owned - 1 };
+}
+
+// ============================================================
+// 시스템: 탐험 · 포획 (systems/explore.js)
+// ============================================================
+
+// 탐험 · 포획 규칙 🌿🔴 (디스코드와 상관없는 "순수한 게임 규칙"이라 테스트하기 쉬워요)
+//
+// 탐험 흐름:  /탐험 → (랜덤 시간 기다림) → [살펴보기] → 야생 펫 등장 → [잡기] / [싸우기] / [무시하기]
+// player.exploration = { id, locationId, startedAt, appearAt, encounter: null | { petId, level }, battle?: {...} }
+// (battle 은 systems/battle.js 가 만들어요. 전투 중에는 snapshot 의 state 가 'battle' 이에요)
+
+
+const BALL_ID = 'haejeong_ball';
+
+// 잡을 확률: 펫마다 정해진 값 × (내 대표 펫보다 야생 펫이 너무 높으면 조금 어려워져요)
+//            × (전투로 야생 펫 체력을 깎을수록 쉬워져요: 체력이 거의 0이면 최대 2배!)
+function catchChance(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0) {
+  const gap = Math.max(0, wildLevel - mainLevel);
+  const factor = Math.max(0.3, 1 - gap * 0.02);
+  const weakBonus = 1 + (1 - Math.max(0, Math.min(1, hpRatio)));
+  const base = PETS[petId].catchRate * factor * weakBonus;
+  const afterTries = base - CATCH_DROP_PER_TRY * tries; // 던진 횟수만큼 -10%p
+  return Math.max(0.02, Math.min(0.95, afterTries));
+}
+
+// 도망 확률: 실패한 횟수만큼 +35%p (상한 90%)
+function fleeChance(tries) {
+  return Math.min(FLEE_MAX, FLEE_BASE + FLEE_RISE_PER_TRY * tries);
+}
+
+// 지금 탐험 상태를 한 장의 "사진"으로 찍어요 (화면 그릴 때 써요)
+function snapshot(player, now = Date.now()) {
+  const ex = player.exploration;
+  if (!ex) return { state: 'idle' };
+  const base = { id: ex.id, locationId: ex.locationId, balls: player.inventory?.[BALL_ID] ?? 0 };
+  if (ex.encounter) {
+    const main = getMainPet(player);
+    const b = ex.battle ?? null;
+    const ratio = b ? b.wildHp / b.wildMax : 1;
+    const snap = {
+      ...base,
+      state: b ? 'battle' : 'encounter',
+      encounter: { ...ex.encounter },
+      chance: catchChance(ex.encounter.petId, ex.encounter.level, main?.level ?? 1, ratio, ex.catchTries ?? 0),
+    };
+    if (b) {
+      snap.battle = {
+        ...b,
+        myPetId: main.petId,
+        myLevel: main.level,
+        myName: main.nickname ?? PETS[main.petId].name,
+      };
+    }
+    return snap;
+  }
+  return { ...base, state: 'exploring', remainingSec: Math.max(0, Math.ceil((ex.appearAt - now) / 1000)) };
+}
+
+// 탐험 시작
+function startExploration(player, locationId, now = Date.now(), rng = Math.random) {
+  const loc = LOCATIONS[locationId];
+  if (!loc) return { ok: false, reason: 'unknown_location' };
+  if (player.level < loc.minLevel) return { ok: false, reason: 'locked', minLevel: loc.minLevel };
+
+  // 이미 탐험 중이면 새로 시작하지 않고 이어서 해요 (대기 시간을 다시 뽑는 꼼수 방지!)
+  if (player.exploration) {
+    return {
+      ok: true,
+      resumed: true,
+      sameLocation: player.exploration.locationId === locationId,
+      snap: snapshot(player, now),
+      commit: false,
+    };
+  }
+
+  const waitSec = randInt(loc.delay[0], loc.delay[1], rng);
+  player.exploration = {
+    id: randomUUID().slice(0, 8),
+    locationId,
+    startedAt: now,
+    appearAt: now + waitSec * 1000,
+    encounter: null,
+  };
+  return { ok: true, resumed: false, snap: snapshot(player, now), commit: true };
+}
+
+// [살펴보기]
+function lookAround(player, id, now = Date.now(), rng = Math.random) {
+  const ex = player.exploration;
+  if (!ex || ex.id !== id) return { kind: 'expired' };
+  if (ex.encounter) return { kind: 'encounter', snap: snapshot(player, now) };
+  if (now < ex.appearAt) return { kind: 'waiting', snap: snapshot(player, now) };
+
+  const loc = LOCATIONS[ex.locationId];
+  const spawn = weightedPick(loc.spawns, (s) => s.weight, rng);
+  ex.encounter = { petId: spawn.petId, level: randInt(spawn.lv[0], spawn.lv[1], rng) };
+  ex.catchTries = 0; // 새 야생 펫이라서 던진 횟수를 0으로 되돌려요
+  return { kind: 'appeared', snap: snapshot(player, now), commit: true };
+}
+
+// [잡기]
+function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
+  const ex = player.exploration;
+  if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
+
+  const balls = player.inventory?.[BALL_ID] ?? 0;
+  if (balls <= 0) return { kind: 'no_ball', snap: snapshot(player, now) };
+
+  player.inventory[BALL_ID] = balls - 1; // 던지는 순간 해정볼은 사라져요
+  const { petId, level } = ex.encounter;
+  const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
+  const tries = ex.catchTries ?? 0;
+  const chance = catchChance(petId, level, getMainPet(player)?.level ?? 1, hpRatio, tries);
+
+  if (rng() < chance) {
+    const isNew = !player.dex?.[petId];
+    player.pets.push(createPetInstance(petId, level));
+    player.dex = { ...(player.dex ?? {}), [petId]: true };
+
+    const loc = LOCATIONS[ex.locationId];
+    const expGain = Math.round(PETS[petId].expYield * loc.expMultiplier * 1.5) + (isNew ? 25 : 0);
+    const before = player.level;
+    const result = addExp(player, expGain);
+    const unlocked = LOCATION_LIST.filter((l) => l.minLevel > before && l.minLevel <= player.level);
+
+    player.exploration = null;
+    return {
+      kind: 'caught', commit: true, petId, level, isNew, expGain,
+      levelsGained: result.levelsGained, newLevel: player.level, unlocked, ballsLeft: balls - 1,
+    };
+  }
+
+  // 실패! 던진 횟수가 늘어서 이제 도망이 더 쉬워져요
+  ex.catchTries = tries + 1;
+  if (rng() < fleeChance(ex.catchTries)) {
+    player.exploration = null;
+    return { kind: 'fled', commit: true, petId, ballsLeft: balls - 1 };
+  }
+  return { kind: 'escaped', commit: true, snap: snapshot(player, now), ballsLeft: balls - 1 };
+}
+
+// [무시하기] / [그만두기] / [도망] (전투 중이면 'ran')
+function leave(player, id) {
+  const ex = player.exploration;
+  if (!ex || ex.id !== id) return { kind: 'expired' };
+  const petId = ex.encounter?.petId ?? null;
+  const inBattle = Boolean(ex.battle);
+  player.exploration = null;
+  return { kind: petId ? (inBattle ? 'ran' : 'ignored') : 'quit', petId, commit: true };
+}
+
+// ============================================================
+// 시스템: 전투 (systems/battle.js)
+// ============================================================
+
+// 전투 규칙 ⚔️ (디스코드와 상관없는 "순수한 게임 규칙")
+//
+// 전투 흐름: 야생 펫 등장 → [싸우기] → (턴마다 [공격] / [잡기] / [회복] / [도망]) → 승리 / 패배 / 무승부
+// player.exploration.battle = { myHp, myMax, wildHp, wildMax, round }
+// 한 턴 = 속도가 빠른 쪽이 먼저 때리고, 이어서 상대가 때려요 (속도가 같으면 내 펫이 먼저!)
+//
+// ❤️ 체력은 전투가 끝나도 이어져요! 매 턴 끝에 대표 펫의 체력(hp)을 저장해요.
+//    체력이 0이면 싸울 수 없어요 → 회복약, 시간 경과(자동 회복), 다른 펫로 교체로 해결해요.
+
+
+// 데미지 = 공격력 - 방어력의 절반 (최소 공격력의 25%) × 랜덤(0.85~1.15), 가끔 급소(×1.5)
+function calcDamage(atk, def, rng = Math.random) {
+  const base = Math.max(atk * 0.25, atk - def * 0.5);
+  const variance = 0.85 + rng() * 0.3;
+  const crit = rng() < CRIT_CHANCE;
+  return { dmg: Math.max(1, Math.round(base * variance * (crit ? 1.5 : 1))), crit };
+}
+
+// 이번 전투에 필요한 정보를 한곳에 모아요
+function context(player, ex) {
+  const main = getMainPet(player);
+  const myPet = PETS[main.petId];
+  const wildInfo = ex.encounter;
+  return {
+    main,
+    myPet,
+    myName: main.nickname ?? myPet.name,
+    wildInfo,
+    wildPet: PETS[wildInfo.petId],
+    mine: calcStats(main.petId, main.level),
+    wild: calcStats(wildInfo.petId, wildInfo.level),
+  };
+}
+
+function myAttack(c, b, log, rng) {
+  const { dmg, crit } = calcDamage(c.mine.atk, c.wild.def, rng);
+  b.wildHp = Math.max(0, b.wildHp - dmg);
+  log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${dmg}** 데미지`);
+}
+
+function wildAttack(c, b, log, rng) {
+  const { dmg, crit } = calcDamage(c.wild.atk, c.mine.def, rng);
+  b.myHp = Math.max(0, b.myHp - dmg);
+  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${dmg}** 데미지`);
+}
+
+// 한 턴이 끝났을 때: 체력 저장 → 승리/패배/무승부/계속 판정
+function finishTurn(player, ex, c, log, now, rng) {
+  const b = ex.battle;
+  const { main, wildPet, wildInfo, myName } = c;
+  b.round += 1;
+  setHp(main, b.myHp, now); // ❤️ 전투가 끝나도 체력이 이어져요
+
+  // 승리!
+  if (b.wildHp <= 0) {
+    const loc = LOCATIONS[ex.locationId];
+    const gold = Math.max(1, Math.round(wildPet.expYield * GOLD_PER_YIELD * (0.8 + rng() * 0.4)));
+    const trainerExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_TRAINER_EXP_MULT);
+    const petExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_PET_EXP_MULT);
+
+    player.gold += gold;
+    const before = player.level;
+    const t = addExp(player, trainerExp);
+    const p = addExp(main, petExp);
+    if (p.levelsGained > 0) setHp(main, maxHp(main), now); // 레벨업 보너스: 체력 가득!
+    const unlocked = LOCATION_LIST.filter((l) => l.minLevel > before && l.minLevel <= player.level);
+
+    player.exploration = null;
+    return {
+      kind: 'won', commit: true, log,
+      wildPetId: wildInfo.petId, wildLevel: wildInfo.level,
+      myPetId: main.petId, myName,
+      gold, trainerExp, petExp,
+      levelsGained: t.levelsGained, newLevel: player.level,
+      petLevelsGained: p.levelsGained, petNewLevel: main.level,
+      petHp: currentHp(main, now), petMaxHp: maxHp(main),
+      unlocked,
+    };
+  }
+
+  // 패배... (골드는 잃지 않지만, 펫이 기절해서 회복이 필요해요)
+  if (b.myHp <= 0) {
+    player.exploration = null;
+    return { kind: 'lost', commit: true, log, wildPetId: wildInfo.petId, myName };
+  }
+
+  // 너무 오래 끌면 야생 펫이 떠나요
+  if (b.round >= BATTLE_MAX_ROUNDS) {
+    player.exploration = null;
+    return { kind: 'draw', commit: true, log, wildPetId: wildInfo.petId };
+  }
+
+  return { kind: 'continue', commit: true, log, snap: snapshot(player, now) };
+}
+
+// [싸우기] — 전투 시작 (이미 시작했으면 이어서)
+function startBattle(player, id, now = Date.now()) {
+  const ex = player.exploration;
+  if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
+  if (ex.battle) return { kind: 'continue', snap: snapshot(player, now) };
+
+  const c = context(player, ex);
+  const hp = currentHp(c.main, now);
+  if (hp <= 0) return { kind: 'fainted', name: c.myName, petId: c.main.petId };
+
+  ex.battle = { myHp: hp, myMax: c.mine.hp, wildHp: c.wild.hp, wildMax: c.wild.hp, round: 0 };
+  return { kind: 'started', commit: true, snap: snapshot(player, now) };
+}
+
+// [공격] — 한 턴 진행
+function battleTurn(player, id, now = Date.now(), rng = Math.random) {
+  const ex = player.exploration;
+  if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
+  if (!ex.battle) return { kind: 'no_battle' };
+
+  const b = ex.battle;
+  const c = context(player, ex);
+  const log = [];
+  const order = c.mine.spd >= c.wild.spd ? ['me', 'wild'] : ['wild', 'me'];
+  for (const who of order) {
+    if (b.myHp <= 0 || b.wildHp <= 0) break; // 이미 쓰러졌으면 반격 못 해요
+    if (who === 'me') myAttack(c, b, log, rng);
+    else wildAttack(c, b, log, rng);
+  }
+  return finishTurn(player, ex, c, log, now, rng);
+}
+
+// [회복] — 가방의 회복약을 써요. 약을 먹는 동안 야생 펫이 한 번 공격해요 (한 턴을 써요!)
+function battleHeal(player, id, now = Date.now(), rng = Math.random) {
+  const ex = player.exploration;
+  if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
+  if (!ex.battle) return { kind: 'no_battle' };
+
+  const b = ex.battle;
+  if (b.myHp >= b.myMax) return { kind: 'full_hp' };
+  const potion = pickPotion(player, b.myMax - b.myHp);
+  if (!potion) return { kind: 'no_potion' };
+
+  const c = context(player, ex);
+  player.inventory[potion.id] -= 1;
+  const before = b.myHp;
+  b.myHp = Math.min(b.myMax, b.myHp + potion.heal);
+  const log = [`${potion.emoji} ${potion.name}을(를) 썼어요! ${c.myName} 체력 +${b.myHp - before}`];
+  wildAttack(c, b, log, rng);
+  return finishTurn(player, ex, c, log, now, rng);
+}
+
+// ============================================================
+// 시스템: 상점 (systems/shop.js)
+// ============================================================
+
+// 상점 규칙 🛒 (디스코드와 상관없는 순수한 규칙)
+
+const BUY_AMOUNTS = [1, 5, 10];
+
+function buyItem(player, itemId, qty) {
+  const item = ITEMS[itemId];
+  if (!item || !item.price) return { kind: 'unknown' };
+  if (!BUY_AMOUNTS.includes(qty)) return { kind: 'unknown' };
+
+  const cost = item.price * qty;
+  if (player.gold < cost) return { kind: 'no_gold', cost, gold: player.gold };
+
+  player.gold -= cost;
+  player.inventory ??= {};
+  player.inventory[itemId] = (player.inventory[itemId] ?? 0) + qty;
+  return { kind: 'bought', commit: true, itemId, qty, cost, gold: player.gold, owned: player.inventory[itemId] };
+}
+
+// ============================================================
+// 시스템: 도감 (systems/dex.js)
+// ============================================================
+
+// 도감 규칙 📖 — 스타팅 펫은 셋 중 하나만 고를 수 있어서, 전체 칸 수는 "야생 펫 + 1" 이에요.
+
+const WILD_COUNT = Object.values(PETS).filter((p) => !p.starter).length;
+
+function dexProgress(player) {
+  const found = Object.keys(player.dex ?? {}).filter((id) => PETS[id]).length;
+  return { found, total: WILD_COUNT + 1 };
+}
+
+// ============================================================
+// 시스템: 펫 육성 (systems/care.js)
+// ============================================================
+
+// 펫 육성 규칙 🌱 — 별명 짓기 / 방생 / 훈련 (디스코드와 상관없는 순수한 규칙)
+
+const TRAIN_AMOUNTS = [1, 5];
+
+// ───────── 별명 ─────────
+// 디스코드 글자 꾸미기/멘션을 깨뜨리는 문자는 막아요
+const BAD_NICK = /[@<>`*_~|\\]/;
+
+// name 이 비어 있으면 별명을 지워요. index 는 /펫 목록의 번호(1부터)
+function renamePet(player, index, name) {
+  const inst = player.pets[index - 1];
+  if (!inst) return { kind: 'not_found' };
+  const nick = (name ?? '').trim();
+  if (nick === '') {
+    inst.nickname = null;
+    return { kind: 'cleared', commit: true, inst: { ...inst } };
+  }
+  if ([...nick].length > NICKNAME_MAX) return { kind: 'too_long' };
+  if (BAD_NICK.test(nick)) return { kind: 'bad_chars' };
+  inst.nickname = nick;
+  return { kind: 'renamed', commit: true, inst: { ...inst } };
+}
+
+// ───────── 방생 ─────────
+function releaseValue(inst) {
+  const base = RELEASE_BASE_GOLD[PETS[inst.petId].grade] ?? 10;
+  return Math.round(base * (1 + inst.level * RELEASE_LEVEL_BONUS));
+}
+
+function releasePet(player, uid) {
+  const inst = player.pets.find((p) => p.uid === uid);
+  if (!inst) return { kind: 'not_found' };
+  if (uid === player.mainPetUid) return { kind: 'is_main' };
+  const gold = releaseValue(inst);
+  player.pets = player.pets.filter((p) => p.uid !== uid);
+  player.gold += gold;
+  return { kind: 'released', commit: true, petId: inst.petId, nickname: inst.nickname, level: inst.level, gold, total: player.gold };
+}
+
+// ───────── 훈련 ─────────
+const trainCost = (level) => TRAIN_BASE_COST + level * TRAIN_COST_PER_LEVEL;
+const trainExp = (level) => Math.max(1, Math.round(expToNext(level) * TRAIN_EXP_RATIO));
+const levelCap = (player) => Math.min(MAX_LEVEL, player.level + TRAIN_LEVEL_CAP_OVER_TRAINER);
+
+function trainPet(player, uid, times, now = Date.now()) {
+  const inst = player.pets.find((p) => p.uid === uid);
+  if (!inst) return { kind: 'not_found' };
+  if (!TRAIN_AMOUNTS.includes(times)) return { kind: 'not_found' };
+  if (player.exploration?.battle && uid === player.mainPetUid) return { kind: 'in_battle' };
+
+  const startLevel = inst.level;
+  let done = 0, spent = 0, expGained = 0, stop = null;
+  for (let i = 0; i < times; i++) {
+    if (inst.level >= levelCap(player)) { stop = 'cap'; break; }
+    const cost = trainCost(inst.level);
+    if (player.gold < cost) { stop = 'no_gold'; break; }
+    const exp = trainExp(inst.level);
+    player.gold -= cost;
+    addExp(inst, exp);
+    done += 1; spent += cost; expGained += exp;
+  }
+  if (done === 0) return { kind: stop ?? 'cap' };
+  if (inst.level > startLevel) setHp(inst, maxHp(inst), now); // 레벨업 보너스: 체력 가득!
+  return { kind: 'trained', commit: true, done, spent, expGained, stop, levelsGained: inst.level - startLevel, newLevel: inst.level };
+}
+
+// ============================================================
+// 시스템 묶음 (commands 가 이 이름으로 불러써요)
+// ============================================================
+
+const exploreSys = { startExploration, lookAround, attemptCatch, leave };
+const battleSys = { startBattle, battleTurn, battleHeal };
+const shopSys = { buyItem };
+
+// ============================================================
+// 명령어 (commands/index.js)
+// ============================================================
+
 // commands/index.js — 모든 명령어를 한 파일에 모았어요 📚
-import { PETS, GRADES, STARTER_IDS } from '../data/pets.js';
-import { LOCATIONS, LOCATION_LIST } from '../data/locations.js';
-import { ITEMS } from '../data/items.js';
-import {
-  EMBED_COLOR, MAX_LEVEL, NICKNAME_MAX,
-  CATCH_DROP_PER_TRY, FLEE_BASE, FLEE_RISE_PER_TRY, FLEE_MAX,
-  BATTLE_MAX_ROUNDS, CRIT_CHANCE,
-} from '../config.js';
-import { getPlayer, createPlayer, updatePlayer } from '../db.js';
-import { reply, update, getUser, getOption, button, row, select } from '../utils/discord.js';
-import * as exploreSys from '../systems/explore.js';
-import * as battleSys from '../systems/battle.js';
-import * as shopSys from '../systems/shop.js';
-import * as useSys from '../systems/use.js';
-import { dexProgress } from '../systems/dex.js';
-import { expToNext, expBar } from '../systems/level.js';
-import { calcStats, currentHp } from '../systems/pet.js';
-import { buildNewPlayer, getMainPet, setMainPet } from '../systems/player.js';
-import { renamePet, releaseValue, releasePet, trainCost, trainExp, levelCap, trainPet, TRAIN_AMOUNTS } from '../systems/care.js';
-import { POTIONS, useItem } from '../systems/use.js';
-import { buyItem, BUY_AMOUNTS } from '../systems/shop.js';
 
 const NOT_STARTED = '아직 모험을 시작하지 않았어요! `/시작` 을 먼저 해주세요 🐣';
 const BALL = ITEMS.haejeong_ball;
@@ -1157,4 +2063,48 @@ const help = {
 // 내보내기: router.js 가 이 목록을 그대로 써요
 // ═════════════════════════════════════════════
 
-export const commandModules = [start, profile, places, explore, shop, bag, pets, dexCmd, nickname, release, train, use, help];
+const commandModules = [start, profile, places, explore, shop, bag, pets, dexCmd, nickname, release, train, use, help];
+
+// ============================================================
+// 라우터 (router.js)
+// ============================================================
+
+// 들어온 요청을 알맞은 명령어/버튼에게 나눠주는 안내 데스크예요 🧭
+
+// ✨ 새 명령어는 commands/index.js 의 commandModules 목록에 추가해요!
+const modules = commandModules;
+
+const commands = new Map(modules.map((m) => [m.data.name, m]));
+
+// 버튼 이름표(custom_id 맨 앞 글자)로 담당 함수를 찾아요
+const componentHandlers = new Map();
+for (const m of modules) {
+  for (const [prefix, fn] of Object.entries(m.components ?? {})) {
+    componentHandlers.set(prefix, fn);
+  }
+}
+
+export const commandDefinitions = modules.map((m) => m.data);
+
+export async function handleInteraction(interaction) {
+  switch (interaction.type) {
+    case InteractionType.PING:
+      return { type: 1 };
+
+    case InteractionType.COMMAND: {
+      const cmd = commands.get(interaction.data.name);
+      if (!cmd) return reply({ content: '모르는 명령어예요 🤔' }, { ephemeral: true });
+      return cmd.execute(interaction);
+    }
+
+    case InteractionType.COMPONENT: {
+      const [prefix, ...args] = interaction.data.custom_id.split(':');
+      const handler = componentHandlers.get(prefix);
+      if (!handler) return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
+      return handler(interaction, args);
+    }
+
+    default:
+      return reply({ content: '아직 모르는 종류의 요청이에요 🤔' }, { ephemeral: true });
+  }
+}

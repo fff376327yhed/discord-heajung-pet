@@ -1,6 +1,6 @@
 // 디스코드가 "누가 명령어를 썼어요!" 하고 알려주는 문(입구)이에요 🚪
 import { verifyKey } from 'discord-interactions';
-import { handleInteraction } from '../src/router.js';
+import { handleInteraction } from '../src/haejeong-pet-bot.js';
 
 export async function GET() {
   return new Response('🐾 해정펫 봇 서버가 잘 켜져 있어요!');
