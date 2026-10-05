@@ -1,0 +1,16 @@
+{
+  "name": "haejeong-pet-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "해정펫 디스코드 게임 봇 (Vercel + Firebase)",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "register": "node --env-file=.env scripts/register-commands.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "discord-interactions": "^4.1.0",
+    "firebase-admin": "^13.0.0"
+  }
+}
