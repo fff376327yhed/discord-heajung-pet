@@ -702,6 +702,15 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
     player.exploration = null;
     return { kind: 'fled', commit: true, petId, ballsLeft: balls - 1 };
   }
+
+  // 전투 중에 던진 거라면, 공격/회복처럼 똑같이 한 턴을 써요 (야생 펫이 반격해요!)
+  if (ex.battle) {
+    const c = context(player, ex);
+    const log = [`${BALL.emoji} ${BALL.name}을(를) 던졌지만 빠져나왔어요! (남은 ${BALL.name} ${balls - 1}개)`];
+    wildAttack(c, ex.battle, log, rng);
+    return { ...finishTurn(player, ex, c, log, now, rng), ballsLeft: balls - 1 };
+  }
+
   return { kind: 'escaped', commit: true, snap: snapshot(player, now), ballsLeft: balls - 1 };
 }
 
@@ -799,10 +808,24 @@ function finishTurn(player, ex, c, log, now, rng) {
     };
   }
 
-  // 패배... (골드는 잃지 않지만, 펫이 기절해서 회복이 필요해요)
+  // 패배... 탐험 중 전투에서 쓰러진 펫은 그 자리에서 영영 사라져요! (골드는 잃지 않아요)
   if (b.myHp <= 0) {
+    const removedPetId = main.petId;
+    player.pets = player.pets.filter((p) => p.uid !== main.uid);
+
+    let newStarterId = null;
+    if (player.pets.length === 0) {
+      // 남은 펫이 하나도 없으면, 완전히 막히지 않도록 새 스타터 펫을 하나 줘요
+      const fresh = createPetInstance(STARTER_IDS[Math.floor(rng() * STARTER_IDS.length)], 1);
+      player.pets.push(fresh);
+      player.mainPetUid = fresh.uid;
+      newStarterId = fresh.petId;
+    } else if (player.mainPetUid === main.uid) {
+      player.mainPetUid = player.pets[0].uid;
+    }
+
     player.exploration = null;
-    return { kind: 'lost', commit: true, log, wildPetId: wildInfo.petId, myName };
+    return { kind: 'lost', commit: true, log, wildPetId: wildInfo.petId, myName, removedPetId, newStarterId };
   }
 
   // 너무 오래 끌면 야생 펫이 떠나요
@@ -819,6 +842,7 @@ function startBattle(player, id, now = Date.now()) {
   const ex = player.exploration;
   if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
   if (ex.battle) return { kind: 'continue', snap: snapshot(player, now) };
+  if (!getMainPet(player)) return { kind: 'no_pet' };
 
   const c = context(player, ex);
   const hp = currentHp(c.main, now);
@@ -1337,6 +1361,60 @@ const exploreViewExpired = () =>
     components: [],
   });
 
+// 전투가 끝났을 때(승리/패배/무승부) 화면 — [공격]/[회복]/[잡기] 중 무엇으로 끝났든 똑같이 써요
+function battleOutcomeView(out) {
+  if (out.kind === 'won') {
+    const wild = PETS[out.wildPetId];
+    const mine = PETS[out.myPetId];
+    const lines = [
+      out.log.join('\n'),
+      '',
+      `${wild.emoji} **${wild.name}** (Lv.${out.wildLevel}) 을(를) 쓰러뜨렸어요!`,
+      `💰 골드 +${out.gold}`,
+      `⭐ 트레이너 경험치 +${out.trainerExp}`,
+      out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
+      `${mine.emoji} ${out.myName} 경험치 +${out.petExp}`,
+      out.petLevelsGained > 0 ? `🎊 **${out.myName} 레벨 업!** → Lv.${out.petNewLevel} (체력 가득!)` : null,
+      `❤️ ${out.myName} 체력 ${out.petHp}/${out.petMaxHp}`,
+      ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
+      '\n`/탐험` 으로 계속 모험해요! 체력이 모자라면 `/사용` 으로 회복해요.',
+    ].filter((x) => x !== null);
+    return update({ embeds: [{ title: '🏆 승리!', description: lines.join('\n'), color: 0x57f287 }], components: [] });
+  }
+
+  if (out.kind === 'lost') {
+    const wild = PETS[out.wildPetId];
+    const removed = PETS[out.removedPetId];
+    const lines = [
+      out.log.join('\n'),
+      '',
+      `${wild.emoji} ${wild.name}에게 지고 말았어요... 골드는 잃지 않았어요.`,
+      `💔 ${removed.emoji} **${out.myName}**(이)가 쓰러져서 영영 떠나갔어요.`,
+      out.newStarterId
+        ? `\n${PETS[out.newStarterId].emoji} 다행히 새 ${PETS[out.newStarterId].name}(이)가 곁에 남아줬어요! \`/펫\` 으로 확인해보세요.`
+        : '\n`/펫` 에서 다른 펫을 대표로 바꿔 계속 모험할 수 있어요!',
+    ];
+    return update({
+      embeds: [{ title: `😵 ${removed.emoji} ${out.myName}(이)가 쓰러졌어요...`, description: lines.join('\n'), color: 0xed4245 }],
+      components: [],
+    });
+  }
+
+  if (out.kind === 'draw') {
+    const wild = PETS[out.wildPetId];
+    return update({
+      embeds: [{
+        title: `💨 ${wild.emoji} ${wild.name}(이)가 지쳐서 떠났어요`,
+        description: `${out.log.join('\n')}\n\n승부가 나지 않았어요. \`/탐험\` 으로 다시 도전해봐요!`,
+        color: 0x99aab5,
+      }],
+      components: [],
+    });
+  }
+
+  return null; // won/lost/draw 가 아니면 이 화면을 쓰지 않아요
+}
+
 // ───────── 탐험 버튼 처리 ─────────
 
 async function exploreHandleButton(interaction, args) {
@@ -1353,6 +1431,9 @@ async function exploreHandleButton(interaction, args) {
       return { commit: r.commit === true, value: r };
     });
     if (!out || out.kind === 'expired') return exploreViewExpired();
+    if (out.kind === 'no_pet') {
+      return reply({ content: '😢 함께 싸울 펫이 없어요! `/펫` 에서 대표 펫을 확인해주세요.' }, { ephemeral: true });
+    }
     if (out.kind === 'fainted') {
       return reply(
         {
@@ -1385,48 +1466,7 @@ async function exploreHandleButton(interaction, args) {
     if (out.kind === 'continue') {
       return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
     }
-    if (out.kind === 'won') {
-      const wild = PETS[out.wildPetId];
-      const mine = PETS[out.myPetId];
-      const lines = [
-        out.log.join('\n'),
-        '',
-        `${wild.emoji} **${wild.name}** (Lv.${out.wildLevel}) 을(를) 쓰러뜨렸어요!`,
-        `💰 골드 +${out.gold}`,
-        `⭐ 트레이너 경험치 +${out.trainerExp}`,
-        out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
-        `${mine.emoji} ${out.myName} 경험치 +${out.petExp}`,
-        out.petLevelsGained > 0 ? `🎊 **${out.myName} 레벨 업!** → Lv.${out.petNewLevel} (체력 가득!)` : null,
-        `❤️ ${out.myName} 체력 ${out.petHp}/${out.petMaxHp}`,
-        ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
-        '\n`/탐험` 으로 계속 모험해요! 체력이 모자라면 `/사용` 으로 회복해요.',
-      ].filter((x) => x !== null);
-      return update({ embeds: [{ title: '🏆 승리!', description: lines.join('\n'), color: 0x57f287 }], components: [] });
-    }
-    if (out.kind === 'lost') {
-      const wild = PETS[out.wildPetId];
-      return update({
-        embeds: [{
-          title: `😵 ${out.myName}(이)가 쓰러졌어요...`,
-          description:
-            `${out.log.join('\n')}\n\n${wild.emoji} ${wild.name}(이)가 떠나갔어요. 골드는 잃지 않았어요!\n` +
-            '💫 기절한 펫은 `/사용` 으로 회복약을 먹이거나, 시간이 지나면 조금씩 깨어나요.\n' +
-            '`/펫` 에서 다른 펫을 대표로 바꿔 계속 모험할 수도 있어요!',
-          color: 0xed4245,
-        }],
-        components: [],
-      });
-    }
-    // draw
-    const wild = PETS[out.wildPetId];
-    return update({
-      embeds: [{
-        title: `💨 ${wild.emoji} ${wild.name}(이)가 지쳐서 떠났어요`,
-        description: `${out.log.join('\n')}\n\n승부가 나지 않았어요. \`/탐험\` 으로 다시 도전해봐요!`,
-        color: 0x99aab5,
-      }],
-      components: [],
-    });
+    return battleOutcomeView(out); // won / lost / draw
   }
 
   if (action === 'look') {
@@ -1450,6 +1490,13 @@ async function exploreHandleButton(interaction, args) {
 
     if (out.kind === 'no_ball') {
       return reply({ content: `${BALL.emoji} ${BALL.name}이(가) 없어요 😭 \`/상점\` 에서 사올 수 있어요!` }, { ephemeral: true });
+    }
+    // 전투 중에 잡기를 시도했다가 실패하면 공격/회복처럼 한 턴을 써요 (야생 펫이 반격해요!)
+    if (out.kind === 'continue') {
+      return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
+    }
+    if (out.kind === 'won' || out.kind === 'lost' || out.kind === 'draw') {
+      return battleOutcomeView(out);
     }
     if (out.kind === 'escaped') {
       return update(exploreViewSnap(out.snap, user.id, `💨 앗! 빠져나왔어요! (남은 ${BALL.name} ${out.ballsLeft}개)`));
@@ -2150,8 +2197,9 @@ const help = {
               {
                 name: '⚔️ 전투',
                 value:
-                  `**[공격]**, **[잡기]**, **[회복]**, **[교체]** 는 모두 한 턴을 써요. 턴 끝에는 야생 펫이 반격해요.\n` +
-                  `치명타 확률 ${pct(CRIT_CHANCE)}%, ${BATTLE_MAX_ROUNDS}턴 안에 끝나지 않으면 야생 펫이 도망가요.`,
+                  `**[공격]**, **[잡기]**, **[회복]** 은 모두 한 턴을 써요. 턴 끝에는 야생 펫이 반격해요.\n` +
+                  `치명타 확률 ${pct(CRIT_CHANCE)}%, ${BATTLE_MAX_ROUNDS}턴 안에 끝나지 않으면 야생 펫이 도망가요.\n` +
+                  `⚠️ **체력이 0이 되면 그 펫은 영영 사라져요!** 전투 전에 체력을 꼭 확인해요.`,
               },
               {
                 name: '🧪 회복',
