@@ -33,6 +33,15 @@ const WIN_PET_EXP_MULT = 2.0; // 승리 시 대표 펫 경험치 = expYield × �
 const BONUS_TRIPLE_CHANCE = 0.001; // 승리 시 0.1% 확률로 경험치·골드 3배 🎰
 const BONUS_DOUBLE_CHANCE = 0.005; // 승리 시 0.5% 확률로 경험치·골드 2배 (3배와 동시에 나오지 않아요)
 
+// ───────── 편의 기능 ✨ ─────────
+const HEAL_FULL_CAP = 99; // [회복 가득] / /사용 자동 모드에서 한 번에 쓸 수 있는 약 개수 상한
+const MULTI_TURNS = 3; // [공격 ×3] 이 한 번에 진행하는 턴 수
+const MULTI_THROWS = 3; // [잡기 ×3] 이 한 번에 던지는 해정볼 수
+const MULTI_STOP_HP_RATIO = 0.3; // 연속 행동 중 내 펫 체력이 이 비율 이하가 되면 자동으로 멈춰요 (펫이 사라지지 않게!)
+const MAX_BUY_AT_ONCE = 999; // 한 번에 살 수 있는 최대 개수
+const MAX_TRAIN_AT_ONCE = 100; // 한 번에 할 수 있는 최대 훈련 횟수
+const MAX_CUSTOM_COUNT = 99; // 전투 중 [직접 입력] 으로 넣을 수 있는 최대 숫자
+
 // ───────── 육성 🌱 ─────────
 const NICKNAME_MAX = 12; // 별명 최대 글자 수
 const RELEASE_BASE_GOLD = { common: 20, rare: 50, epic: 150, legendary: 500 }; // 방생 골드 = 등급별 기본값 × (1 + 레벨 × RELEASE_LEVEL_BONUS)
@@ -211,8 +220,8 @@ function weightedPick(items, getWeight, rng = Math.random) {
 // ============================================================
 
 // 디스코드에게 대답할 때 쓰는 도구 모음 💬
-const InteractionType = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
-const ResponseType = { PONG: 1, MESSAGE: 4, UPDATE: 7, AUTOCOMPLETE_RESULT: 8 };
+const InteractionType = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4, MODAL_SUBMIT: 5 };
+const ResponseType = { PONG: 1, MESSAGE: 4, UPDATE: 7, AUTOCOMPLETE_RESULT: 8, MODAL: 9 };
 const EPHEMERAL = 64; // "나한테만 보이는 메시지" 표시
 const SILENT = 4096; // "알림 없이 조용히 보내기" 표시 (디스코드 알림/푸시가 안 가요)
 
@@ -246,6 +255,27 @@ async function postChannelMessage(channelId, data) {
     body: JSON.stringify(data),
   });
   if (!res.ok) console.error('새 메시지 보내기 실패:', res.status, await res.text());
+}
+
+// 숫자 한 칸짜리 입력창을 띄워요 (버튼을 누르면 뜨고, 제출하면 customId 로 다시 들어와요)
+function numberModal({ customId, title, label, placeholder }) {
+  return {
+    type: ResponseType.MODAL,
+    data: {
+      custom_id: customId,
+      title,
+      components: [
+        { type: 1, components: [{ type: 4, custom_id: 'n', label, style: 1, min_length: 1, max_length: 3, required: true, placeholder }] },
+      ],
+    },
+  };
+}
+
+function getModalValue(interaction, id) {
+  for (const r of interaction.data.components ?? []) {
+    for (const c of r.components ?? []) if (c.custom_id === id) return c.value;
+  }
+  return undefined;
 }
 
 function getUser(interaction) {
@@ -570,6 +600,37 @@ function useItem(player, itemId, selector, qty = 1, now = Date.now()) {
   };
 }
 
+// 쓴 약 요약 글자: "🧪 회복약 ×2 · 🍶 고급 회복약 ×1"
+function potionSummary(used) {
+  return Object.entries(used)
+    .map(([id, n]) => `${ITEMS[id].emoji} ${ITEMS[id].name} ×${n}`)
+    .join(' · ');
+}
+
+// 가득 찰 때까지 가진 약을 알아서 골라 써요 (전투 밖 전용). selector 가 비어 있으면 대표 펫
+function autoHeal(player, selector, now = Date.now()) {
+  const inst = resolvePetSelector(player, selector);
+  if (!inst) return { kind: 'not_found' };
+  if (player.exploration?.battle && inst.uid === player.mainPetUid) return { kind: 'in_battle' };
+
+  const max = maxHp(inst);
+  const start = currentHp(inst, now);
+  if (start >= max) return { kind: 'full', inst: { ...inst } };
+
+  const used = {};
+  let guard = 0;
+  while (currentHp(inst, now) < max && guard++ < HEAL_FULL_CAP) {
+    const missing = max - currentHp(inst, now);
+    const potion = pickPotion(player, missing);
+    if (!potion) break;
+    const r = useItem(player, potion.id, inst.uid, Math.ceil(missing / potion.heal), now);
+    if (r.kind !== 'used') break;
+    used[potion.id] = (used[potion.id] ?? 0) + r.used;
+  }
+  if (Object.keys(used).length === 0) return { kind: 'none' };
+  return { kind: 'healed', commit: true, inst: { ...inst }, before: start, after: currentHp(inst, now), max, used };
+}
+
 // ============================================================
 // 시스템: 탐험 · 포획 (systems/explore.js)
 // ============================================================
@@ -652,6 +713,7 @@ function startExploration(player, locationId, now = Date.now(), rng = Math.rando
     appearAt: now + waitSec * 1000,
     encounter: null,
   };
+  player.lastLocationId = locationId; // /탐험 을 장소 없이 쓰면 여기로 가요
   return { ok: true, resumed: false, snap: snapshot(player, now), commit: true };
 }
 
@@ -674,6 +736,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
   const ex = player.exploration;
   if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
 
+  const locationId = ex.locationId;
   const balls = player.inventory?.[BALL_ID] ?? 0;
   if (balls <= 0) return { kind: 'no_ball', snap: snapshot(player, now) };
 
@@ -696,7 +759,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
 
     player.exploration = null;
     return {
-      kind: 'caught', commit: true, petId, level, isNew, expGain,
+      kind: 'caught', commit: true, petId, level, isNew, expGain, locationId,
       levelsGained: result.levelsGained, newLevel: player.level, unlocked, ballsLeft: balls - 1,
     };
   }
@@ -705,7 +768,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
   ex.catchTries = tries + 1;
   if (rng() < fleeChance(ex.catchTries)) {
     player.exploration = null;
-    return { kind: 'fled', commit: true, petId, ballsLeft: balls - 1 };
+    return { kind: 'fled', commit: true, petId, ballsLeft: balls - 1, locationId };
   }
 
   // 전투 중에 던진 거라면, 공격/회복처럼 똑같이 한 턴을 써요 (야생 펫이 반격해요!)
@@ -724,8 +787,9 @@ function leave(player, id) {
   const ex = player.exploration;
   if (!ex || ex.id !== id) return { kind: 'expired' };
   const petId = ex.encounter?.petId ?? null;
+  const locationId = ex.locationId;
   player.exploration = null;
-  return { kind: petId ? 'ignored' : 'quit', petId, commit: true };
+  return { kind: petId ? 'ignored' : 'quit', petId, locationId, commit: true };
 }
 
 // [도망] — 전투 중 전용 버튼. FLEE_FAIL_CHANCE 확률로 실패해서 턴을 날려요 (야생 펫이 반격!)
@@ -741,8 +805,41 @@ function attemptFlee(player, id, now = Date.now(), rng = Math.random) {
   }
 
   const petId = ex.encounter.petId;
+  const locationId = ex.locationId;
   player.exploration = null;
-  return { kind: 'ran', petId, commit: true };
+  return { kind: 'ran', petId, locationId, commit: true };
+}
+
+// [잡기 ×N] — 해정볼을 연달아 던져요. 잡거나/도망가거나/전투가 끝나거나/해정볼이 떨어지거나/체력이 위험하면 멈춰요
+function attemptCatchMulti(player, id, now = Date.now(), rng = Math.random, times = MULTI_THROWS) {
+  const logs = [];
+  let last = null;
+  for (let i = 0; i < times; i++) {
+    const r = attemptCatch(player, id, now, rng);
+    if (r.kind === 'expired') return last ? { ...last, log: logs } : r;
+    if (r.kind === 'no_ball') {
+      if (!last) return r;
+      logs.push(`${BALL.emoji} 해정볼이 떨어져서 여기까지만 던졌어요!`);
+      break;
+    }
+    last = r;
+    if (r.kind === 'escaped') {
+      logs.push(`${BALL.emoji} ${i + 1}번째: 던졌지만 빠져나왔어요!`);
+      continue;
+    }
+    if (r.kind === 'continue') {
+      logs.push(...r.log);
+      const b = player.exploration?.battle;
+      if (b && b.myHp / b.myMax <= MULTI_STOP_HP_RATIO) {
+        logs.push('⚠️ 체력이 위험해서 연속 던지기를 멈췄어요!');
+        break;
+      }
+      continue;
+    }
+    // 잡았다 / 도망쳤다 / 전투 종료: 지금까지의 기록을 앞에 붙여서 끝내요
+    return { ...r, log: [...logs, ...(r.log ?? [])] };
+  }
+  return { ...last, log: logs };
 }
 
 // ============================================================
@@ -807,6 +904,7 @@ function wildAttack(c, b, log, rng) {
 function finishTurn(player, ex, c, log, now, rng) {
   const b = ex.battle;
   const { main, wildPet, wildInfo, myName } = c;
+  const locationId = ex.locationId;
   b.round += 1;
   setHp(main, b.myHp, now); // ❤️ 전투가 끝나도 체력이 이어져요
 
@@ -830,7 +928,7 @@ function finishTurn(player, ex, c, log, now, rng) {
 
     player.exploration = null;
     return {
-      kind: 'won', commit: true, log,
+      kind: 'won', commit: true, log, locationId,
       wildPetId: wildInfo.petId, wildLevel: wildInfo.level,
       myPetId: main.petId, myName,
       gold, trainerExp, petExp, bonusMult,
@@ -858,19 +956,19 @@ function finishTurn(player, ex, c, log, now, rng) {
     }
 
     player.exploration = null;
-    return { kind: 'lost', commit: true, log, wildPetId: wildInfo.petId, myName, removedPetId, newStarterId };
+    return { kind: 'lost', commit: true, log, locationId, wildPetId: wildInfo.petId, myName, removedPetId, newStarterId };
   }
 
   // 매 턴 끝에 야생 펫이 겁먹고 스스로 도망칠 수도 있어요
   if (rng() < WILD_FLEE_CHANCE) {
     player.exploration = null;
-    return { kind: 'wild_flee', commit: true, log, wildPetId: wildInfo.petId };
+    return { kind: 'wild_flee', commit: true, log, locationId, wildPetId: wildInfo.petId };
   }
 
   // 너무 오래 끌면 야생 펫이 떠나요
   if (b.round >= BATTLE_MAX_ROUNDS) {
     player.exploration = null;
-    return { kind: 'draw', commit: true, log, wildPetId: wildInfo.petId };
+    return { kind: 'draw', commit: true, log, locationId, wildPetId: wildInfo.petId };
   }
 
   return { kind: 'continue', commit: true, log, snap: snapshot(player, now) };
@@ -909,22 +1007,56 @@ function battleTurn(player, id, now = Date.now(), rng = Math.random) {
   return finishTurn(player, ex, c, log, now, rng);
 }
 
-// [회복] — 가방의 회복약을 써요. 약을 먹는 동안 야생 펫이 한 번 공격해요 (한 턴을 써요!)
-function battleHeal(player, id, now = Date.now(), rng = Math.random) {
+// [공격 ×N] — 한 번 눌러서 여러 턴을 진행해요 (끝나거나, 내 체력이 위험해지면 멈춰요)
+function battleTurns(player, id, now = Date.now(), rng = Math.random, times = MULTI_TURNS) {
+  const logs = [];
+  let last = null;
+  for (let i = 0; i < times; i++) {
+    const round = player.exploration?.battle?.round;
+    last = battleTurn(player, id, now, rng);
+    if (last.kind === 'expired' || last.kind === 'no_battle') return last;
+    logs.push(`**── ${round + 1}턴째 ──**`, ...last.log);
+    if (last.kind !== 'continue') break;
+    const b = player.exploration.battle;
+    if (i < times - 1 && b.myHp / b.myMax <= MULTI_STOP_HP_RATIO) {
+      logs.push('⚠️ 체력이 위험해서 연속 공격을 멈췄어요!');
+      break;
+    }
+  }
+  return { ...last, log: logs };
+}
+
+// [회복] — 가방의 회복약을 써요. 약을 몇 개 쓰든 야생 펫은 딱 한 번만 공격해요 (한 턴을 써요!)
+// qty: 개수(기본 1) 또는 'full'(가득 찰 때까지)
+function battleHeal(player, id, now = Date.now(), rng = Math.random, qty = 1) {
   const ex = player.exploration;
   if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
   if (!ex.battle) return { kind: 'no_battle' };
 
   const b = ex.battle;
   if (b.myHp >= b.myMax) return { kind: 'full_hp' };
-  const potion = pickPotion(player, b.myMax - b.myHp);
-  if (!potion) return { kind: 'no_potion' };
+  if (!pickPotion(player, b.myMax - b.myHp)) return { kind: 'no_potion' };
 
+  const want = qty === 'full' ? HEAL_FULL_CAP : Math.max(1, Math.floor(Number(qty)) || 1);
   const c = context(player, ex);
-  player.inventory[potion.id] -= 1;
   const before = b.myHp;
-  b.myHp = Math.min(b.myMax, b.myHp + potion.heal);
-  const log = [`${potion.emoji} ${potion.name}을(를) 썼어요! ${c.myName} 체력 +${b.myHp - before}`];
+  const used = {};
+  let total = 0;
+  while (total < want && b.myHp < b.myMax) {
+    const potion = pickPotion(player, b.myMax - b.myHp);
+    if (!potion) break;
+    player.inventory[potion.id] -= 1;
+    b.myHp = Math.min(b.myMax, b.myHp + potion.heal);
+    used[potion.id] = (used[potion.id] ?? 0) + 1;
+    total += 1;
+  }
+
+  const log = [
+    total === 1
+      ? `${ITEMS[Object.keys(used)[0]].emoji} ${ITEMS[Object.keys(used)[0]].name}을(를) 썼어요! ${c.myName} 체력 +${b.myHp - before}`
+      : `🧪 ${potionSummary(used)} 를 썼어요! ${c.myName} 체력 +${b.myHp - before}`,
+  ];
+  if (qty !== 'full' && total < want && b.myHp < b.myMax) log.push(`(회복약이 모자라서 ${total}개만 썼어요)`);
   wildAttack(c, b, log, rng);
   return finishTurn(player, ex, c, log, now, rng);
 }
@@ -937,18 +1069,22 @@ function battleHeal(player, id, now = Date.now(), rng = Math.random) {
 
 const BUY_AMOUNTS = [1, 5, 10];
 
+// qty: 1~MAX_BUY_AT_ONCE 사이 정수, 또는 'max'(가진 골드로 살 수 있는 만큼)
 function buyItem(player, itemId, qty) {
   const item = ITEMS[itemId];
   if (!item || !item.price) return { kind: 'unknown' };
-  if (!BUY_AMOUNTS.includes(qty)) return { kind: 'unknown' };
 
-  const cost = item.price * qty;
+  let n = qty === 'max' ? Math.min(MAX_BUY_AT_ONCE, Math.floor(player.gold / item.price)) : Math.floor(Number(qty));
+  if (qty === 'max' && n < 1) return { kind: 'no_gold', cost: item.price, gold: player.gold };
+  if (!Number.isFinite(n) || n < 1 || n > MAX_BUY_AT_ONCE) return { kind: 'unknown' };
+
+  const cost = item.price * n;
   if (player.gold < cost) return { kind: 'no_gold', cost, gold: player.gold };
 
   player.gold -= cost;
   player.inventory ??= {};
-  player.inventory[itemId] = (player.inventory[itemId] ?? 0) + qty;
-  return { kind: 'bought', commit: true, itemId, qty, cost, gold: player.gold, owned: player.inventory[itemId] };
+  player.inventory[itemId] = (player.inventory[itemId] ?? 0) + n;
+  return { kind: 'bought', commit: true, itemId, qty: n, cost, gold: player.gold, owned: player.inventory[itemId] };
 }
 
 // ============================================================
@@ -970,15 +1106,15 @@ function dexProgress(player) {
 
 // 펫 육성 규칙 🌱 — 별명 짓기 / 방생 / 훈련 (디스코드와 상관없는 순수한 규칙)
 
-const TRAIN_AMOUNTS = [1, 5];
+const TRAIN_AMOUNTS = [1, 5, 10];
 
 // ───────── 별명 ─────────
 // 디스코드 글자 꾸미기/멘션을 깨뜨리는 문자는 막아요
 const BAD_NICK = /[@<>`*_~|\\]/;
 
-// name 이 비어 있으면 별명을 지워요. index 는 /펫 목록의 번호(1부터)
-function renamePet(player, index, name) {
-  const inst = player.pets[index - 1];
+// name 이 비어 있으면 별명을 지워요. selector 는 /펫 번호 · 이름 · 자동완성 값 모두 OK
+function renamePet(player, selector, name) {
+  const inst = resolvePetSelector(player, selector);
   if (!inst) return { kind: 'not_found' };
   const nick = (name ?? '').trim();
   if (nick === '') {
@@ -1015,12 +1151,14 @@ const levelCap = (player) => Math.min(MAX_LEVEL, player.level + TRAIN_LEVEL_CAP_
 function trainPet(player, uid, times, now = Date.now()) {
   const inst = player.pets.find((p) => p.uid === uid);
   if (!inst) return { kind: 'not_found' };
-  if (!TRAIN_AMOUNTS.includes(times)) return { kind: 'not_found' };
+  // times: 1~MAX_TRAIN_AT_ONCE 사이 정수, 또는 'max'(골드/레벨 상한이 허락하는 만큼)
+  const n = times === 'max' ? MAX_TRAIN_AT_ONCE : Math.floor(Number(times));
+  if (!Number.isFinite(n) || n < 1 || n > MAX_TRAIN_AT_ONCE) return { kind: 'not_found' };
   if (player.exploration?.battle && uid === player.mainPetUid) return { kind: 'in_battle' };
 
   const startLevel = inst.level;
   let done = 0, spent = 0, expGained = 0, stop = null;
-  for (let i = 0; i < times; i++) {
+  for (let i = 0; i < n; i++) {
     if (inst.level >= levelCap(player)) { stop = 'cap'; break; }
     const cost = trainCost(inst.level);
     if (player.gold < cost) { stop = 'no_gold'; break; }
@@ -1038,8 +1176,8 @@ function trainPet(player, uid, times, now = Date.now()) {
 // 시스템 묶음 (commands 가 이 이름으로 불러써요)
 // ============================================================
 
-const exploreSys = { startExploration, lookAround, attemptCatch, leave, attemptFlee };
-const battleSys = { startBattle, battleTurn, battleHeal };
+const exploreSys = { startExploration, lookAround, attemptCatch, attemptCatchMulti, leave, attemptFlee };
+const battleSys = { startBattle, battleTurn, battleTurns, battleHeal };
 const shopSys = { buyItem };
 
 // ============================================================
@@ -1258,8 +1396,8 @@ const explore = {
       {
         type: 3,
         name: '장소',
-        description: '어디로 떠날까요?',
-        required: true,
+        description: '어디로 떠날까요? (비우면 지난번 장소로 가요)',
+        required: false,
         choices: LOCATION_LIST.map((l) => ({ name: `${l.emoji} ${l.name} (Lv.${l.minLevel}+)`, value: l.id })),
       },
     ],
@@ -1267,9 +1405,12 @@ const explore = {
 
   async execute(interaction) {
     const user = getUser(interaction);
-    const locationId = getOption(interaction, '장소');
+    const picked = getOption(interaction, '장소');
 
     const out = await updatePlayer(user.id, (p) => {
+      // 장소를 안 고르면: 지난번 장소 → (처음이면) 갈 수 있는 가장 좋은 곳
+      const best = [...LOCATION_LIST].reverse().find((l) => l.minLevel <= p.level)?.id ?? LOCATION_LIST[0].id;
+      const locationId = picked ?? (LOCATIONS[p.lastLocationId] ? p.lastLocationId : best);
       const r = exploreSys.startExploration(p, locationId, Date.now());
       return { commit: r.commit === true, value: r };
     });
@@ -1346,10 +1487,12 @@ function exploreViewEncounter(snap, userId, note) {
     components: [
       row(
         button({ label: '잡기', emoji: BALL.emoji, customId: `explore:catch:${userId}:${snap.id}`, style: 3 }),
+        button({ label: `잡기 ×${MULTI_THROWS}`, emoji: BALL.emoji, customId: `explore:catch3:${userId}:${snap.id}`, style: 3 }),
         button({ label: '싸우기', emoji: '⚔️', customId: `explore:fight:${userId}:${snap.id}`, style: 4 }),
         button({ label: '무시하기', emoji: '👋', customId: `explore:ignore:${userId}:${snap.id}`, style: 2 }),
         bumpButton(userId, snap.id),
       ),
+      row(button({ label: '잡기 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:catch`, style: 3 })),
     ],
   };
 }
@@ -1384,6 +1527,17 @@ function exploreViewBattle(snap, userId, note) {
         button({ label: '도망', emoji: '🏃', customId: `explore:run:${userId}:${snap.id}`, style: 2 }),
         bumpButton(userId, snap.id),
       ),
+      row(
+        button({ label: `공격 ×${MULTI_TURNS}`, emoji: '⚔️', customId: `explore:attack3:${userId}:${snap.id}`, style: 4 }),
+        button({ label: `잡기 ×${MULTI_THROWS}`, emoji: BALL.emoji, customId: `explore:catch3:${userId}:${snap.id}`, style: 3 }),
+        button({ label: '회복 ×3', emoji: '🧪', customId: `explore:heal3:${userId}:${snap.id}`, style: 1 }),
+        button({ label: '회복 가득', emoji: '🍶', customId: `explore:healfull:${userId}:${snap.id}`, style: 1 }),
+      ),
+      row(
+        button({ label: '공격 (턴 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:attack`, style: 4 }),
+        button({ label: '잡기 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:catch`, style: 3 }),
+        button({ label: '회복 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:heal`, style: 1 }),
+      ),
     ],
   };
 }
@@ -1394,14 +1548,41 @@ function exploreViewSnap(snap, userId, note) {
   return exploreViewExploring(snap, userId, note);
 }
 
+// 자동 회복(autoHeal) 결과를 한 줄 안내로 바꿔요
+function healResultText(out) {
+  if (out.kind === 'not_found') return '그 펫을 찾을 수 없어요 🤔 번호나 이름을 다시 확인해주세요! (`/펫` 에서 확인 가능)';
+  if (out.kind === 'in_battle') return '⚔️ 전투 중에는 전투 화면의 **[회복]** 버튼으로만 쓸 수 있어요!';
+  if (out.kind === 'none') return '🧪 회복약이 없어요 😭 `/구매` 나 `/상점` 에서 사올 수 있어요!';
+  const pet = PETS[out.inst.petId];
+  const name = `${GRADES[pet.grade].emoji} ${pet.emoji} **${out.inst.nickname ?? pet.name}**`;
+  if (out.kind === 'full') return `${name}의 체력은 이미 가득해요! 약을 아껴뒀어요 😊`;
+  return (
+    `${potionSummary(out.used)} 를 먹였어요! (❤️ +${out.after - out.before})\n` +
+    `${name} ❤️ ${out.before} → **${out.after}/${out.max}**` +
+    (out.after < out.max ? '\n(약이 모자라서 여기까지 채웠어요)' : '')
+  );
+}
+
 const exploreViewExpired = () =>
   update({
     embeds: [{ title: '🍃 이미 지나간 탐험이에요', description: '`/탐험` 으로 새로 떠나보세요!', color: 0x99aab5 }],
     components: [],
   });
 
+// 탐험이 끝난 화면 맨 아래에 붙는 버튼: 같은 곳 다시 탐험 / 체력 한 번에 회복
+function afterBattleComponents(userId, locationId) {
+  const loc = LOCATIONS[locationId];
+  if (!loc) return [];
+  return [
+    row(
+      button({ label: `다시 탐험 (${loc.name})`, emoji: '🌿', customId: `explore:again:${userId}:${locationId}`, style: 3 }),
+      button({ label: '체력 회복', emoji: '🧪', customId: `explore:rest:${userId}:-`, style: 1 }),
+    ),
+  ];
+}
+
 // 전투가 끝났을 때(승리/패배/무승부) 화면 — [공격]/[회복]/[잡기] 중 무엇으로 끝났든 똑같이 써요
-function battleOutcomeView(out) {
+function battleOutcomeView(out, userId) {
   if (out.kind === 'won') {
     const wild = PETS[out.wildPetId];
     const mine = PETS[out.myPetId];
@@ -1420,7 +1601,7 @@ function battleOutcomeView(out) {
       ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
       '\n`/탐험` 으로 계속 모험해요! 체력이 모자라면 `/사용` 으로 회복해요.',
     ].filter((x) => x !== null);
-    return update({ embeds: [{ title: '🏆 승리!', description: lines.join('\n'), color: 0x57f287 }], components: [] });
+    return update({ embeds: [{ title: '🏆 승리!', description: lines.join('\n'), color: 0x57f287 }], components: afterBattleComponents(userId, out.locationId) });
   }
 
   if (out.kind === 'lost') {
@@ -1437,7 +1618,7 @@ function battleOutcomeView(out) {
     ];
     return update({
       embeds: [{ title: `😵 ${removed.emoji} ${out.myName}(이)가 쓰러졌어요...`, description: lines.join('\n'), color: 0xed4245 }],
-      components: [],
+      components: afterBattleComponents(userId, out.locationId),
     });
   }
 
@@ -1449,7 +1630,7 @@ function battleOutcomeView(out) {
         description: `${out.log.join('\n')}\n\n\`/탐험\` 으로 다시 떠나볼 수 있어요!`,
         color: 0x99aab5,
       }],
-      components: [],
+      components: afterBattleComponents(userId, out.locationId),
     });
   }
 
@@ -1461,7 +1642,7 @@ function battleOutcomeView(out) {
         description: `${out.log.join('\n')}\n\n승부가 나지 않았어요. \`/탐험\` 으로 다시 도전해봐요!`,
         color: 0x99aab5,
       }],
-      components: [],
+      components: afterBattleComponents(userId, out.locationId),
     });
   }
 
@@ -1471,11 +1652,35 @@ function battleOutcomeView(out) {
 // ───────── 탐험 버튼 처리 ─────────
 
 async function exploreHandleButton(interaction, args) {
-  const [action, ownerId, id] = args;
+  let [action, ownerId, id, extra] = args;
   const user = getUser(interaction);
+  let count = null;
 
   if (user.id !== ownerId) {
     return reply({ content: '이 버튼은 탐험을 시작한 사람만 누를 수 있어요 🙅' }, { ephemeral: true });
+  }
+
+  // [✏️ 직접 입력] — 숫자 입력창을 띄워요
+  if (action === 'ask') {
+    const texts = {
+      attack: { title: '몇 턴 공격할까요?', label: '공격할 턴 수', placeholder: `1 ~ ${BATTLE_MAX_ROUNDS}` },
+      catch: { title: '해정볼을 몇 개 던질까요?', label: '던질 개수', placeholder: `1 ~ ${MAX_CUSTOM_COUNT}` },
+      heal: { title: '회복약을 몇 개 쓸까요?', label: '쓸 개수', placeholder: `1 ~ ${MAX_CUSTOM_COUNT}` },
+    };
+    if (!Object.hasOwn(texts, extra)) return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
+    return numberModal({ customId: `explore:go:${ownerId}:${id}:${extra}`, ...texts[extra] });
+  }
+
+  // 입력창 제출 — 적은 숫자만큼 실행해요
+  if (action === 'go') {
+    const n = Number(String(getModalValue(interaction, 'n') ?? '').trim());
+    const max = extra === 'attack' ? BATTLE_MAX_ROUNDS : MAX_CUSTOM_COUNT;
+    if (!Number.isInteger(n) || n < 1 || n > max) {
+      return reply({ content: `1 ~ ${max} 사이의 숫자를 적어주세요 🔢` }, { ephemeral: true });
+    }
+    if (!['attack', 'catch', 'heal'].includes(extra)) return reply({ content: '이 입력창은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
+    count = n;
+    action = extra === 'attack' ? 'attackN' : extra === 'catch' ? 'catchN' : 'healN';
   }
 
   if (action === 'fight') {
@@ -1501,9 +1706,18 @@ async function exploreHandleButton(interaction, args) {
     return update(exploreViewBattle(out.snap, user.id, '⚔️ 전투 시작! **[공격]** 으로 싸워요.'));
   }
 
-  if (action === 'attack' || action === 'heal') {
+  const BATTLE_ACTIONS = {
+    attack: (p) => battleSys.battleTurn(p, id, Date.now()),
+    attack3: (p) => battleSys.battleTurns(p, id, Date.now(), Math.random, MULTI_TURNS),
+    heal: (p) => battleSys.battleHeal(p, id, Date.now(), Math.random, 1),
+    heal3: (p) => battleSys.battleHeal(p, id, Date.now(), Math.random, 3),
+    healfull: (p) => battleSys.battleHeal(p, id, Date.now(), Math.random, 'full'),
+    attackN: (p) => battleSys.battleTurns(p, id, Date.now(), Math.random, count),
+    healN: (p) => battleSys.battleHeal(p, id, Date.now(), Math.random, count),
+  };
+  if (Object.hasOwn(BATTLE_ACTIONS, action)) {
     const out = await updatePlayer(user.id, (p) => {
-      const r = action === 'attack' ? battleSys.battleTurn(p, id, Date.now()) : battleSys.battleHeal(p, id, Date.now());
+      const r = BATTLE_ACTIONS[action](p);
       return { commit: r.commit === true, value: r };
     });
     if (!out || out.kind === 'expired') return exploreViewExpired();
@@ -1519,7 +1733,7 @@ async function exploreHandleButton(interaction, args) {
     if (out.kind === 'continue') {
       return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
     }
-    return battleOutcomeView(out); // won / lost / draw
+    return battleOutcomeView(out, user.id); // won / lost / draw
   }
 
   if (action === 'look') {
@@ -1534,9 +1748,12 @@ async function exploreHandleButton(interaction, args) {
     return update(exploreViewSnap(out.snap, user.id));
   }
 
-  if (action === 'catch') {
+  if (action === 'catch' || action === 'catch3' || action === 'catchN') {
     const out = await updatePlayer(user.id, (p) => {
-      const r = exploreSys.attemptCatch(p, id, Date.now());
+      const r =
+        action === 'catch3' || action === 'catchN'
+          ? exploreSys.attemptCatchMulti(p, id, Date.now(), Math.random, action === 'catchN' ? count : MULTI_THROWS)
+          : exploreSys.attemptCatch(p, id, Date.now());
       return { commit: r.commit === true, value: r };
     });
     if (!out || out.kind === 'expired') return exploreViewExpired();
@@ -1549,16 +1766,17 @@ async function exploreHandleButton(interaction, args) {
       return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
     }
     if (out.kind === 'won' || out.kind === 'lost' || out.kind === 'draw' || out.kind === 'wild_flee') {
-      return battleOutcomeView(out);
+      return battleOutcomeView(out, user.id);
     }
     if (out.kind === 'escaped') {
-      return update(exploreViewSnap(out.snap, user.id, `💨 앗! 빠져나왔어요! (남은 ${BALL.name} ${out.ballsLeft}개)`));
+      const head = out.log?.length ? out.log.join('\n') : '💨 앗! 빠져나왔어요!';
+      return update(exploreViewSnap(out.snap, user.id, `${head}\n(남은 ${BALL.name} ${out.ballsLeft}개)`));
     }
     if (out.kind === 'fled') {
       const pet = PETS[out.petId];
       return update({
-        embeds: [{ title: `💨 ${pet.emoji} ${pet.name}(이)가 도망쳤어요...`, description: `남은 ${BALL.name} ${out.ballsLeft}개\n\`/탐험\` 으로 다시 떠나봐요!`, color: 0xed4245 }],
-        components: [],
+        embeds: [{ title: `💨 ${pet.emoji} ${pet.name}(이)가 도망쳤어요...`, description: `${out.log?.length ? out.log.join('\n') + '\n\n' : ''}남은 ${BALL.name} ${out.ballsLeft}개\n\`/탐험\` 으로 다시 떠나봐요!`, color: 0xed4245 }],
+        components: afterBattleComponents(user.id, out.locationId),
       });
     }
 
@@ -1572,7 +1790,31 @@ async function exploreHandleButton(interaction, args) {
       ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
       `\n남은 ${BALL.name} ${out.ballsLeft}개 · \`/탐험\` 으로 계속 모험해요!`,
     ].filter(Boolean);
-    return update({ embeds: [{ title: '🎉 잡았다!', description: lines.join('\n'), color: 0x57f287 }], components: [] });
+    return update({ embeds: [{ title: '🎉 잡았다!', description: lines.join('\n'), color: 0x57f287 }], components: afterBattleComponents(user.id, out.locationId) });
+  }
+
+  // [다시 탐험] — 같은 장소로 바로 다시 떠나요 (id 자리에 장소 ID 가 들어 있어요)
+  if (action === 'again') {
+    const out = await updatePlayer(user.id, (p) => {
+      const r = exploreSys.startExploration(p, id, Date.now());
+      return { commit: r.commit === true, value: r };
+    });
+    if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    if (!out.ok) {
+      const msg = out.reason === 'locked' ? `🔒 아직 갈 수 없는 곳이에요! 트레이너 **Lv.${out.minLevel}** 이 되면 열려요.` : '그런 장소는 없어요 🤔';
+      return reply({ content: msg }, { ephemeral: true });
+    }
+    return update(exploreViewSnap(out.snap, user.id, out.resumed ? '이미 탐험 중이에요! 이어서 해볼까요?' : null));
+  }
+
+  // [체력 회복] — 대표 펫이 가득 찰 때까지 가진 약을 알아서 써요 (나한테만 보이는 답장이라 패널은 그대로예요)
+  if (action === 'rest') {
+    const out = await updatePlayer(user.id, (p) => {
+      const r = autoHeal(p, null, Date.now());
+      return { commit: r.commit === true, value: r };
+    });
+    if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    return reply({ content: healResultText(out) }, { ephemeral: true });
   }
 
   if (action === 'bump') {
@@ -1603,10 +1845,10 @@ async function exploreHandleButton(interaction, args) {
     if (out.kind === 'ran') {
       return update({
         embeds: [{ title: `🏃 ${PETS[out.petId].emoji} ${PETS[out.petId].name}에게서 도망쳤어요!`, description: '`/탐험` 으로 다시 떠나볼 수 있어요!', color: 0x99aab5 }],
-        components: [],
+        components: afterBattleComponents(user.id, out.locationId),
       });
     }
-    return battleOutcomeView(out); // 도망에 실패하고 그대로 승리/패배/무승부/도주로 전투가 끝난 경우
+    return battleOutcomeView(out, user.id); // 도망에 실패하고 그대로 승리/패배/무승부/도주로 전투가 끝난 경우
   }
 
   if (action === 'ignore' || action === 'quit') {
@@ -1619,7 +1861,7 @@ async function exploreHandleButton(interaction, args) {
       out.kind === 'ignored'
         ? `👋 ${PETS[out.petId].emoji} ${PETS[out.petId].name}(을)를 그냥 보내줬어요.`
         : '🚪 탐험을 마쳤어요.';
-    return update({ embeds: [{ title: text, description: '`/탐험` 으로 다시 떠나볼 수 있어요!', color: 0x99aab5 }], components: [] });
+    return update({ embeds: [{ title: text, description: '`/탐험` 으로 다시 떠나볼 수 있어요!', color: 0x99aab5 }], components: afterBattleComponents(user.id, out.locationId) });
   }
 
   return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
@@ -1656,6 +1898,13 @@ function shopView(player, userId, note) {
             disabled: player.gold < i.price * q,
           }),
         ),
+        button({
+          label: `${i.name} 최대`,
+          emoji: i.emoji,
+          customId: `shop:buy:${userId}:${i.id}:max`,
+          style: 1,
+          disabled: player.gold < i.price,
+        }),
       ),
     ),
   };
@@ -1687,7 +1936,7 @@ const shop = {
 
       let latest = null;
       const out = await updatePlayer(user.id, (p) => {
-        const r = shopSys.buyItem(p, itemId, Number(qtyStr));
+        const r = shopSys.buyItem(p, itemId, qtyStr === 'max' ? 'max' : Number(qtyStr));
         latest = p;
         return { commit: r.commit === true, value: r };
       });
@@ -1703,6 +1952,49 @@ const shop = {
         shopView(latest, user.id, `✅ ${item.emoji} **${item.name}** ${out.qty}개를 샀어요! (-${out.cost}골드, 보유 ${out.owned}개)`),
       );
     },
+  },
+};
+
+// ═════════════════════════════════════════════
+// /구매 — 상점을 열지 않고 원하는 개수를 바로 사요
+// ═════════════════════════════════════════════
+
+const buy = {
+  data: {
+    name: '구매',
+    description: '상점을 열지 않고 아이템을 원하는 개수만큼 바로 사요.',
+    type: 1,
+    options: [
+      {
+        type: 3,
+        name: '아이템',
+        description: '무엇을 살까요?',
+        required: true,
+        choices: SHOP_ITEMS.map((i) => ({ name: `${i.emoji} ${i.name} (${i.price}골드)`, value: i.id })),
+      },
+      { type: 4, name: '수량', description: `몇 개 살까요? (비우면 1개, 최대 ${MAX_BUY_AT_ONCE}개)`, required: false, min_value: 1, max_value: MAX_BUY_AT_ONCE },
+      { type: 5, name: '최대', description: '켜면 가진 골드로 살 수 있는 만큼 전부 사요', required: false },
+    ],
+  },
+
+  async execute(interaction) {
+    const user = getUser(interaction);
+    const itemId = getOption(interaction, '아이템');
+    const qty = getOption(interaction, '최대') ? 'max' : (getOption(interaction, '수량') ?? 1);
+
+    const out = await updatePlayer(user.id, (p) => {
+      const r = shopSys.buyItem(p, itemId, qty);
+      return { commit: r.commit === true, value: r };
+    });
+    if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    if (out.kind === 'unknown') return reply({ content: '그런 물건은 없거나 수량이 이상해요 🤔' }, { ephemeral: true });
+    if (out.kind === 'no_gold') {
+      return reply({ content: `💸 골드가 부족해요! (필요 ${out.cost.toLocaleString('ko-KR')} / 보유 ${out.gold.toLocaleString('ko-KR')})` }, { ephemeral: true });
+    }
+    const item = ITEMS[out.itemId];
+    return reply({
+      content: `✅ ${item.emoji} **${item.name}** ${out.qty}개를 샀어요! (-${out.cost.toLocaleString('ko-KR')}골드)\n보유 ${out.owned}개 · 💰 남은 골드 ${out.gold.toLocaleString('ko-KR')}`,
+    });
   },
 };
 
@@ -1918,6 +2210,39 @@ const dexCmd = {
 };
 
 // ═════════════════════════════════════════════
+// 공용: 펫 고르기 자동완성 (/별명 · /방생 · /훈련 · /사용 이 같이 써요)
+// 타이핑하는 동안 번호·이름으로 후보와 현재 체력을 미리 보여줘요
+// ═════════════════════════════════════════════
+
+async function petAutocomplete(interaction, optionName) {
+  const user = getUser(interaction);
+  const player = await getPlayer(user.id);
+  if (!player) return autocompleteResult([]);
+
+  const typed = String(getOption(interaction, optionName) ?? '').trim().toLowerCase();
+  const now = Date.now();
+
+  const choices = player.pets
+    .map((inst, i) => ({ inst, index: i + 1, label: inst.nickname ?? PETS[inst.petId].name }))
+    .filter((c) => !typed || `${c.index} ${c.label}`.toLowerCase().includes(typed))
+    .slice(0, 25)
+    .map((c) => {
+      const cur = currentHp(c.inst, now);
+      const max = maxHp(c.inst);
+      const crown = c.inst.uid === player.mainPetUid ? '👑 ' : '';
+      return {
+        name: `${crown}${c.index}. ${PETS[c.inst.petId].emoji} ${c.label} Lv.${c.inst.level} (❤${cur}/${max})`,
+        value: c.inst.uid,
+      };
+    });
+
+  return autocompleteResult(choices);
+}
+
+const PET_OPTION = (description) => ({ type: 3, name: '펫', description, required: true, autocomplete: true });
+const PET_NOT_FOUND = '그 펫을 찾을 수 없어요 🤔 번호나 이름을 다시 확인해주세요! (`/펫` 에서 확인 가능)';
+
+// ═════════════════════════════════════════════
 // /별명
 // ═════════════════════════════════════════════
 
@@ -1927,23 +2252,27 @@ const nickname = {
     description: '내 해정펫에게 별명을 지어줘요.',
     type: 1,
     options: [
-      { type: 4, name: '번호', description: '/펫 목록에 나온 번호', required: true, min_value: 1 },
+      PET_OPTION('별명을 지어줄 펫 (번호나 이름, 입력하면 목록이 떠요)'),
       { type: 3, name: '이름', description: `새 별명 (최대 ${NICKNAME_MAX}글자, 비우면 원래 이름으로)`, required: false, max_length: 30 },
     ],
   },
 
+  async autocomplete(interaction) {
+    return petAutocomplete(interaction, '펫');
+  },
+
   async execute(interaction) {
     const user = getUser(interaction);
-    const index = getOption(interaction, '번호');
+    const selector = getOption(interaction, '펫');
     const name = getOption(interaction, '이름');
 
     const out = await updatePlayer(user.id, (p) => {
-      const r = renamePet(p, index, name);
+      const r = renamePet(p, selector, name);
       return { commit: r.commit === true, value: r };
     });
 
     if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
-    if (out.kind === 'not_found') return reply({ content: '그 번호의 펫이 없어요 🤔 `/펫` 에서 번호를 확인해주세요!' }, { ephemeral: true });
+    if (out.kind === 'not_found') return reply({ content: PET_NOT_FOUND }, { ephemeral: true });
     if (out.kind === 'too_long') return reply({ content: `별명은 ${NICKNAME_MAX}글자까지만 지을 수 있어요 ✂️` }, { ephemeral: true });
     if (out.kind === 'bad_chars') return reply({ content: '별명에 쓸 수 없는 기호가 들어 있어요 🙅 (@ < > ` * _ ~ | \\)' }, { ephemeral: true });
 
@@ -1969,7 +2298,11 @@ const release = {
     name: '방생',
     description: '안 쓰는 해정펫을 보내주고 골드를 받아요.',
     type: 1,
-    options: [{ type: 4, name: '번호', description: '/펫 목록에 나온 번호', required: true, min_value: 1 }],
+    options: [PET_OPTION('보내줄 펫 (번호나 이름, 입력하면 목록이 떠요)')],
+  },
+
+  async autocomplete(interaction) {
+    return petAutocomplete(interaction, '펫');
   },
 
   async execute(interaction) {
@@ -1977,8 +2310,8 @@ const release = {
     const player = await getPlayer(user.id);
     if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
 
-    const inst = player.pets[getOption(interaction, '번호') - 1];
-    if (!inst) return reply({ content: '그 번호의 펫이 없어요 🤔 `/펫` 에서 번호를 확인해주세요!' }, { ephemeral: true });
+    const inst = resolvePetSelector(player, getOption(interaction, '펫'));
+    if (!inst) return reply({ content: PET_NOT_FOUND }, { ephemeral: true });
     if (inst.uid === player.mainPetUid) {
       return reply({ content: '👑 대표 펫은 보내줄 수 없어요! `/펫` 에서 다른 펫을 대표로 바꾼 뒤에 해주세요.' }, { ephemeral: true });
     }
@@ -2082,9 +2415,34 @@ function trainView(player, userId, inst, note) {
             disabled: atCap || player.gold < cost,
           }),
         ),
+        button({
+          label: '훈련 최대',
+          emoji: '🏋️',
+          customId: `train:go:${userId}:${inst.uid}:max`,
+          style: 1,
+          disabled: atCap || player.gold < cost,
+        }),
       ),
     ],
   };
+}
+
+// 훈련 결과가 오류일 때 보낼 답장 (없으면 null)
+function trainErrorReply(out) {
+  if (out.kind === 'not_found') return reply({ content: PET_NOT_FOUND }, { ephemeral: true });
+  if (out.kind === 'in_battle') return reply({ content: '⚔️ 전투 중인 대표 펫은 훈련할 수 없어요! 전투를 끝내고 와주세요.' }, { ephemeral: true });
+  if (out.kind === 'no_gold') return reply({ content: '💸 골드가 부족해요! 전투나 방생으로 모아보세요.' }, { ephemeral: true });
+  if (out.kind === 'cap') return reply({ content: '🔒 더 이상 훈련할 수 없어요! 트레이너 레벨을 올려보세요.' }, { ephemeral: true });
+  return null;
+}
+
+// 훈련 성공 안내 글자
+function trainNote(out) {
+  const parts = [`✅ ${out.done}회 훈련! 💰 -${out.spent} · ⭐ +${out.expGained}`];
+  if (out.levelsGained > 0) parts.push(`🎊 **레벨 업!** → Lv.${out.newLevel}`);
+  if (out.stop === 'no_gold') parts.push('골드가 모자라서 여기까지만 했어요.');
+  if (out.stop === 'cap') parts.push('레벨 상한에 도달해서 여기까지만 했어요.');
+  return parts.join('\n');
 }
 
 const train = {
@@ -2092,16 +2450,43 @@ const train = {
     name: '훈련',
     description: '골드를 내고 해정펫을 훈련시켜요.',
     type: 1,
-    options: [{ type: 4, name: '번호', description: '/펫 목록에 나온 번호', required: true, min_value: 1 }],
+    options: [
+      PET_OPTION('훈련시킬 펫 (번호나 이름, 입력하면 목록이 떠요)'),
+      { type: 4, name: '횟수', description: `바로 훈련할 횟수 (최대 ${MAX_TRAIN_AT_ONCE}회, 비우면 훈련장 화면이 열려요)`, required: false, min_value: 1, max_value: MAX_TRAIN_AT_ONCE },
+    ],
+  },
+
+  async autocomplete(interaction) {
+    return petAutocomplete(interaction, '펫');
   },
 
   async execute(interaction) {
     const user = getUser(interaction);
+    const times = getOption(interaction, '횟수');
+
+    // 횟수를 적었으면 훈련장 화면 없이 바로 훈련해요
+    if (times) {
+      let latest = null;
+      let uid = null;
+      const out = await updatePlayer(user.id, (p) => {
+        const inst = resolvePetSelector(p, getOption(interaction, '펫'));
+        if (!inst) return { commit: false, value: { kind: 'not_found' } };
+        uid = inst.uid;
+        const r = trainPet(p, inst.uid, times);
+        latest = p;
+        return { commit: r.commit === true, value: r };
+      });
+      if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+      const err = trainErrorReply(out);
+      if (err) return err;
+      return reply(trainView(latest, user.id, latest.pets.find((x) => x.uid === uid), trainNote(out)));
+    }
+
     const player = await getPlayer(user.id);
     if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
 
-    const inst = player.pets[getOption(interaction, '번호') - 1];
-    if (!inst) return reply({ content: '그 번호의 펫이 없어요 🤔 `/펫` 에서 번호를 확인해주세요!' }, { ephemeral: true });
+    const inst = resolvePetSelector(player, getOption(interaction, '펫'));
+    if (!inst) return reply({ content: PET_NOT_FOUND }, { ephemeral: true });
     return reply(trainView(player, user.id, inst));
   },
 
@@ -2117,22 +2502,16 @@ const train = {
 
       let latest = null;
       const out = await updatePlayer(user.id, (p) => {
-        const r = trainPet(p, uid, Number(timesStr));
+        const r = trainPet(p, uid, timesStr === 'max' ? 'max' : Number(timesStr));
         latest = p;
         return { commit: r.commit === true, value: r };
       });
       if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
-      if (out.kind === 'not_found') return reply({ content: '그 펫을 찾을 수 없어요 🤔 `/펫` 으로 다시 확인해주세요!' }, { ephemeral: true });
-      if (out.kind === 'in_battle') return reply({ content: '⚔️ 전투 중인 대표 펫은 훈련할 수 없어요! 전투를 끝내고 와주세요.' }, { ephemeral: true });
-      if (out.kind === 'no_gold') return reply({ content: '💸 골드가 부족해요! 전투나 방생으로 모아보세요.' }, { ephemeral: true });
-      if (out.kind === 'cap') return reply({ content: '🔒 더 이상 훈련할 수 없어요! 트레이너 레벨을 올려보세요.' }, { ephemeral: true });
+      const err = trainErrorReply(out);
+      if (err) return err;
 
       const inst = latest.pets.find((x) => x.uid === uid);
-      const parts = [`✅ ${out.done}회 훈련! 💰 -${out.spent} · ⭐ +${out.expGained}`];
-      if (out.levelsGained > 0) parts.push(`🎊 **레벨 업!** → Lv.${out.newLevel}`);
-      if (out.stop === 'no_gold') parts.push('골드가 모자라서 여기까지만 했어요.');
-      if (out.stop === 'cap') parts.push('레벨 상한에 도달해서 여기까지만 했어요.');
-      return update(trainView(latest, user.id, inst, parts.join('\n')));
+      return update(trainView(latest, user.id, inst, trainNote(out)));
     },
   },
 };
@@ -2144,17 +2523,17 @@ const train = {
 const use = {
   data: {
     name: '사용',
-    description: '회복약을 써서 해정펫의 체력을 채워요.',
+    description: '회복약을 써서 해정펫의 체력을 채워요. 약을 안 고르면 가득 찰 때까지 알아서 써요!',
     type: 1,
     options: [
       {
         type: 3,
         name: '아이템',
-        description: '어떤 약을 쓸까요?',
-        required: true,
+        description: '어떤 약을 쓸까요? (비우면 가득 찰 때까지 알아서 골라 써요)',
+        required: false,
         choices: POTIONS.map((i) => ({ name: `${i.emoji} ${i.name}`, value: i.id })),
       },
-      { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? (비우면 1개, 일괄 사용 가능)', required: false, min_value: 1 },
+      { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? (비우면 1개, 많이 적어도 가득 찰 때까지만 써요)', required: false, min_value: 1 },
       {
         type: 3,
         name: '대상',
@@ -2170,6 +2549,17 @@ const use = {
     const itemId = getOption(interaction, '아이템');
     const qty = getOption(interaction, '수량') ?? 1;
     const target = getOption(interaction, '대상');
+
+    // 약을 안 골랐으면: 가진 약을 알아서 섞어서 가득 찰 때까지 써요
+    if (!itemId) {
+      const auto = await updatePlayer(user.id, (p) => {
+        const r = autoHeal(p, target, Date.now());
+        return { commit: r.commit === true, value: r };
+      });
+      if (auto === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+      const text = healResultText(auto);
+      return reply({ content: text }, { ephemeral: auto.kind !== 'healed' });
+    }
 
     const out = await updatePlayer(user.id, (p) => {
       const r = useItem(p, itemId, target, qty);
@@ -2202,28 +2592,7 @@ const use = {
 
   // "대상" 칸에 타이핑하는 동안 주식봇처럼 실시간으로 후보와 현재 체력을 미리 보여줘요
   async autocomplete(interaction) {
-    const user = getUser(interaction);
-    const player = await getPlayer(user.id);
-    if (!player) return autocompleteResult([]);
-
-    const typed = String(getOption(interaction, '대상') ?? '').trim().toLowerCase();
-    const now = Date.now();
-
-    const choices = player.pets
-      .map((inst, i) => ({ inst, index: i + 1, label: inst.nickname ?? PETS[inst.petId].name }))
-      .filter((c) => !typed || `${c.index} ${c.label}`.toLowerCase().includes(typed))
-      .slice(0, 25)
-      .map((c) => {
-        const cur = currentHp(c.inst, now);
-        const max = maxHp(c.inst);
-        const crown = c.inst.uid === player.mainPetUid ? '👑 ' : '';
-        return {
-          name: `${crown}${c.index}. ${PETS[c.inst.petId].emoji} ${c.label} (❤${cur}/${max})`,
-          value: c.inst.uid,
-        };
-      });
-
-    return autocompleteResult(choices);
+    return petAutocomplete(interaction, '대상');
   },
 };
 
@@ -2255,7 +2624,8 @@ const help = {
               {
                 name: '🌿 탐험',
                 value:
-                  '`/탐험` 으로 장소를 골라 떠나요. **[살펴보기]** 를 누르면 야생 펫이 나타나요.\n' +
+                  '`/탐험` 으로 장소를 골라 떠나요 (장소를 비우면 지난번 장소로 가요). **[살펴보기]** 를 누르면 야생 펫이 나타나요.\n' +
+                  '탐험이 끝나면 **[다시 탐험]** · **[체력 회복]** 버튼이 떠서 명령어를 다시 안 쳐도 돼요.\n' +
                   '`/장소` 에서 갈 수 있는 곳과 만나는 펫을 볼 수 있어요.',
               },
               {
@@ -2269,6 +2639,10 @@ const help = {
                 name: '⚔️ 전투',
                 value:
                   `**[공격]**, **[잡기]**, **[회복]**, **[도망]** 은 모두 한 턴을 써요. 턴 끝에는 야생 펫이 반격해요.\n` +
+                  `**[공격 ×${MULTI_TURNS}]** · **[잡기 ×${MULTI_THROWS}]** 로 여러 턴을 한 번에 진행해요 (내 체력이 ${pct(MULTI_STOP_HP_RATIO)}% 이하면 자동으로 멈춰요).\n` +
+                  `**[회복 ×3]** · **[회복 가득]** 은 약을 여러 개 먹어도 야생 펫은 한 번만 공격해요.\n` +
+                  `**[✏️ 직접 입력]** 버튼은 숫자 입력창이 떠서 원하는 만큼(공격 최대 ${BATTLE_MAX_ROUNDS}턴, 잡기·회복 최대 ${MAX_CUSTOM_COUNT}개) 한 번에 해요.\n` +
+                  `🎰 이기면 0.1% 확률로 경험치·골드 **3배**, 0.5% 확률로 **2배**!\n` +
                   `치명타 확률 ${pct(CRIT_CHANCE)}%, 회피 확률 ${pct(EVADE_CHANCE)}%(공격이 통째로 빗나가요), ` +
                   `매 턴 ${pct(WILD_FLEE_CHANCE)}% 확률로 야생 펫이 겁먹고 도망가요.\n` +
                   `**[도망]** 은 ${pct(FLEE_FAIL_CHANCE)}% 확률로 실패해서 턴을 날릴 수 있어요. ` +
@@ -2278,17 +2652,18 @@ const help = {
               {
                 name: '🧪 회복',
                 value:
-                  '`/사용` 으로 회복약을 써요. 수량을 골라 여러 개를 한 번에 쓸 수도 있어요.\n' +
+                  '`/사용` 으로 회복약을 써요. 수량을 골라 여러 개를 한 번에 쓸 수도 있고, 약을 안 고르면 가득 찰 때까지 알아서 써요.\n' +
                   '전투 중에는 **[회복]** 버튼으로 한 턴에 한 개씩 써요.',
               },
               {
                 name: '🐾 펫 관리',
                 value:
-                  '`/펫` 으로 목록과 대표 펫(👑)을 확인해요. `/별명`, `/훈련`, `/방생` 으로 키우고 정리해요.',
+                  '`/펫` 으로 목록과 대표 펫(👑)을 확인해요. `/별명`, `/훈련`, `/방생` 은 번호 대신 **이름으로 골라도** 돼요 (입력하면 목록이 떠요).\n' +
+                  '`/훈련` 은 횟수를 적으면 훈련장 없이 바로 훈련해요.',
               },
               {
                 name: '🛒 상점 · 도감 · 가방',
-                value: '`/상점` 에서 골드로 아이템을 사고, `/가방` 에서 가진 물건을 봐요. `/도감` 은 만난 펫을 기록해요.',
+                value: '`/상점` 에서 골드로 아이템을 사요 (1·5·10개, **최대** 버튼). `/구매` 는 상점을 안 열고 원하는 개수를 바로 사요. `/가방` 에서 가진 물건을 봐요. `/도감` 은 만난 펫을 기록해요.',
               },
             ],
             footer: { text: '잡기 규칙 숫자는 설정값에 따라 자동으로 바뀌어요.' },
@@ -2304,7 +2679,7 @@ const help = {
 // 내보내기: router.js 가 이 목록을 그대로 써요
 // ═════════════════════════════════════════════
 
-const commandModules = [start, profile, places, explore, shop, bag, pets, dexCmd, nickname, release, train, use, help];
+const commandModules = [start, profile, places, explore, shop, buy, bag, pets, dexCmd, nickname, release, train, use, help];
 
 // ============================================================
 // 라우터 (router.js)
@@ -2344,7 +2719,8 @@ export async function handleInteraction(interaction) {
       return cmd.autocomplete(interaction);
     }
 
-    case InteractionType.COMPONENT: {
+    case InteractionType.COMPONENT:
+    case InteractionType.MODAL_SUBMIT: {
       const [prefix, ...args] = interaction.data.custom_id.split(':');
       const handler = componentHandlers.get(prefix);
       if (!handler) return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
@@ -2354,4 +2730,4 @@ export async function handleInteraction(interaction) {
     default:
       return reply({ content: '아직 모르는 종류의 요청이에요 🤔' }, { ephemeral: true });
   }
-}
+}19
