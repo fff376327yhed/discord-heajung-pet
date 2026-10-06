@@ -41,9 +41,11 @@ main{padding:16px;max-width:1100px;margin:0 auto;display:grid;gap:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
 .card h3{margin:0 0 8px;font-size:15px}
 .hint{color:var(--sub);font-size:13px;margin:0 0 8px}
-.row{display:grid;grid-template-columns:1fr 130px 38px;gap:8px;align-items:center;padding:6px 8px;border-radius:8px}
+.row{display:grid;grid-template-columns:1fr 150px 38px;gap:8px;align-items:center;padding:6px 8px;border-radius:8px}
 .row.chg,td.chg{background:var(--chg)}
 .row code,.hint code{color:var(--sub);font-size:12px}
+.easy{color:var(--ink);opacity:.85;font-size:13.5px;margin:2px 0 3px;max-width:62ch}
+.unit{display:block;color:var(--sub);font-size:12px;margin-top:3px}
 .tools{display:flex;gap:8px;flex-wrap:wrap}
 .tools>*{flex:1;min-width:140px}.tools>button{flex:0 0 auto}
 .wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
@@ -56,7 +58,7 @@ td input,td select{min-width:64px}td input[type=text]{min-width:110px}
 #toast.bad{border-left-color:var(--bad)}
 #toast ul{margin:4px 0 0;padding-left:18px}
 textarea{min-height:180px;font:12px/1.5 ui-monospace,Consolas,monospace}
-@media(max-width:560px){.row{grid-template-columns:1fr 100px 38px}nav{top:104px}}
+@media(max-width:560px){.row{grid-template-columns:1fr 110px 38px}nav{top:104px}}
 @media(prefers-reduced-motion:no-preference){button{transition:border-color .15s}}
 </style>
 </head>
@@ -188,29 +190,113 @@ function askId(kind) {
   return id;
 }
 
+// ───────── 쉬운 설명 (이름 · 설명 · 단위) ─────────
+// 단위: pct = 0.1 → 10% 로 보여줘요 / ms = 밀리초 → 분·시간 / sec = 초 → 분 / 없으면 그냥 숫자
+const G = { base: '🎮 시작 · 기본', catch: '🔴 펫 잡기', fight: '⚔️ 싸우기', win: '💰 이겼을 때 보상', easy: '🧰 편의 기능', boost: '🚀 부스트 · 시간 단축', wait: '⏳ 탐험 기다리기', grow: '🌱 키우기', hp: '❤️ 체력 회복', att: '📅 출석 · 도감 보상', duel: '🥊 유저 대결', trade: '🤝 펫 거래', item: '🍖 잡기 아이템' };
+const HELP = {
+  MAX_LEVEL: [G.base, '최고 레벨', '트레이너와 펫이 올라갈 수 있는 맨 꼭대기 레벨이에요. 100이면 100레벨에서 멈춰요.'],
+  START_GOLD: [G.base, '처음 받는 골드', '모험을 처음 시작할 때 지갑에 들어 있는 돈이에요. 1000이면 1000골드를 받아요.'],
+  START_BALLS: [G.base, '처음 받는 해정볼 개수', '펫을 잡을 때 던지는 공이에요. 시작할 때 몇 개를 줄지 정해요.'],
+  CATCH_DROP_PER_TRY: [G.catch, '공을 던질 때마다 줄어드는 잡을 확률', '같은 펫에게 공을 던질 때마다 잡힐 확률이 이만큼씩 내려가요. 0.1이면 10%씩 줄어요. 자꾸 던질수록 점점 어려워져요.', 'pct'],
+  FLEE_BASE: [G.catch, '처음 실패했을 때 도망갈 확률', '공이 빠져나오면 펫이 도망갈 수도 있어요. 첫 번째 실패에서 도망갈 가능성이에요. 0.25면 4번 중 1번꼴이에요.', 'pct'],
+  FLEE_RISE_PER_TRY: [G.catch, '실패할수록 늘어나는 도망 확률', '공이 빠져나올 때마다 도망갈 확률이 이만큼 더 커져요. 0.35면 35%씩 늘어요.', 'pct'],
+  FLEE_MAX: [G.catch, '도망 확률의 맨 위 한계', '도망 확률이 아무리 커져도 이 숫자는 못 넘어요. 0.9면 아무리 실패해도 최대 90%예요.', 'pct'],
+  BATTLE_MAX_ROUNDS: [G.fight, '싸움 최대 턴 수', '이 턴 안에 승부가 안 나면 야생 펫이 도망가고 비겨요. 15면 서로 15번 공격하면 끝나요.'],
+  CRIT_CHANCE: [G.fight, '급소 맞힐 확률', '공격이 급소에 딱 맞으면 1.5배로 아파요. 0.1이면 10번에 1번꼴이에요.', 'pct'],
+  EVADE_CHANCE: [G.fight, '내 펫이 공격을 피할 확률', '야생 펫의 공격을 휙 피하면 데미지가 0이에요. 0.03이면 100번에 3번이에요.', 'pct'],
+  WILD_FLEE_CHANCE: [G.fight, '야생 펫이 겁먹고 도망갈 확률', '턴이 끝날 때마다 야생 펫이 무서워서 혼자 도망갈 수 있어요. 0.01이면 100번에 1번이에요.', 'pct'],
+  GOLD_PER_YIELD: [G.win, '이기면 받는 골드 배율', '이겼을 때 골드는 "야생 펫의 경험치 점수 × 이 숫자"예요. 클수록 골드를 많이 줘요.'],
+  WIN_TRAINER_EXP_MULT: [G.win, '이기면 트레이너가 받는 경험치 배율', '클수록 트레이너가 빨리 레벨업해요. 1.5면 1.5배예요.'],
+  WIN_PET_EXP_MULT: [G.win, '이기면 내 펫이 받는 경험치 배율', '클수록 펫이 빨리 커요. 트레이너 배율보다 크게 해두면 펫이 더 빨리 커요.'],
+  BONUS_TRIPLE_CHANCE: [G.win, '대박! 3배 보상 확률', '이겼을 때 아주 가끔 경험치와 골드를 3배로 줘요. 0.001이면 0.1%, 1000번에 1번이에요.', 'pct'],
+  BONUS_DOUBLE_CHANCE: [G.win, '2배 보상 확률', '이겼을 때 가끔 2배로 줘요. 0.005면 0.5%예요. 3배와 한꺼번에 나오지는 않아요.', 'pct'],
+  HEAL_FULL_CAP: [G.easy, '[회복 가득]에 쓸 약 최대 개수', '한 번에 약을 너무 많이 쓰지 않게 막는 안전장치예요.'],
+  MULTI_TURNS: [G.easy, '[공격 ×3] 한 번에 싸우는 턴 수', '버튼 한 번에 몇 번 공격할지예요. 3이면 3번 연속으로 공격해요.'],
+  MULTI_THROWS: [G.easy, '[잡기 ×3] 한 번에 던지는 공 개수', '버튼 한 번에 공을 몇 개 던질지예요.'],
+  MULTI_STOP_HP_RATIO: [G.easy, '연속 행동이 멈추는 체력', '연속으로 싸우다가 내 펫 체력이 이만큼 이하가 되면 위험해서 멈춰요. 0.3이면 체력이 30% 이하일 때예요.', 'pct'],
+  MAX_BUY_AT_ONCE: [G.easy, '한 번에 살 수 있는 최대 개수', '상점에서 한꺼번에 너무 많이 사는 걸 막아요.'],
+  MAX_TRAIN_AT_ONCE: [G.easy, '한 번에 할 수 있는 최대 훈련 횟수', '훈련을 한꺼번에 몇 번까지 시킬 수 있는지예요.'],
+  MAX_CUSTOM_COUNT: [G.easy, '[직접 입력]에 넣을 수 있는 최대 숫자', '싸우는 중에 개수를 직접 적을 때 넣을 수 있는 가장 큰 숫자예요.'],
+  BOOST_PCT: [G.boost, '경험치 부스트 효과', '부스트 아이템을 켜면 경험치를 이만큼 더 줘요. 0.3이면 30% 더 많이 받아요.', 'pct'],
+  SPEEDUP_PCT: [G.boost, '탐험 시간 단축 효과', '아이템 1개를 쓰면 남은 기다림이 이만큼 줄어요. 0.3이면 30% 짧아져요.', 'pct'],
+  SPEEDUP_MIN_SEC: [G.boost, '단축해도 남는 최소 시간', '아무리 줄여도 기다리는 시간이 이 시간보다 짧아지지는 않아요.', 'sec'],
+  SPEEDUP_BLOCK_SEC: [G.boost, '이 시간 이하면 단축 못 써요', '거의 다 기다렸는데 아이템을 쓰면 아깝죠. 남은 시간이 이 시간 이하면 못 쓰게 막아요.', 'sec'],
+  LEVEL_WAIT_BONUS: [G.wait, '센 레벨일 때 더 기다리는 정도', '그 지역에서 가장 높은 레벨의 펫이 나올 차례면 기다림이 이만큼 길어져요. 0.4면 40% 더 길어요.', 'pct'],
+  MAX_WAIT_SEC: [G.wait, '탐험 기다림 최대 시간', '아무리 길어도 이 시간까지만 기다려요. 300초는 5분이에요.', 'sec'],
+  FAKE_OUT_CHANCE: [G.wait, '훼이크 확률', '오래 기다리게 해서 센 펫이 나올 것처럼 속이고, 실제로는 평범한 펫이 나오는 장난이에요. 0.12면 12%예요.', 'pct'],
+  FAKE_OUT_MIN_GAP: [G.wait, '훼이크 최소 차이 (배)', '훼이크는 진짜 펫보다 이 배수 이상 센 펫처럼 보일 때만 해요. 1.2면 1.2배예요.'],
+  NICKNAME_MAX: [G.grow, '별명 최대 글자 수', '펫에게 지어줄 수 있는 별명의 최대 길이예요.'],
+  RELEASE_LEVEL_BONUS: [G.grow, '방생할 때 레벨마다 늘어나는 골드', '펫을 놓아주면 골드를 받아요. 받는 골드는 "등급 기본 골드 × (1 + 레벨 × 이 숫자)"예요. 레벨이 높을수록 많이 받아요.', 'pct'],
+  TRAIN_BASE_COST: [G.grow, '훈련 기본 비용 (골드)', '훈련 1번의 값은 "이 숫자 + 펫 레벨 × 레벨당 비용"이에요.'],
+  TRAIN_COST_PER_LEVEL: [G.grow, '훈련 레벨당 추가 비용 (골드)', '펫 레벨이 1 오를 때마다 훈련비가 이만큼 비싸져요.'],
+  TRAIN_EXP_RATIO: [G.grow, '훈련 1번으로 얻는 경험치 비율', '다음 레벨까지 필요한 경험치의 이 비율만큼 얻어요. 0.4면 40%라서 3번 하면 레벨업해요.', 'pct'],
+  TRAIN_LEVEL_CAP_OVER_TRAINER: [G.grow, '훈련으로 트레이너보다 더 클 수 있는 레벨', '트레이너가 10레벨이고 이 값이 10이면, 훈련으로는 펫이 20레벨까지만 커요.'],
+  HP_REGEN_PCT_PER_MIN: [G.hp, '1분마다 저절로 회복되는 체력', '가만히 두면 1분마다 최대 체력의 이만큼이 차올라요. 0.02면 2%, 텅 빈 체력이 가득 차려면 약 50분이에요.', 'pct'],
+  ATTENDANCE_BALLS: [G.att, '출석 보상: 해정볼 개수', '출석체크를 하면 받는 해정볼이에요.'],
+  ATTENDANCE_GOLD: [G.att, '출석 보상: 골드', '출석체크를 하면 받는 골드예요.'],
+  DEX_GOLD_MULT: [G.att, '도감 완성 골드 배율', '한 지역의 도감을 다 채우면 골드를 줘요. 그 지역에서 제일 센 펫을 이겼을 때 받는 골드의 이 배수만큼이에요.'],
+  DUEL_MAX_ROUNDS: [G.duel, '유저 대결 최대 라운드', '이 라운드 안에 승부가 안 나면 남은 체력이 더 많은 쪽이 이겨요.'],
+  DUEL_CHALLENGE_TTL_MS: [G.duel, '대결 신청 유효 시간', '신청하고 이 시간 안에 상대가 받아줘야 해요. 지나면 사라져요.', 'ms'],
+  DUEL_USE_FULL_HP: [G.duel, '대결은 항상 가득 찬 체력으로', '체크하면 다친 펫도 풀 체력으로 싸워요. 끄면 지금 체력 그대로 싸워요. 대결이 끝나면 체력은 어차피 원래대로 돌아와요.'],
+  DUEL_LOG_MAX_CHARS: [G.duel, '대결 기록 최대 글자 수', '디스코드는 한 번에 보낼 수 있는 글자 수가 정해져 있어요. 너무 길면 앞부분을 줄여요. 보통은 건드리지 않아도 돼요.'],
+  TRADE_DAILY_LIMIT: [G.trade, '하루 거래 횟수', '하루(한국 시간 0시 기준)에 거래할 수 있는 횟수예요. 보내는 사람과 받는 사람이 각자 세요.'],
+  TRADE_MIN_TRAINER_LEVEL: [G.trade, '거래할 수 있는 최소 트레이너 레벨', '이 레벨이 안 되면 거래를 못 해요.'],
+  TRADE_MIN_ACCOUNT_AGE_MS: [G.trade, '거래할 수 있는 계정 나이', '모험을 시작한 지 이 시간이 지나야 거래할 수 있어요. 새 계정을 잔뜩 만들어 펫을 몰아주는 걸 막아요.', 'ms'],
+  TRADE_MAX_GRADE_GAP: [G.trade, '교환할 수 있는 등급 차이', '바꾸는 두 펫의 등급 차이가 이 단계까지만 가능해요. 1이면 희귀↔영웅은 되고 희귀↔전설은 안 돼요.'],
+  TRADE_MAX_LEVEL_GAP: [G.trade, '교환할 수 있는 레벨 차이', '바꾸는 두 펫의 레벨이 이만큼 이상 차이 나면 거래할 수 없어요.'],
+  TRADE_PET_COOLDOWN_MS: [G.trade, '받은 펫 거래 금지 시간', '거래로 받은 펫은 이 시간 동안 또 거래할 수 없어요. 계속 돌려가며 거래하는 걸 막아요.', 'ms'],
+  TRADE_FEE_RATE: [G.trade, '거래 수수료 비율', '수수료 = 내가 보내는 펫의 방생 골드 × 이 숫자예요. 0.5면 절반이에요. 수수료는 사라져서, 게임에 돈이 너무 많아지는 걸 막아줘요.', 'pct'],
+  TRADE_FEE_MIN: [G.trade, '거래 수수료 최소 금액 (골드)', '계산한 수수료가 이보다 적어도 최소한 이만큼은 받아요.'],
+  TRADE_TTL_MS: [G.trade, '거래 신청 유효 시간', '신청하고 이 시간 안에 상대가 받아줘야 해요. 지나면 사라져요.', 'ms'],
+  CATCH_MAX_CHANCE: [G.item, '아이템 없이 잡을 수 있는 최대 확률', '아무리 쉬운 펫도 이 확률을 넘지 않아요. 0.95면 최대 95%예요.', 'pct'],
+  CATCH_MAX_WITH_ITEMS: [G.item, '아이템을 써도 넘지 못하는 확률', '100% 확정 잡기는 없어요. 0.98이면 아이템을 잔뜩 써도 최대 98%예요.', 'pct'],
+  CATCH_BAIT_BONUS_CAP: [G.item, '간식·꿀 효과 합계 최대치', '간식과 꿀을 여러 개 써도 합쳐서 이만큼까지만 늘어요. 1이면 +100%, 즉 2배까지예요.', 'pct'],
+  CATCH_NET_FLEE_REDUCE: [G.item, '끈끈이 그물이 줄여주는 도망 확률', '그물을 쓰면 도망갈 확률이 이만큼 내려가요. 0.3이면 30%p 내려가요.', 'pct'],
+  CATCH_NET_FLEE_MIN: [G.item, '그물을 써도 남는 최소 도망 확률', '그물을 써도 도망 확률이 이 아래로는 안 내려가요.', 'pct'],
+  CATCH_ITEM_COSTS_TURN: [G.item, '싸우는 중 잡기 아이템이 턴을 쓰는지', '체크하면 아이템을 쓰는 동안 야생 펫이 때려요. 끄면 공짜로 쓸 수 있어요. (분석기는 항상 공짜예요)'],
+  CATCH_NEG_FLOOR: [G.item, '센 펫 포획 계산값의 맨 아래 한계', '전설 같은 센 펫은 계산하다가 0% 아래로 내려가기도 해요. 0% 이하면 못 잡아요. 이 값은 계산이 내려갈 수 있는 맨 아래예요. -0.3이면 -30%.', 'pct'],
+  CATCH_MIN_CHANCE: [G.item, '쉬운 등급의 최소 잡기 확률', '일반·고급·희귀 펫은 아무리 어려워져도 이 확률은 남겨요. 0.02면 2%예요.', 'pct'],
+};
+const dur = (sec) => (sec >= 3600 ? `${+(sec / 3600).toFixed(2)}시간` : sec >= 60 ? `${+(sec / 60).toFixed(2)}분` : `${+sec.toFixed(2)}초`);
+function fmt(k, v) {
+  const u = HELP[k]?.[3];
+  if (typeof v === 'boolean') return v ? '켜짐' : '꺼짐';
+  if (u === 'pct') return `${+(v * 100).toFixed(2)}%`;
+  if (u === 'ms') return dur(v / 1000);
+  if (u === 'sec') return dur(v);
+  return String(v);
+}
+const COLS = { name: '이름', emoji: '이모지', order: '정렬 순서', missChance: '내 공격 빗나갈 확률', critChance: '적이 급소 칠 확률', fleeFail: '도망 실패 확률', aura: '등장 문구', min: '최소(초)', max: '최대(초)', maxLevel: '이 레벨까지', base: '기본값', step: '챕터마다 추가', balls: '해정볼', potions: '회복약', telescopes: '망원경', speedups: '시간 감소', boosts: '경험치 부스트' };
+
 // ───────── 탭: 설정 ─────────
 function tabSettings() {
-  const q = h('input', { type: 'search', placeholder: '설정 검색 (이름·설명·분류)' });
+  const q = h('input', { type: 'search', placeholder: '찾기 (예: 도망, 골드, 거래)' });
   const box = h('div', { style: 'display:grid;gap:14px;margin-top:14px' });
+  const info = (k) => HELP[k] ?? ['기타', k, META[k].desc];
   const rowFor = (k) => {
-    const m = META[k], isBool = typeof D.scalars[k] === 'boolean';
+    const [, title, easy] = info(k), isBool = typeof D.scalars[k] === 'boolean';
     const row = h('div', { class: 'row' });
-    const sync = () => row.classList.toggle('chg', cur.scalars[k] !== D.scalars[k]);
+    const note = h('small', { class: 'unit' });
+    const sync = () => { row.classList.toggle('chg', cur.scalars[k] !== D.scalars[k]); note.textContent = `${fmt(k, cur.scalars[k])} (기본 ${fmt(k, D.scalars[k])})`; };
     const input = isBool ? checkInput(cur.scalars, k, sync) : numInput(cur.scalars, k, { onchange: sync });
-    const reset = h('button', { title: `기본값 ${D.scalars[k]} 로`, 'aria-label': '기본값으로', onclick: () => { cur.scalars[k] = D.scalars[k]; draw(); touch(); } }, '↺');
-    row.append(h('div', {}, m.desc, ' ', h('code', {}, k)), input, reset);
+    const reset = h('button', { title: `기본값(${fmt(k, D.scalars[k])})으로 되돌리기`, 'aria-label': '기본값으로', onclick: () => { cur.scalars[k] = D.scalars[k]; draw(); touch(); } }, '↺');
+    row.append(h('div', {}, h('b', {}, title), h('div', { class: 'easy' }, easy), h('code', {}, k)), h('div', {}, input, note), reset);
     sync();
     return row;
   };
   const draw = () => {
     const f = q.value.trim().toLowerCase(), groups = {};
-    for (const k in cur.scalars) if (!f || `${k} ${META[k].desc} ${META[k].section}`.toLowerCase().includes(f)) (groups[META[k].section] ??= []).push(k);
-    box.replaceChildren(...Object.entries(groups).map(([s, ks]) => h('section', { class: 'card' }, h('h3', {}, s), ks.map(rowFor))));
-    if (!box.children.length) box.append(h('p', { class: 'empty' }, '검색 결과가 없어요'));
+    for (const k in cur.scalars) {
+      const [g, t, e] = info(k);
+      if (!f || `${k} ${g} ${t} ${e}`.toLowerCase().includes(f)) (groups[g] ??= []).push(k);
+    }
+    const order = Object.values(G);
+    box.replaceChildren(...Object.entries(groups).sort((x, y) => order.indexOf(x[0]) - order.indexOf(y[0])).map(([s, ks]) => h('section', { class: 'card' }, h('h3', {}, s), ks.map(rowFor))));
+    if (!box.children.length) box.append(h('p', { class: 'empty' }, '찾는 설정이 없어요'));
   };
   q.addEventListener('input', draw);
   draw();
-  return h('div', {}, q, box);
+  return h('div', {}, h('p', { class: 'hint' }, '숫자를 바꾸면 노란색으로 표시돼요. ↺ 를 누르면 처음 값으로 돌아가요. 퍼센트(%)로 쓰는 값은 0.1 = 10% 예요. 바꾼 뒤 위쪽 [저장]을 눌러야 적용돼요.'), q, box);
 }
 
 // ───────── 탭: 펫 ─────────
@@ -326,14 +412,14 @@ function tabLocations() {
 
 // ───────── 탭: 등급·표 ─────────
 const TABLE_INFO = {
-  GRADES: '등급 이름 · 이모지 · 정렬 순서',
-  GRADE_EFFECTS: '등급별 위압감 (빗나감·급소·도망 실패 확률, 안내 문구)',
-  GRADE_WAIT_MULT: '등급별 탐험 대기 시간 배수',
-  RELEASE_BASE_GOLD: '등급별 방생 기본 골드',
-  TRADE_GRADE_MIN_LEVEL: '등급별 거래 최소 트레이너 레벨',
-  CATCH_GRADE_PENALTY: '등급별 포획 확률 깎임값 (0.03 = -3%p)',
-  WAIT_TIERS: '트레이너 레벨 구간별 탐험 대기 시간 (초)',
-  DEX_REWARD: '도감 챕터 보상 (기본값 + 챕터당 추가량)',
+  GRADES: '펫 등급의 이름과 이모지예요. "정렬 순서"는 숫자가 작을수록 약한 등급이에요. (등급을 새로 만들 수는 없고 이름만 바꿀 수 있어요)',
+  GRADE_EFFECTS: '센 펫일수록 무서워요! 등급마다 "내 공격이 빗나갈 확률", "적이 급소를 칠 확률", "도망 버튼이 실패할 확률"을 정해요. 0.1은 10%예요. "등장 문구"는 펫이 나왔을 때 보이는 말이고, 비우면 안 보여요.',
+  GRADE_WAIT_MULT: '탐험할 때 기다리는 시간에 곱하는 숫자예요. 센 등급일수록 오래 기다려요. 2면 두 배예요.',
+  RELEASE_BASE_GOLD: '펫을 놓아줄 때 받는 기본 골드예요. 등급마다 달라요.',
+  TRADE_GRADE_MIN_LEVEL: '그 등급의 펫을 거래로 받으려면 트레이너 레벨이 최소 몇이어야 하는지예요.',
+  CATCH_GRADE_PENALTY: '센 등급일수록 잡을 확률에서 빼는 값이에요. 0.03이면 3%p 깎여요. 0이면 안 깎여요.',
+  WAIT_TIERS: '내 트레이너 레벨에 따라 탐험에서 기다리는 시간(초)이에요. "이 레벨까지" 줄에 해당하면 최소~최대 사이에서 랜덤으로 정해요. 60은 초, 90은 1분 30초예요.',
+  DEX_REWARD: '한 지역의 도감을 다 채우면 주는 보상이에요. 첫 지역은 "기본값", 다음 지역부터는 한 칸 넘어갈 때마다 "챕터마다 추가"만큼 더 줘요.',
 };
 function tabTables() {
   const card = (name) => {
@@ -350,7 +436,7 @@ function tabTables() {
       return textInput(r, c, { nullable: v === null });
     };
     return h('section', { class: 'card' }, h('h3', {}, name), h('p', { class: 'hint' }, TABLE_INFO[name]),
-      h('div', { class: 'wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), cols.map((c) => h('th', {}, c)))),
+      h('div', { class: 'wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), cols.map((c) => h('th', { title: c }, COLS[c] ?? c)))),
         h('tbody', {}, rows.map(([k, r]) => h('tr', {}, h('td', {}, cur.tables.GRADES[k] ? gradeLabel(k) : k), cols.map((c) => h('td', {}, c in r ? cell(r, c) : '')))))))
     );
   };
