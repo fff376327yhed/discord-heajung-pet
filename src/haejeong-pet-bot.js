@@ -24,6 +24,9 @@ const FLEE_MAX = 0.9; // 도망 확률 상한 (90%)
 // ───────── 전투 ⚔️ ─────────
 const BATTLE_MAX_ROUNDS = 15; // 이 턴 안에 못 끝내면 야생 펫이 도망가요 (무승부)
 const CRIT_CHANCE = 0.1; // 급소 맞힐 확률 (데미지 1.5배)
+const EVADE_CHANCE = 0.03; // 회피 확률: 공격이 통째로 빗나가요 (데미지 0)
+const WILD_FLEE_CHANCE = 0.01; // 매 턴 끝에 야생 펫이 겁먹고 스스로 도망칠 확률
+const FLEE_FAIL_CHANCE = 0.1; // [도망] 버튼을 눌러도 이 확률로 실패해서 턴을 날려요
 const GOLD_PER_YIELD = 3; // 승리 골드 = 펫 expYield × 이 값 (±20% 랜덤). 해정볼이 100골드라서 이 값으로 균형을 잡아요
 const WIN_TRAINER_EXP_MULT = 1.5; // 승리 시 트레이너 경험치 = expYield × 장소배율 × 이 값
 const WIN_PET_EXP_MULT = 2.0; // 승리 시 대표 펫 경험치 = expYield × 장소배율 × 이 값 (펫이 트레이너보다 빨리 크도록 더 크게)
@@ -714,14 +717,30 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
   return { kind: 'escaped', commit: true, snap: snapshot(player, now), ballsLeft: balls - 1 };
 }
 
-// [무시하기] / [그만두기] / [도망] (전투 중이면 'ran')
+// [무시하기] / [그만두기] (전투 중이 아닐 때만 써요 — 전투 중 도망은 attemptFlee 를 써요)
 function leave(player, id) {
   const ex = player.exploration;
   if (!ex || ex.id !== id) return { kind: 'expired' };
   const petId = ex.encounter?.petId ?? null;
-  const inBattle = Boolean(ex.battle);
   player.exploration = null;
-  return { kind: petId ? (inBattle ? 'ran' : 'ignored') : 'quit', petId, commit: true };
+  return { kind: petId ? 'ignored' : 'quit', petId, commit: true };
+}
+
+// [도망] — 전투 중 전용 버튼. FLEE_FAIL_CHANCE 확률로 실패해서 턴을 날려요 (야생 펫이 반격!)
+function attemptFlee(player, id, now = Date.now(), rng = Math.random) {
+  const ex = player.exploration;
+  if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
+
+  if (ex.battle && rng() < FLEE_FAIL_CHANCE) {
+    const c = context(player, ex);
+    const log = ['🏃 도망치려 했지만 **실패했어요!**'];
+    wildAttack(c, ex.battle, log, rng);
+    return finishTurn(player, ex, c, log, now, rng);
+  }
+
+  const petId = ex.encounter.petId;
+  player.exploration = null;
+  return { kind: 'ran', petId, commit: true };
 }
 
 // ============================================================
@@ -763,12 +782,20 @@ function context(player, ex) {
 }
 
 function myAttack(c, b, log, rng) {
+  if (rng() < EVADE_CHANCE) {
+    log.push(`${c.wildPet.emoji} ${c.wildPet.name}(이)가 **회피했다!** 공격이 빗나갔어요.`);
+    return;
+  }
   const { dmg, crit } = calcDamage(c.mine.atk, c.wild.def, rng);
   b.wildHp = Math.max(0, b.wildHp - dmg);
   log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${dmg}** 데미지`);
 }
 
 function wildAttack(c, b, log, rng) {
+  if (rng() < EVADE_CHANCE) {
+    log.push(`${c.myPet.emoji} ${c.myName}(이)가 **회피했다!** 공격을 피했어요.`);
+    return;
+  }
   const { dmg, crit } = calcDamage(c.wild.atk, c.mine.def, rng);
   b.myHp = Math.max(0, b.myHp - dmg);
   log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${dmg}** 데미지`);
@@ -826,6 +853,12 @@ function finishTurn(player, ex, c, log, now, rng) {
 
     player.exploration = null;
     return { kind: 'lost', commit: true, log, wildPetId: wildInfo.petId, myName, removedPetId, newStarterId };
+  }
+
+  // 매 턴 끝에 야생 펫이 겁먹고 스스로 도망칠 수도 있어요
+  if (rng() < WILD_FLEE_CHANCE) {
+    player.exploration = null;
+    return { kind: 'wild_flee', commit: true, log, wildPetId: wildInfo.petId };
   }
 
   // 너무 오래 끌면 야생 펫이 떠나요
@@ -999,7 +1032,7 @@ function trainPet(player, uid, times, now = Date.now()) {
 // 시스템 묶음 (commands 가 이 이름으로 불러써요)
 // ============================================================
 
-const exploreSys = { startExploration, lookAround, attemptCatch, leave };
+const exploreSys = { startExploration, lookAround, attemptCatch, leave, attemptFlee };
 const battleSys = { startBattle, battleTurn, battleHeal };
 const shopSys = { buyItem };
 
@@ -1400,6 +1433,18 @@ function battleOutcomeView(out) {
     });
   }
 
+  if (out.kind === 'wild_flee') {
+    const wild = PETS[out.wildPetId];
+    return update({
+      embeds: [{
+        title: `💨 ${wild.emoji} ${wild.name}(이)가 겁에 질려 도망쳤어요!`,
+        description: `${out.log.join('\n')}\n\n\`/탐험\` 으로 다시 떠나볼 수 있어요!`,
+        color: 0x99aab5,
+      }],
+      components: [],
+    });
+  }
+
   if (out.kind === 'draw') {
     const wild = PETS[out.wildPetId];
     return update({
@@ -1495,7 +1540,7 @@ async function exploreHandleButton(interaction, args) {
     if (out.kind === 'continue') {
       return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
     }
-    if (out.kind === 'won' || out.kind === 'lost' || out.kind === 'draw') {
+    if (out.kind === 'won' || out.kind === 'lost' || out.kind === 'draw' || out.kind === 'wild_flee') {
       return battleOutcomeView(out);
     }
     if (out.kind === 'escaped') {
@@ -1536,7 +1581,27 @@ async function exploreHandleButton(interaction, args) {
     });
   }
 
-  if (action === 'ignore' || action === 'quit' || action === 'run') {
+  if (action === 'run') {
+    const out = await updatePlayer(user.id, (p) => {
+      const r = exploreSys.attemptFlee(p, id, Date.now());
+      return { commit: r.commit === true, value: r };
+    });
+    if (!out || out.kind === 'expired') return exploreViewExpired();
+
+    // 도망 실패 → 전투가 계속돼요 (공격/회복/잡기와 똑같이 한 턴을 썼어요)
+    if (out.kind === 'continue') {
+      return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
+    }
+    if (out.kind === 'ran') {
+      return update({
+        embeds: [{ title: `🏃 ${PETS[out.petId].emoji} ${PETS[out.petId].name}에게서 도망쳤어요!`, description: '`/탐험` 으로 다시 떠나볼 수 있어요!', color: 0x99aab5 }],
+        components: [],
+      });
+    }
+    return battleOutcomeView(out); // 도망에 실패하고 그대로 승리/패배/무승부/도주로 전투가 끝난 경우
+  }
+
+  if (action === 'ignore' || action === 'quit') {
     const out = await updatePlayer(user.id, (p) => {
       const r = exploreSys.leave(p, id);
       return { commit: r.commit === true, value: r };
@@ -1545,9 +1610,7 @@ async function exploreHandleButton(interaction, args) {
     const text =
       out.kind === 'ignored'
         ? `👋 ${PETS[out.petId].emoji} ${PETS[out.petId].name}(을)를 그냥 보내줬어요.`
-        : out.kind === 'ran'
-          ? `🏃 ${PETS[out.petId].emoji} ${PETS[out.petId].name}에게서 도망쳤어요!`
-          : '🚪 탐험을 마쳤어요.';
+        : '🚪 탐험을 마쳤어요.';
     return update({ embeds: [{ title: text, description: '`/탐험` 으로 다시 떠나볼 수 있어요!', color: 0x99aab5 }], components: [] });
   }
 
@@ -2197,8 +2260,11 @@ const help = {
               {
                 name: '⚔️ 전투',
                 value:
-                  `**[공격]**, **[잡기]**, **[회복]** 은 모두 한 턴을 써요. 턴 끝에는 야생 펫이 반격해요.\n` +
-                  `치명타 확률 ${pct(CRIT_CHANCE)}%, ${BATTLE_MAX_ROUNDS}턴 안에 끝나지 않으면 야생 펫이 도망가요.\n` +
+                  `**[공격]**, **[잡기]**, **[회복]**, **[도망]** 은 모두 한 턴을 써요. 턴 끝에는 야생 펫이 반격해요.\n` +
+                  `치명타 확률 ${pct(CRIT_CHANCE)}%, 회피 확률 ${pct(EVADE_CHANCE)}%(공격이 통째로 빗나가요), ` +
+                  `매 턴 ${pct(WILD_FLEE_CHANCE)}% 확률로 야생 펫이 겁먹고 도망가요.\n` +
+                  `**[도망]** 은 ${pct(FLEE_FAIL_CHANCE)}% 확률로 실패해서 턴을 날릴 수 있어요. ` +
+                  `${BATTLE_MAX_ROUNDS}턴 안에 끝나지 않아도 야생 펫이 떠나요.\n` +
                   `⚠️ **체력이 0이 되면 그 펫은 영영 사라져요!** 전투 전에 체력을 꼭 확인해요.`,
               },
               {
