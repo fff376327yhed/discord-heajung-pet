@@ -134,6 +134,23 @@ const TRADE_FEE_RATE = 0.5; // 수수료 = 내가 보내는 펫의 방생 골드
 const TRADE_FEE_MIN = 50; // 수수료 최소 금액
 const TRADE_TTL_MS = 5 * 60 * 1000; // 거래 신청은 이 시간(5분) 안에 수락해야 해요
 
+// ───────── 포획 아이템 🍖 ─────────
+// 야생 펫을 만난 뒤(싸우는 중에도) 써서 이번 만남의 포획 확률을 올려요. 다음 펫을 만나면 효과가 사라져요.
+// 포획 확률은 "곱셈"으로 올라서, 원래 잘 안 잡히는 펫(전설·신화·초월)은 아이템을 써도 여전히 어려워요!
+const CATCH_MAX_CHANCE = 0.95; // 아이템 없이 가능한 포획 확률 상한 (95%)
+const CATCH_MAX_WITH_ITEMS = 0.98; // 포획 아이템을 써도 이 값을 넘지 않아요 → 100% 확정 포획은 절대 없어요 (98%)
+const CATCH_BAIT_BONUS_CAP = 1.0; // 간식·꿀 효과는 이번 만남에서 합쳐서 최대 +100% (= 최대 ×2.0)
+const CATCH_NET_FLEE_REDUCE = 0.3; // 끈끈이 그물: 도망 확률 -30%p
+const CATCH_NET_FLEE_MIN = 0.05; // 그물을 써도 도망 확률은 이 값 아래로 안 내려가요
+const CATCH_ITEM_COSTS_TURN = true; // 전투 중에 간식·꿀·부적·그물을 쓰면 한 턴을 써요 (야생 펫이 반격!) / 분석기는 공짜
+
+// 🎯 높은 등급일수록 포획 확률에서 "깎이는 값"(%p)이 있어요. 계산 결과가 0% 아래(음수)로 내려가면 그 던지기는 확률 0%예요!
+// 음수 쪽은 -30% 까지만 내려가요 (CATCH_NEG_FLOOR). 낮은 등급은 이 값이 0이라서 예전처럼 최소 2%는 남아요.
+// (고등급은 원래 포획률이 아주 낮아서, 값을 너무 크게 하면 아이템을 다 써도 영원히 못 잡아요 → 아래 값은 "풀 세팅하면 아주 낮지만 가능한" 수준이에요)
+const CATCH_GRADE_PENALTY = { common: 0, uncommon: 0, rare: 0, epic: 0.03, legendary: 0.06, mythic: 0.05, divine: 0.03 };
+const CATCH_NEG_FLOOR = -0.3; // 고등급 포획 확률 계산값의 하한 (-30%)
+const CATCH_MIN_CHANCE = 0.02; // 낮은 등급(깎이는 값이 0인 등급)의 최소 포획 확률
+
 // ============================================================
 // 데이터: 해정펫 도감 (data/pets.js)
 // ============================================================
@@ -323,6 +340,55 @@ const ITEMS = {
     price: 555,
     scout: true,
     description: '/사용 으로 쓰면, 이미 가 본 장소에서 탐험할 때 어떤 펫이 나올지 미리 알려줘요 (1개 = 1번).',
+  },
+  // 🍖 포획 아이템: 야생 펫을 만난 뒤 써요 (전투 중엔 전투 화면 아이템 버튼). 포획 확률은 곱셈으로 올라가고, 최대 98%예요.
+  catch_scanner: {
+    id: 'catch_scanner',
+    name: '포획 분석기',
+    short: '분석기',
+    emoji: '🔬',
+    price: 150,
+    catchItem: 'scanner',
+    description: '야생 펫의 포획 확률과 난이도를 알려줘요 (이번 만남 동안 계속 표시). 턴을 안 써요.',
+  },
+  catch_snack: {
+    id: 'catch_snack',
+    name: '맛있는 간식',
+    short: '간식',
+    emoji: '🍖',
+    price: 200,
+    catchItem: 'bait',
+    catchBonus: 0.2,
+    description: '이번 만남의 포획 확률 ×1.2 (+20%). 중첩돼요 (최대 ×2). 전투 중엔 한 턴을 써요.',
+  },
+  catch_honey: {
+    id: 'catch_honey',
+    name: '황금 꿀',
+    short: '꿀',
+    emoji: '🍯',
+    price: 500,
+    catchItem: 'bait',
+    catchBonus: 0.5,
+    description: '이번 만남의 포획 확률 ×1.5 (+50%). 중첩돼요 (최대 ×2). 전투 중엔 한 턴을 써요.',
+  },
+  catch_charm: {
+    id: 'catch_charm',
+    name: '행운의 부적',
+    short: '부적',
+    emoji: '🍀',
+    price: 400,
+    catchItem: 'charm',
+    catchBonus: 1.0,
+    description: '다음 던지기 1번의 포획 확률 +100% (×2). 던지면 사라져요. 전투 중엔 한 턴을 써요.',
+  },
+  catch_net: {
+    id: 'catch_net',
+    name: '끈끈이 그물',
+    short: '그물',
+    emoji: '🕸️',
+    price: 350,
+    catchItem: 'net',
+    description: '이번 만남 동안 해정볼이 빠져나왔을 때 도망 확률 -30%p. 전투 중엔 한 턴을 써요.',
   },
 };
 
@@ -837,7 +903,8 @@ function setMainPet(player, uid) {
 const POTIONS = Object.values(ITEMS).filter((i) => i.heal).sort((a, b) => a.heal - b.heal);
 
 // /사용 으로 쓸 수 있는 것: 회복약 + 경험치 부스트 + 탐험 시간 감소
-const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.scout)];
+const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.scout || i.catchItem)];
+const CATCH_ITEMS = Object.values(ITEMS).filter((i) => i.catchItem); // 🍖 포획 아이템 목록
 
 // 전투 중 쓸 약 고르기: 모자란 체력을 채울 수 있는 "가장 약한" 약, 없으면 가진 것 중 제일 센 약
 function pickPotion(player, missing) {
@@ -1046,18 +1113,143 @@ function hasVisited(player, locationId) {
 
 // 잡을 확률: 펫마다 정해진 값 × (내 대표 펫보다 야생 펫이 너무 높으면 조금 어려워져요)
 //            × (전투로 야생 펫 체력을 깎을수록 쉬워져요: 체력이 거의 0이면 최대 2배!)
-function catchChance(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0) {
+//            × (포획 아이템 배수: 간식·꿀·부적) → 아이템을 써도 최대 98%, 아이템 없이는 최대 95%예요.
+//            − 등급 깎임값(고등급만) → 0% 아래로 내려가면(음수) 못 잡아요. 음수는 -30% 까지만 내려가요.
+function catchChanceRaw(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0, itemMult = 1) {
   const gap = Math.max(0, wildLevel - mainLevel);
   const factor = Math.max(0.3, 1 - gap * 0.02);
   const weakBonus = 1 + (1 - Math.max(0, Math.min(1, hpRatio)));
-  const base = PETS[petId].catchRate * factor * weakBonus;
-  const afterTries = base - CATCH_DROP_PER_TRY * tries; // 던진 횟수만큼 -10%p
-  return Math.max(0.02, Math.min(0.95, afterTries));
+  const base = PETS[petId].catchRate * factor * weakBonus * itemMult;
+  const penalty = CATCH_GRADE_PENALTY[PETS[petId].grade] ?? 0;
+  const raw = base - penalty - CATCH_DROP_PER_TRY * tries; // 던진 횟수만큼 -10%p
+  return Math.max(penalty > 0 ? CATCH_NEG_FLOOR : CATCH_MIN_CHANCE, raw); // 계산값 (음수 가능)
 }
 
-// 도망 확률: 실패한 횟수만큼 +35%p (상한 90%)
-function fleeChance(tries) {
-  return Math.min(FLEE_MAX, FLEE_BASE + FLEE_RISE_PER_TRY * tries);
+// 실제로 굴리는 확률 = 계산값을 0% ~ 상한 사이로 맞춘 값
+function catchChance(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0, itemMult = 1) {
+  const raw = catchChanceRaw(petId, wildLevel, mainLevel, hpRatio, tries, itemMult);
+  const cap = itemMult > 1 ? CATCH_MAX_WITH_ITEMS : CATCH_MAX_CHANCE;
+  return Math.max(0, Math.min(cap, raw));
+}
+
+// 도망 확률: 실패한 횟수만큼 +35%p (상한 90%). 끈끈이 그물을 쓰면 -30%p (최소 5%)
+function fleeChance(tries, net = false) {
+  const v = Math.min(FLEE_MAX, FLEE_BASE + FLEE_RISE_PER_TRY * tries);
+  return net ? Math.max(CATCH_NET_FLEE_MIN, v - CATCH_NET_FLEE_REDUCE) : v;
+}
+
+// ───────── 포획 아이템 🍖 ─────────
+// 이번 만남에 쓴 효과는 player.exploration 에 저장돼요: catchBonus(간식·꿀 합계) / charm(부적) / net(그물) / analyzed(분석기)
+// (야생 펫이 새로 나타나면 탐험 정보가 새로 만들어져서 효과가 사라져요)
+const CHARM_BONUS = ITEMS.catch_charm.catchBonus;
+
+function exCatchMult(ex) {
+  return 1 + (ex.catchBonus ?? 0) + (ex.charm ? CHARM_BONUS : 0);
+}
+
+// 지금 [잡기] 를 한 번 던졌을 때의 실제 포획 확률 (분석기가 보여주는 값 = 진짜 던질 때 쓰는 값)
+function exCatchChance(player, ex) {
+  const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
+  return catchChance(ex.encounter.petId, ex.encounter.level, getMainPet(player)?.level ?? 1, hpRatio, ex.catchTries ?? 0, exCatchMult(ex));
+}
+
+// 같은 조건의 "계산값" (0% 아래로 내려간 음수도 그대로 보여줘요 — 분석기용)
+function exCatchRaw(player, ex) {
+  const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
+  return catchChanceRaw(ex.encounter.petId, ex.encounter.level, getMainPet(player)?.level ?? 1, hpRatio, ex.catchTries ?? 0, exCatchMult(ex));
+}
+
+function catchItemState(player, ex) {
+  const owned = {};
+  for (const i of CATCH_ITEMS) {
+    const n = player.inventory?.[i.id] ?? 0;
+    if (n > 0) owned[i.id] = n;
+  }
+  return {
+    bonus: ex.catchBonus ?? 0,
+    charm: !!ex.charm,
+    net: !!ex.net,
+    analyzed: !!ex.analyzed,
+    fleeNext: fleeChance((ex.catchTries ?? 0) + 1, !!ex.net),
+    owned,
+  };
+}
+
+// 포획 난이도 이름표
+function catchDifficulty(chance, raw = chance) {
+  if (raw <= 0) return { emoji: '🚫', label: '지금은 불가능' };
+  if (chance >= 0.8) return { emoji: '🟢', label: '매우 쉬움' };
+  if (chance >= 0.6) return { emoji: '🟩', label: '쉬움' };
+  if (chance >= 0.4) return { emoji: '🟡', label: '보통' };
+  if (chance >= 0.2) return { emoji: '🟠', label: '어려움' };
+  if (chance >= 0.08) return { emoji: '🔴', label: '매우 어려움' };
+  return { emoji: '💀', label: '극악' };
+}
+
+const chancePctText = (v) => (v < 0.1 ? (v * 100).toFixed(1) : String(Math.round(v * 100)));
+const rawPctText = (v) => String(Math.round(v * 100)); // 음수도 그대로 (예: -12)
+// 계산값이 0% 이하일 때 붙는 안내
+const deficitText = (raw) => (raw <= 0 ? ` — 계산값 **${rawPctText(raw)}%**, 지금 던지면 100% 빠져나가요! 야생 펫을 더 약하게 만들거나 아이템으로 끌어올려요.` : '');
+
+// 포획 아이템 쓰기. opts.viaPanel: 탐험 화면 버튼으로 눌렀는지 (전투 중 턴을 쓰는 아이템은 버튼으로만 써요)
+function useCatchItem(player, itemId, now = Date.now(), rng = Math.random, opts = {}) {
+  const item = ITEMS[itemId];
+  if (!item?.catchItem) return { kind: 'unknown' };
+  const owned = player.inventory?.[itemId] ?? 0;
+  if (owned <= 0) return { kind: 'none', item };
+
+  const ex = player.exploration;
+  if (!ex) return { kind: 'no_explore', item };
+  if (opts.expectId && ex.id !== opts.expectId) return { kind: 'no_explore', item };
+  if (!ex.encounter) return { kind: 'no_encounter', item };
+
+  const costsTurn = !!ex.battle && CATCH_ITEM_COSTS_TURN && item.catchItem !== 'scanner';
+  if (costsTurn && !opts.viaPanel) return { kind: 'use_button', item };
+
+  let note;
+  const consume = () => {
+    player.inventory[itemId] = owned - 1;
+  };
+
+  if (item.catchItem === 'scanner') {
+    const chance = exCatchChance(player, ex);
+    const raw = exCatchRaw(player, ex);
+    const d = catchDifficulty(chance, raw);
+    if (!ex.analyzed) {
+      ex.analyzed = true;
+      consume();
+    }
+    note = `${item.emoji} **${item.name}** 로 분석했어요!`; // 자세한 숫자는 탐험 화면에 계속 떠 있어요
+    const detail = `${note}\n지금 포획 확률 **${chancePctText(chance)}%** (${d.emoji} ${d.label})${deficitText(raw)}`; // /사용 으로 썼을 때 보여줄 자세한 글자
+    return { kind: 'item_used', commit: true, item, note, detail, left: player.inventory[itemId], snap: snapshot(player, now) };
+  }
+
+  if (item.catchItem === 'bait') {
+    const cur = ex.catchBonus ?? 0;
+    if (cur >= CATCH_BAIT_BONUS_CAP - 1e-9) return { kind: 'bait_max', item };
+    ex.catchBonus = Math.min(CATCH_BAIT_BONUS_CAP, cur + item.catchBonus);
+    consume();
+    note = `${item.emoji} **${item.name}** 을(를) 줬어요! 포획 확률 ×${(1 + ex.catchBonus).toFixed(1)}${ex.catchBonus >= CATCH_BAIT_BONUS_CAP - 1e-9 ? ' (최대!)' : ''}`;
+  } else if (item.catchItem === 'charm') {
+    if (ex.charm) return { kind: 'charm_active', item };
+    ex.charm = true;
+    consume();
+    note = `${item.emoji} **${item.name}** 을(를) 꼭 쥐었어요! 다음 던지기 1번의 포획 확률이 크게 올라요.`;
+  } else {
+    if (ex.net) return { kind: 'net_active', item };
+    ex.net = true;
+    consume();
+    note = `${item.emoji} **${item.name}** 을(를) 쳤어요! 도망 확률이 줄어들었어요.`;
+  }
+
+  // 전투 중이면 한 턴을 써요: 야생 펫이 반격해요!
+  if (costsTurn) {
+    const c = context(player, ex);
+    const log = [`${note} (한 턴을 썼어요)`];
+    wildAttack(c, ex.battle, log, rng);
+    return { ...finishTurn(player, ex, c, log, now, rng), commit: true };
+  }
+  return { kind: 'item_used', commit: true, item, note, left: player.inventory[itemId], snap: snapshot(player, now) };
 }
 
 // 지금 탐험 상태를 한 장의 "사진"으로 찍어요 (화면 그릴 때 써요)
@@ -1073,7 +1265,9 @@ function snapshot(player, now = Date.now()) {
       ...base,
       state: b ? 'battle' : 'encounter',
       encounter: { ...ex.encounter },
-      chance: catchChance(ex.encounter.petId, ex.encounter.level, main?.level ?? 1, ratio, ex.catchTries ?? 0),
+      chance: exCatchChance(player, ex),
+      rawChance: exCatchRaw(player, ex),
+      items: catchItemState(player, ex),
     };
     if (b) {
       snap.battle = {
@@ -1153,7 +1347,8 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
   const { petId, level } = ex.encounter;
   const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
   const tries = ex.catchTries ?? 0;
-  const chance = catchChance(petId, level, getMainPet(player)?.level ?? 1, hpRatio, tries);
+  const chance = exCatchChance(player, ex);
+  if (ex.charm) ex.charm = false; // 🍀 부적은 한 번 던지면 사라져요
 
   if (rng() < chance) {
     const isNew = !player.dex?.[petId];
@@ -1177,7 +1372,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
 
   // 실패! 던진 횟수가 늘어서 이제 도망이 더 쉬워져요
   ex.catchTries = tries + 1;
-  if (rng() < fleeChance(ex.catchTries)) {
+  if (rng() < fleeChance(ex.catchTries, ex.net)) {
     player.exploration = null;
     return { kind: 'fled', commit: true, petId, ballsLeft: balls - 1, locationId };
   }
@@ -2178,6 +2373,47 @@ function scoutText(snap) {
   return `\n\n🔭 **예고!** ${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}** (Lv.${snap.scout.level}) 이(가) 나올 것 같아요!${aura ? `\n${aura}` : ''}`;
 }
 
+// 🔬 분석기 결과 + ✨ 적용 중인 포획 아이템 안내 글자
+function catchInfoText(snap) {
+  const it = snap.items;
+  if (!it) return '';
+  const lines = [];
+  const buffs = [];
+  if (it.bonus > 0) buffs.push(`🍖 포획 ×${(1 + it.bonus).toFixed(1)}`);
+  if (it.charm) buffs.push('🍀 부적 (다음 1회)');
+  if (it.net) buffs.push(`🕸️ 그물 (도망 -${pct(CATCH_NET_FLEE_REDUCE)}%p)`);
+  if (buffs.length) lines.push(`✨ 적용 중: ${buffs.join(' · ')}`);
+  if (it.analyzed) {
+    const d = catchDifficulty(snap.chance, snap.rawChance);
+    lines.push(`🔬 **포획 분석** — 다음 던지기 성공 확률 **${chancePctText(snap.chance)}%** (${d.emoji} ${d.label}) · 실패하면 도망 확률 ${pct(it.fleeNext)}%${deficitText(snap.rawChance)}`);
+  }
+  return lines.length ? `\n\n${lines.join('\n')}` : '';
+}
+
+// 가진 포획 아이템 버튼 줄 (하나도 없으면 줄이 안 생겨요)
+function catchItemRows(snap, userId) {
+  const owned = snap.items?.owned ?? {};
+  const btns = CATCH_ITEMS.filter((i) => owned[i.id] > 0).map((i) =>
+    button({ label: `${i.short} ×${owned[i.id]}`, emoji: i.emoji, customId: `explore:citem:${userId}:${snap.id}:${i.id}`, style: 2 }),
+  );
+  return btns.length ? [row(...btns)] : [];
+}
+
+// 포획 아이템을 못 썼을 때 안내
+function catchItemFailText(out) {
+  switch (out.kind) {
+    case 'unknown': return '그런 건 쓸 수 없어요 🤔';
+    case 'none': return `${out.item.emoji} ${out.item.name}이(가) 없어요 😭 \`/상점\` 에서 사올 수 있어요!`;
+    case 'no_explore': return '🌿 탐험 중일 때만 쓸 수 있어요! `/탐험` 으로 먼저 떠나요.';
+    case 'no_encounter': return '아직 야생 펫이 나타나지 않았어요! 펫을 만난 뒤에 쓸 수 있어요. (아이템은 안 줄었어요)';
+    case 'bait_max': return `${out.item.emoji} 이번 만남의 미끼 효과가 이미 **최대**예요! 더 줘도 소용없어서 아껴뒀어요 😊`;
+    case 'charm_active': return `${out.item.emoji} 부적이 이미 켜져 있어요! 한 번 던진 뒤에 다시 쓸 수 있어요. (아이템은 안 줄었어요)`;
+    case 'net_active': return `${out.item.emoji} 그물이 이미 쳐져 있어요! (아이템은 안 줄었어요)`;
+    case 'use_button': return '⚔️ 전투 중에는 전투 화면 아래의 **아이템 버튼**으로 써요! (한 턴을 써요)';
+    default: return '지금은 쓸 수 없어요 🤔';
+  }
+}
+
 function exploreViewExploring(snap, userId, note) {
   const loc = LOCATIONS[snap.locationId];
   const wait =
@@ -2206,7 +2442,8 @@ function exploreViewEncounter(snap, userId, note) {
         title: `❗ 야생의 ${pet.emoji} ${pet.name}(이)가 나타났다!`,
         description:
           `${note ? note + '\n\n' : ''}${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}**` +
-          (GRADE_EFFECTS[pet.grade].aura ? `\n\n**${GRADE_EFFECTS[pet.grade].aura}**\n(내 공격이 빗나가기 쉽고, 도망치기도 어려워요!)` : ''),
+          (GRADE_EFFECTS[pet.grade].aura ? `\n\n**${GRADE_EFFECTS[pet.grade].aura}**\n(내 공격이 빗나가기 쉽고, 도망치기도 어려워요!)` : '') +
+          catchInfoText(snap),
         color: 0xfee75c,
         fields: [
           { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개`, inline: true },
@@ -2223,6 +2460,7 @@ function exploreViewEncounter(snap, userId, note) {
         bumpButton(userId, snap.id),
       ),
       row(button({ label: '잡기 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:catch`, style: 3 })),
+      ...catchItemRows(snap, userId),
     ],
   };
 }
@@ -2242,7 +2480,8 @@ function exploreViewBattle(snap, userId, note) {
         title: `⚔️ ${mine.emoji} ${b.myName} VS ${wild.emoji} ${wild.name}`,
         description:
           `${note ? note + '\n\n' : ''}${b.round}턴째 · 약해질수록 **[잡기]** 가 쉬워져요!` +
-          (GRADE_EFFECTS[wild.grade].aura ? `\n${GRADE_EFFECTS[wild.grade].aura}` : ''),
+          (GRADE_EFFECTS[wild.grade].aura ? `\n${GRADE_EFFECTS[wild.grade].aura}` : '') +
+          catchInfoText(snap),
         color: 0xed4245,
         fields: [
           { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}`, inline: true },
@@ -2271,6 +2510,7 @@ function exploreViewBattle(snap, userId, note) {
         button({ label: '잡기 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:catch`, style: 3 }),
         button({ label: '회복 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:heal`, style: 1 }),
       ),
+      ...catchItemRows(snap, userId),
     ],
   };
 }
@@ -2578,6 +2818,21 @@ async function exploreHandleButton(interaction, args) {
       return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
     }
     return battleOutcomeView(out, user.id); // won / lost / draw
+  }
+
+  // 🍖 [포획 아이템] — 간식·꿀·부적·그물·분석기 (전투 중이면 분석기 말고는 한 턴을 써요)
+  if (action === 'citem') {
+    const out = await updatePlayer(user.id, (p) => {
+      const r = useCatchItem(p, extra, Date.now(), Math.random, { viaPanel: true, expectId: id });
+      return { commit: r.commit === true, value: r };
+    });
+    if (!out || out.kind === 'no_explore') return exploreViewExpired();
+    if (out.kind === 'item_used') return update(exploreViewSnap(out.snap, user.id, out.note));
+    if (out.kind === 'continue') return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
+    if (out.kind === 'won' || out.kind === 'lost' || out.kind === 'draw' || out.kind === 'wild_flee') {
+      return battleOutcomeView(out, user.id);
+    }
+    return reply({ content: catchItemFailText(out) }, { ephemeral: true });
   }
 
   if (action === 'look') {
@@ -3392,7 +3647,7 @@ const train = {
 const use = {
   data: {
     name: '사용',
-    description: '회복약·경험치 부스트·탐험 시간 감소를 써요. 아무것도 안 고르면 체력을 알아서 채워요!',
+    description: '회복약·부스트·시간 감소·포획 아이템을 써요. 아무것도 안 고르면 체력을 알아서 채워요!',
     type: 1,
     options: [
       {
@@ -3421,8 +3676,21 @@ const use = {
     const qty = wantMax ? 999 : (getOption(interaction, '수량') ?? 1);
     const target = getOption(interaction, '대상');
 
-    // 🚀 경험치 부스트 / ⏩ 탐험 시간 감소
+    // 🍖 포획 아이템 (야생 펫을 만난 뒤에 써요. 전투 중에는 전투 화면의 아이템 버튼으로 써요)
     const picked = ITEMS[itemId];
+    if (picked?.catchItem) {
+      const res = await updatePlayer(user.id, (p) => {
+        const r = useCatchItem(p, itemId, Date.now(), Math.random, { viaPanel: false });
+        return { commit: r.commit === true, value: r };
+      });
+      if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+      if (res.kind === 'item_used') {
+        return reply({ content: `${res.detail ?? res.note}\n(남은 ${res.item.name} ${res.left}개) 탐험 화면의 버튼을 눌러 이어가요!` }, { ephemeral: true });
+      }
+      return reply({ content: catchItemFailText(res) }, { ephemeral: true });
+    }
+
+    // 🚀 경험치 부스트 / ⏩ 탐험 시간 감소
     if (picked && (picked.boost || picked.speedup || picked.scout)) {
       const res = await updatePlayer(user.id, (p) => {
         const r = useBoostItem(p, itemId, qty, Date.now());
@@ -3530,6 +3798,18 @@ const help = {
 ` +
                   `${BATTLE_MAX_ROUNDS}턴 안에 끝나지 않아도 야생 펫이 떠나요.\n` +
                   `⚠️ **체력이 0이 되면 그 펫은 영영 사라져요!** 전투 전에 체력을 꼭 확인해요.`,
+              },
+              {
+                name: '🍖 포획 아이템',
+                value:
+                  '야생 펫을 만난 뒤(싸우는 중에도) 탐험 화면 맨 아래 **아이템 버튼**이나 `/사용` 으로 써요. 다음 펫을 만나면 효과가 사라져요.\n' +
+                  `🔬 **포획 분석기** — 포획 확률과 난이도(${catchDifficulty(0.9).label} ~ ${catchDifficulty(0, -0.1).label})를 보여줘요. 턴을 안 써요.\n` +
+                  `🍖 **간식**(×1.2) · 🍯 **황금 꿀**(×1.5) — 포획 확률을 곱해서 올려요. 중첩되고 합쳐서 최대 ×${(1 + CATCH_BAIT_BONUS_CAP).toFixed(1)}\n` +
+                  `🍀 **행운의 부적** — 다음 던지기 1번 확률 ×2 · 🕸️ **끈끈이 그물** — 도망 확률 -${pct(CATCH_NET_FLEE_REDUCE)}%p\n` +
+                  `⚔️ 전투 중에 간식·꿀·부적·그물을 쓰면 **한 턴**을 써요(야생 펫이 반격!). 곱셈이라서 원래 잘 안 잡히는 펫은 여전히 어려워요.\n` +
+                  `🎯 포획 확률 상한은 아이템 없이 **${pct(CATCH_MAX_CHANCE)}%**, 아이템을 써도 **${pct(CATCH_MAX_WITH_ITEMS)}%** — 100% 확정은 없어요!\n` +
+                  `📉 높은 등급은 포획 확률에서 깎이는 값이 있어요 (${Object.entries(CATCH_GRADE_PENALTY).filter(([, v]) => v > 0).map(([g, v]) => `${GRADES[g].emoji}-${pct(v)}%p`).join(' ')}). ` +
+                  `계산값이 **0% 아래(최대 ${pct(CATCH_NEG_FLOOR)}%)**면 못 잡아요 → 체력을 깎고 아이템을 써서 끌어올려요!`,
               },
               {
                 name: '😨 등급 · 위압감 · 🔄 교체',
