@@ -206,8 +206,8 @@ function weightedPick(items, getWeight, rng = Math.random) {
 // ============================================================
 
 // 디스코드에게 대답할 때 쓰는 도구 모음 💬
-const InteractionType = { PING: 1, COMMAND: 2, COMPONENT: 3 };
-const ResponseType = { PONG: 1, MESSAGE: 4, UPDATE: 7 };
+const InteractionType = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
+const ResponseType = { PONG: 1, MESSAGE: 4, UPDATE: 7, AUTOCOMPLETE_RESULT: 8 };
 const EPHEMERAL = 64; // "나한테만 보이는 메시지" 표시
 const SILENT = 4096; // "알림 없이 조용히 보내기" 표시 (디스코드 알림/푸시가 안 가요)
 
@@ -222,6 +222,11 @@ function reply(data, { ephemeral = false } = {}) {
 // 버튼을 누른 그 메시지를 새 내용으로 바꿔요
 function update(data) {
   return { type: ResponseType.UPDATE, data };
+}
+
+// 입력하는 중에 실시간으로 "미리 표시" 선택지를 보여줘요 (주식봇의 자동완성 미리보기와 같은 방식)
+function autocompleteResult(choices) {
+  return { type: ResponseType.AUTOCOMPLETE_RESULT, data: { choices: choices.slice(0, 25) } };
 }
 
 function getUser(interaction) {
@@ -487,12 +492,35 @@ function pickPotion(player, missing) {
   return owned.find((p) => p.heal >= missing) ?? owned[owned.length - 1];
 }
 
-// index: /펫 목록 번호(1부터). 비우면 대표 펫
-function useItem(player, itemId, index, now = Date.now()) {
+// selector 로 펫 한 마리를 찾아요. 아래 셋 중 뭐든 받아들여요:
+//   1) 비어 있음 → 대표 펫
+//   2) 숫자 글자 (예: "2") → /펫 목록의 번호(1부터)
+//   3) 그 외 글자 → 별명/이름으로 찾기 (자동완성으로 고르면 uid 가 그대로 와서 바로 매칭돼요)
+function resolvePetSelector(player, selector) {
+  if (selector === undefined || selector === null || selector === '') return getMainPet(player);
+  const text = String(selector).trim();
+  if (text === '') return getMainPet(player);
+
+  const byUid = player.pets.find((p) => p.uid === text);
+  if (byUid) return byUid;
+
+  if (/^\d+$/.test(text)) return player.pets[Number(text) - 1] ?? null;
+
+  const lower = text.toLowerCase();
+  const label = (p) => (p.nickname ?? PETS[p.petId].name).toLowerCase();
+  const exact = player.pets.find((p) => label(p) === lower);
+  if (exact) return exact;
+
+  const partial = player.pets.filter((p) => label(p).includes(lower));
+  return partial.length === 1 ? partial[0] : null;
+}
+
+// selector: /펫 목록 번호, 별명/이름, 또는 비우면 대표 펫. qty: 한 번에 몇 개를 쓸지 (기본 1, 한꺼번에 일괄 사용)
+function useItem(player, itemId, selector, qty = 1, now = Date.now()) {
   const item = ITEMS[itemId];
   if (!item?.heal) return { kind: 'unknown' };
 
-  const inst = index ? player.pets[index - 1] : getMainPet(player);
+  const inst = resolvePetSelector(player, selector);
   if (!inst) return { kind: 'not_found' };
   if (player.exploration?.battle && inst.uid === player.mainPetUid) return { kind: 'in_battle' };
 
@@ -503,10 +531,24 @@ function useItem(player, itemId, index, now = Date.now()) {
   const cur = currentHp(inst, now);
   if (cur >= max) return { kind: 'full', inst: { ...inst } };
 
-  const next = Math.min(max, cur + item.heal);
-  player.inventory[itemId] = owned - 1;
+  const want = Math.max(1, Math.floor(qty) || 1);
+  const needed = Math.ceil((max - cur) / item.heal); // 가득 채우는 데 필요한 개수
+  const used = Math.min(want, owned, needed);
+  const next = Math.min(max, cur + item.heal * used);
+
+  player.inventory[itemId] = owned - used;
   setHp(inst, next, now);
-  return { kind: 'used', commit: true, item, inst: { ...inst }, before: cur, after: next, max, left: owned - 1 };
+  return {
+    kind: 'used',
+    commit: true,
+    item,
+    inst: { ...inst },
+    before: cur,
+    after: next,
+    max,
+    used,
+    left: owned - used,
+  };
 }
 
 // ============================================================
@@ -1958,23 +2000,33 @@ const use = {
         required: true,
         choices: POTIONS.map((i) => ({ name: `${i.emoji} ${i.name}`, value: i.id })),
       },
-      { type: 4, name: '번호', description: '/펫 목록의 번호 (비우면 대표 펫)', required: false, min_value: 1 },
+      { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? (비우면 1개, 일괄 사용 가능)', required: false, min_value: 1 },
+      {
+        type: 3,
+        name: '대상',
+        description: '펫 번호나 이름을 입력하세요 (비우면 대표 펫) — 입력하면 체력이 바로 미리 보여요',
+        required: false,
+        autocomplete: true,
+      },
     ],
   },
 
   async execute(interaction) {
     const user = getUser(interaction);
     const itemId = getOption(interaction, '아이템');
-    const index = getOption(interaction, '번호');
+    const qty = getOption(interaction, '수량') ?? 1;
+    const target = getOption(interaction, '대상');
 
     const out = await updatePlayer(user.id, (p) => {
-      const r = useItem(p, itemId, index);
+      const r = useItem(p, itemId, target, qty);
       return { commit: r.commit === true, value: r };
     });
 
     if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
     if (out.kind === 'unknown') return reply({ content: '그런 약은 없어요 🤔' }, { ephemeral: true });
-    if (out.kind === 'not_found') return reply({ content: '그 번호의 펫이 없어요 🤔 `/펫` 에서 번호를 확인해주세요!' }, { ephemeral: true });
+    if (out.kind === 'not_found') {
+      return reply({ content: '그 펫을 찾을 수 없어요 🤔 번호나 이름을 다시 확인해주세요! (`/펫` 에서 확인 가능)' }, { ephemeral: true });
+    }
     if (out.kind === 'in_battle') {
       return reply({ content: '⚔️ 전투 중에는 전투 화면의 **[회복]** 버튼으로만 쓸 수 있어요!' }, { ephemeral: true });
     }
@@ -1986,9 +2038,38 @@ const use = {
     const name = `${GRADES[pet.grade].emoji} ${pet.emoji} **${out.inst.nickname ?? pet.name}**`;
     if (out.kind === 'full') return reply({ content: `${name}의 체력은 이미 가득해요! 약을 아껴뒀어요 😊` }, { ephemeral: true });
 
+    const gained = out.after - out.before;
     return reply({
-      content: `${out.item.emoji} ${out.item.name}을(를) 먹였어요!\n${name} ❤️ ${out.before} → **${out.after}/${out.max}** (남은 ${out.item.name} ${out.left}개)`,
+      content:
+        `${out.item.emoji} ${out.item.name} **${out.used}개**를 먹였어요! (❤️ +${gained})\n` +
+        `${name} ❤️ ${out.before} → **${out.after}/${out.max}** (남은 ${out.item.name} ${out.left}개)`,
     });
+  },
+
+  // "대상" 칸에 타이핑하는 동안 주식봇처럼 실시간으로 후보와 현재 체력을 미리 보여줘요
+  async autocomplete(interaction) {
+    const user = getUser(interaction);
+    const player = await getPlayer(user.id);
+    if (!player) return autocompleteResult([]);
+
+    const typed = String(getOption(interaction, '대상') ?? '').trim().toLowerCase();
+    const now = Date.now();
+
+    const choices = player.pets
+      .map((inst, i) => ({ inst, index: i + 1, label: inst.nickname ?? PETS[inst.petId].name }))
+      .filter((c) => !typed || `${c.index} ${c.label}`.toLowerCase().includes(typed))
+      .slice(0, 25)
+      .map((c) => {
+        const cur = currentHp(c.inst, now);
+        const max = maxHp(c.inst);
+        const crown = c.inst.uid === player.mainPetUid ? '👑 ' : '';
+        return {
+          name: `${crown}${c.index}. ${PETS[c.inst.petId].emoji} ${c.label} (❤${cur}/${max})`,
+          value: c.inst.uid,
+        };
+      });
+
+    return autocompleteResult(choices);
   },
 };
 
@@ -2097,6 +2178,12 @@ export async function handleInteraction(interaction) {
       const cmd = commands.get(interaction.data.name);
       if (!cmd) return reply({ content: '모르는 명령어예요 🤔' }, { ephemeral: true });
       return cmd.execute(interaction);
+    }
+
+    case InteractionType.AUTOCOMPLETE: {
+      const cmd = commands.get(interaction.data.name);
+      if (!cmd?.autocomplete) return autocompleteResult([]);
+      return cmd.autocomplete(interaction);
     }
 
     case InteractionType.COMPONENT: {
