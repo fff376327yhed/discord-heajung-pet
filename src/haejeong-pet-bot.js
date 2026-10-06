@@ -209,11 +209,13 @@ function weightedPick(items, getWeight, rng = Math.random) {
 const InteractionType = { PING: 1, COMMAND: 2, COMPONENT: 3 };
 const ResponseType = { PONG: 1, MESSAGE: 4, UPDATE: 7 };
 const EPHEMERAL = 64; // "나한테만 보이는 메시지" 표시
+const SILENT = 4096; // "알림 없이 조용히 보내기" 표시 (디스코드 알림/푸시가 안 가요)
 
 function reply(data, { ephemeral = false } = {}) {
+  const flags = SILENT | (ephemeral ? EPHEMERAL : 0);
   return {
     type: ResponseType.MESSAGE,
-    data: ephemeral ? { ...data, flags: EPHEMERAL } : data,
+    data: { ...data, flags },
   };
 }
 

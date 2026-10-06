@@ -30,7 +30,7 @@ export async function POST(request) {
     console.error('처리 중 오류:', error);
     return Response.json({
       type: 4,
-      data: { content: '앗! 문제가 생겼어요 😢 잠시 후 다시 해주세요.', flags: 64 },
+      data: { content: '앗! 문제가 생겼어요 😢 잠시 후 다시 해주세요.', flags: 64 | 4096 },
     });
   }
 }
