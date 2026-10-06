@@ -111,6 +111,13 @@ const DEX_REWARD = {
 };
 const DEX_GOLD_MULT = 5; // 골드 = (챕터에서 가장 강한 펫을 이겼을 때 평균 골드) × 이 값
 
+// ───────── 유저 대결 🥊 ─────────
+// 대표 펫끼리 자동으로 싸워요. 결과는 어디에도 저장되지 않아서, 져도 펫은 사라지지 않고 체력도 그대로예요!
+const DUEL_MAX_ROUNDS = 30; // 이 라운드 안에 안 끝나면 남은 체력 비율로 승부를 가려요
+const DUEL_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 대결 신청은 이 시간(5분) 안에 수락해야 해요
+const DUEL_USE_FULL_HP = false; // true: 항상 최대 체력으로 싸워요 / false: 지금 체력 그대로 싸워요 (끝나면 어차피 그대로 복구)
+const DUEL_LOG_MAX_CHARS = 2800; // 전투 기록이 너무 길면 앞부분을 줄여요 (디스코드 글자 수 제한)
+
 // ============================================================
 // 데이터: 해정펫 도감 (data/pets.js)
 // ============================================================
@@ -1580,6 +1587,87 @@ function claimDexRewards(player) {
   give('exp_boost_pet', total.boosts);
   player.gold += total.gold;
   return { kind: 'claimed', commit: true, got, total };
+}
+
+// ============================================================
+// 시스템: 유저 대결 (systems/duel.js)
+// ============================================================
+
+// 유저 대결 규칙 🥊 — 저장을 전혀 안 하는 "연습 경기"예요. 펫이 쓰러져도 사라지지 않고, 체력도 그대로예요.
+// 한 라운드 = 속도가 빠른 쪽이 먼저 때리고, 이어서 상대가 때려요 (속도가 같으면 랜덤).
+
+// 같은 신청이면 같은 결과가 나오도록 "씨앗 주사위"를 써요 (버튼을 여러 번 눌러도 결과를 다시 뽑을 수 없어요)
+function seededRng(seedText) {
+  let h = 1779033703 ^ seedText.length;
+  for (let i = 0; i < seedText.length; i++) {
+    h = Math.imul(h ^ seedText.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  let a = h >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 대결에 나갈 선수(대표 펫) 정보 만들기
+function duelFighter(player, now = Date.now()) {
+  const main = getMainPet(player);
+  if (!main) return null;
+  const pet = PETS[main.petId];
+  const s = calcStats(main.petId, main.level);
+  const max = s.hp;
+  return {
+    owner: player.name,
+    name: main.nickname ?? pet.name,
+    emoji: pet.emoji,
+    grade: pet.grade,
+    level: main.level,
+    stats: s,
+    max,
+    hp: DUEL_USE_FULL_HP ? max : Math.max(1, currentHp(main, now)),
+  };
+}
+
+// 대결을 끝까지 시뮬레이션해요 (a = 신청한 사람, b = 받은 사람). 어떤 데이터도 바꾸지 않아요.
+function simulateDuel(a, b, rng) {
+  const log = [];
+  const A = { ...a };
+  const B = { ...b };
+  const aFirst = A.stats.spd === B.stats.spd ? rng() < 0.5 : A.stats.spd > B.stats.spd;
+  const order = aFirst ? [A, B] : [B, A];
+  let rounds = 0;
+
+  while (rounds < DUEL_MAX_ROUNDS && A.hp > 0 && B.hp > 0) {
+    rounds += 1;
+    log.push(`**— ${rounds}라운드 —**`);
+    for (const atk of order) {
+      const def = atk === A ? B : A;
+      if (atk.hp <= 0 || def.hp <= 0) break;
+      if (rng() < EVADE_CHANCE) {
+        log.push(`${def.emoji} ${def.name}(이)가 **회피!**`);
+        continue;
+      }
+      const { dmg, crit } = calcDamage(atk.stats.atk, def.stats.def, rng, CRIT_CHANCE);
+      def.hp = Math.max(0, def.hp - dmg);
+      log.push(`${atk.emoji} ${atk.name} → ${def.emoji} ${def.name} ${crit ? '💥' : ''}**${dmg}** (남은 ❤️ ${def.hp})`);
+    }
+  }
+
+  let winner = null; // 'a' | 'b' | null(무승부)
+  let timeout = false;
+  if (A.hp <= 0 && B.hp > 0) winner = 'b';
+  else if (B.hp <= 0 && A.hp > 0) winner = 'a';
+  else {
+    timeout = true;
+    const ra = A.hp / A.max;
+    const rb = B.hp / B.max;
+    winner = ra === rb ? null : ra > rb ? 'a' : 'b';
+  }
+  return { winner, timeout, rounds, log, aHp: A.hp, bHp: B.hp };
 }
 
 // ============================================================
@@ -3330,6 +3418,12 @@ const help = {
                   '한 챕터(장소)의 도감을 모두 채우면 `/도감보상` 으로 큰 보상을 받아요! 챕터가 올라갈수록 보상도 커져요. (진행 상황은 `/도감보상` 에서 확인)',
               },
               {
+                name: '🥊 유저 대결',
+                value:
+                  '`/대결 @유저` 로 대결을 신청하면, 상대가 **[수락]** 했을 때 서로의 **대표 펫**이 자동으로 싸워요.\n' +
+                  '대결에서 져도 **펫은 사라지지 않고**, 대결이 끝나면 **체력도 대결 전 그대로** 예요. 보상도 손실도 없는 연습 경기예요!',
+              },
+              {
                 name: '🛒 상점 · 도감 · 가방',
                 value: '`/상점` 에서 물건을 고르면 개수 입력창이 떠요 (숫자 또는 **최대**). `/구매` 는 상점을 안 열고 개수를 바로 적어서 사요. `/가방` 에서 가진 물건과 켜둔 부스트를 봐요. `/도감` 은 만난 펫을 기록해요.',
               },
@@ -3449,10 +3543,155 @@ const dexReward = {
 };
 
 // ═════════════════════════════════════════════
+// /대결
+// ═════════════════════════════════════════════
+
+function duelFighterLine(f) {
+  return (
+    `${GRADES[f.grade].emoji} ${f.emoji} **${f.name}** Lv.${f.level}\n` +
+    `❤️ ${f.hp}/${f.max} · 공격 ${f.stats.atk} · 방어 ${f.stats.def} · 속도 ${f.stats.spd}`
+  );
+}
+
+// 전투 기록이 너무 길면 뒤쪽(승부가 갈리는 부분)만 남겨요
+function trimDuelLog(lines) {
+  let text = lines.join('\n');
+  if (text.length <= DUEL_LOG_MAX_CHARS) return text;
+  const kept = [];
+  let len = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    len += lines[i].length + 1;
+    if (len > DUEL_LOG_MAX_CHARS) break;
+    kept.unshift(lines[i]);
+  }
+  return `…(앞부분 생략)\n${kept.join('\n')}`;
+}
+
+const duel = {
+  data: {
+    name: '대결',
+    description: '다른 유저에게 대표 펫끼리의 대결을 신청해요. (펫은 사라지지 않고 체력도 그대로예요!)',
+    type: 1,
+    options: [{ type: 6, name: '유저', description: '대결을 신청할 상대', required: true }],
+  },
+
+  async execute(interaction) {
+    const me = getUser(interaction);
+    const targetId = getOption(interaction, '유저');
+
+    if (targetId === me.id) {
+      return reply({ content: '나 자신과는 대결할 수 없어요 😅' }, { ephemeral: true });
+    }
+    if (interaction.data.resolved?.users?.[targetId]?.bot) {
+      return reply({ content: '봇과는 대결할 수 없어요 🤖' }, { ephemeral: true });
+    }
+
+    const [mine, theirs] = await Promise.all([getPlayer(me.id), getPlayer(targetId)]);
+    if (!mine) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    if (!theirs) return reply({ content: '그 사람은 아직 모험을 시작하지 않았어요.' }, { ephemeral: true });
+
+    const f = duelFighter(mine);
+    if (!f) return reply({ content: '대결에 내보낼 펫이 없어요 😢' }, { ephemeral: true });
+
+    const ts = Date.now();
+    const key = `${me.id}:${targetId}:${ts}`;
+    return reply({
+      content: `<@${targetId}>`,
+      embeds: [
+        {
+          title: '🥊 대결 신청!',
+          description:
+            `**${mine.name}**님이 <@${targetId}>님에게 대결을 신청했어요!\n\n` +
+            `${duelFighterLine(f)}\n\n` +
+            `서로의 **대표 펫**이 싸워요. 져도 펫은 사라지지 않고, 체력도 그대로예요 😊\n` +
+            `⏳ ${Math.round(DUEL_CHALLENGE_TTL_MS / 60000)}분 안에 수락해주세요.`,
+          color: 0xed4245,
+        },
+      ],
+      components: [
+        row(
+          button({ label: '수락', emoji: '⚔️', customId: `duel:ok:${key}`, style: 3 }),
+          button({ label: '거절', emoji: '🙅', customId: `duel:no:${key}`, style: 4 }),
+        ),
+      ],
+    });
+  },
+
+  components: {
+    duel: async function duelButton(interaction, args) {
+      const [action, challengerId, targetId, ts] = args;
+      const user = getUser(interaction);
+
+      // 거절 / 취소 — 신청한 사람도, 받은 사람도 누를 수 있어요
+      if (action === 'no') {
+        if (user.id !== targetId && user.id !== challengerId) {
+          return reply({ content: '이 대결과 상관없는 사람은 누를 수 없어요 🙅' }, { ephemeral: true });
+        }
+        const who = user.id === targetId ? '상대가 대결을 거절했어요 🙅' : '대결 신청을 취소했어요.';
+        return update({
+          content: '',
+          embeds: [{ title: '🥊 대결 종료', description: who, color: 0x99aab5 }],
+          components: [],
+        });
+      }
+
+      if (user.id !== targetId) {
+        return reply({ content: '신청받은 사람만 수락할 수 있어요 🙅' }, { ephemeral: true });
+      }
+      if (Date.now() - Number(ts) > DUEL_CHALLENGE_TTL_MS) {
+        return update({
+          content: '',
+          embeds: [{ title: '🥊 대결 종료', description: '⏳ 신청 시간이 지났어요. 다시 신청해주세요!', color: 0x99aab5 }],
+          components: [],
+        });
+      }
+
+      const [challenger, target] = await Promise.all([getPlayer(challengerId), getPlayer(targetId)]);
+      if (!challenger || !target) {
+        return reply({ content: '대결 상대의 정보를 찾을 수 없어요 🥲' }, { ephemeral: true });
+      }
+      const a = duelFighter(challenger);
+      const b = duelFighter(target);
+      if (!a || !b) {
+        return reply({ content: '대결에 내보낼 펫이 없어요 😢' }, { ephemeral: true });
+      }
+
+      const result = simulateDuel(a, b, seededRng(`${challengerId}:${targetId}:${ts}`));
+      const winnerName = result.winner === 'a' ? a.owner : result.winner === 'b' ? b.owner : null;
+      const title = winnerName
+        ? `🏆 ${winnerName}님의 승리!`
+        : '🤝 무승부!';
+      const summary =
+        (winnerName ? `🏆 **${winnerName}**님의 ${result.winner === 'a' ? a.emoji + ' ' + a.name : b.emoji + ' ' + b.name} 승리!` : '🤝 비겼어요!') +
+        (result.timeout ? `\n⏱️ ${DUEL_MAX_ROUNDS}라운드 안에 끝나지 않아 남은 체력 비율로 가렸어요.` : '') +
+        `\n(${result.rounds}라운드 · 펫은 사라지지 않고 체력도 그대로예요 ✅)`;
+
+      return update({
+        content: '',
+        embeds: [
+          {
+            title,
+            description: `${summary}`,
+            color: 0xfee75c,
+            fields: [
+              { name: `🔴 ${a.owner}`, value: `${duelFighterLine(a)}\n**결과 ❤️ ${result.aHp}/${a.max}**`, inline: true },
+              { name: `🔵 ${b.owner}`, value: `${duelFighterLine(b)}\n**결과 ❤️ ${result.bHp}/${b.max}**`, inline: true },
+              { name: '📜 전투 기록', value: trimDuelLog(result.log).slice(0, 1024) },
+            ],
+            footer: { text: '이 결과는 저장되지 않아요. 대결 후에도 펫의 체력은 그대로예요.' },
+          },
+        ],
+        components: [],
+      });
+    },
+  },
+};
+
+// ═════════════════════════════════════════════
 // 내보내기: router.js 가 이 목록을 그대로 써요
 // ═════════════════════════════════════════════
 
-const commandModules = [start, profile, places, explore, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, help];
+const commandModules = [start, profile, places, explore, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, help];
 
 // ============================================================
 // 라우터 (router.js)
