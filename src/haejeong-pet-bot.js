@@ -118,6 +118,22 @@ const DUEL_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 대결 신청은 이 시간(5분
 const DUEL_USE_FULL_HP = false; // true: 항상 최대 체력으로 싸워요 / false: 지금 체력 그대로 싸워요 (끝나면 어차피 그대로 복구)
 const DUEL_LOG_MAX_CHARS = 2800; // 전투 기록이 너무 길면 앞부분을 줄여요 (디스코드 글자 수 제한)
 
+// ───────── 펫 거래 🤝 ─────────
+// 펫 ↔ 펫 1:1 교환만 가능해요 (골드·아이템 직접 전달은 없어요 → 골드 팔이·부계정 몰아주기 방지)
+// 초보가 전설 펫을 덥석 받아서 게임이 망가지지 않도록, 아래 제한들을 "모두" 통과해야 거래돼요.
+const TRADE_DAILY_LIMIT = 3; // 하루(한국 시간 0시 기준) 거래 성사 횟수 — 보내는 쪽·받는 쪽 둘 다 각자 세요
+const TRADE_MIN_TRAINER_LEVEL = 5; // 거래하려면 트레이너 레벨이 최소 이만큼 필요해요
+const TRADE_MIN_ACCOUNT_AGE_MS = 24 * 60 * 60 * 1000; // 모험을 시작한 지 최소 이 시간(24시간)이 지나야 해요 (새 계정 대량 생성 방지)
+// 받는 펫의 등급별로 "받는 사람"의 트레이너 레벨이 이만큼은 돼야 해요
+const TRADE_GRADE_MIN_LEVEL = { common: 5, uncommon: 10, rare: 15, epic: 25, legendary: 40, mythic: 55, divine: 70 };
+const TRADE_MAX_GRADE_GAP = 1; // 서로 바꾸는 펫의 등급 차이는 이 단계까지만 (예: 희귀 ↔ 영웅 OK, 희귀 ↔ 전설 불가)
+const TRADE_MAX_LEVEL_GAP = 10; // 서로 바꾸는 펫의 레벨 차이는 이만큼까지만
+// 받은 펫 레벨은 (받는 사람 트레이너 레벨 + TRAIN_LEVEL_CAP_OVER_TRAINER) 이하만 가능 (훈련 상한과 같은 기준)
+const TRADE_PET_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 거래로 받은 펫은 이 시간(24시간) 동안 다시 거래할 수 없어요 (돌려 막기 방지)
+const TRADE_FEE_RATE = 0.5; // 수수료 = 내가 보내는 펫의 방생 골드 × 이 값 (골드가 사라지는 곳이에요)
+const TRADE_FEE_MIN = 50; // 수수료 최소 금액
+const TRADE_TTL_MS = 5 * 60 * 1000; // 거래 신청은 이 시간(5분) 안에 수락해야 해요
+
 // ============================================================
 // 데이터: 해정펫 도감 (data/pets.js)
 // ============================================================
@@ -644,6 +660,39 @@ async function updatePlayer(userId, mutate) {
     const player = snap.data();
     const out = mutate(player);
     if (out.commit) tx.set(ref, player);
+    return out.value;
+  });
+}
+
+// 두 플레이어를 "한 덩어리"로 읽고 → 고치고 → 저장해요 (거래용).
+// 둘 중 하나라도 실패하면 둘 다 저장되지 않아서, 펫이 복제되거나 사라지는 일이 없어요.
+// mutate(playerA, playerB) 는 { commit: true/false, value: 돌려줄값 } 을 돌려줘야 해요.
+async function updatePlayerPair(idA, idB, mutate) {
+  if (useMemory()) {
+    const fa = memoryStore.get(idA);
+    const fb = memoryStore.get(idB);
+    if (!fa || !fb) return null;
+    const ca = structuredClone(fa);
+    const cb = structuredClone(fb);
+    const out = mutate(ca, cb);
+    if (out.commit) {
+      memoryStore.set(idA, ca);
+      memoryStore.set(idB, cb);
+    }
+    return out.value;
+  }
+  const refA = players().doc(idA);
+  const refB = players().doc(idB);
+  return getDb().runTransaction(async (tx) => {
+    const [sa, sb] = await tx.getAll(refA, refB);
+    if (!sa.exists || !sb.exists) return null;
+    const a = sa.data();
+    const b = sb.data();
+    const out = mutate(a, b);
+    if (out.commit) {
+      tx.set(refA, a);
+      tx.set(refB, b);
+    }
     return out.value;
   });
 }
@@ -1668,6 +1717,107 @@ function simulateDuel(a, b, rng) {
     winner = ra === rb ? null : ra > rb ? 'a' : 'b';
   }
   return { winner, timeout, rounds, log, aHp: A.hp, bHp: B.hp };
+}
+
+// ============================================================
+// 시스템: 펫 거래 (systems/trade.js)
+// ============================================================
+
+// 펫 거래 규칙 🤝 (디스코드와 상관없는 순수한 규칙) — 펫 ↔ 펫 1:1 교환
+// 신청할 때와 수락할 때 "같은 검사"를 한 번씩 해요 (그 사이에 상황이 바뀔 수 있어서!)
+
+const tradeCountToday = (player, now = Date.now()) =>
+  player.trade?.date === kstDate(now) ? (player.trade.count ?? 0) : 0;
+
+// uid 앞 8글자로 펫 찾기 (버튼 이름표에 uid 전체를 못 넣어서 앞부분만 써요)
+function findPetByUidPrefix(player, prefix) {
+  if (!prefix) return null;
+  const hits = player.pets.filter((p) => p.uid.startsWith(prefix));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+const tradeFee = (inst) => Math.max(TRADE_FEE_MIN, Math.round(releaseValue(inst) * TRADE_FEE_RATE));
+const petGradeOrder = (inst) => GRADES[PETS[inst.petId].grade].order;
+const tradeNameOf = (inst) => inst.nickname ?? PETS[inst.petId].name;
+
+function tradeCooldownLeftMs(inst, now = Date.now()) {
+  return Math.max(0, (inst.tradedAt ?? 0) + TRADE_PET_COOLDOWN_MS - now);
+}
+
+const fmtCooldown = (ms) => {
+  const totalMin = Math.ceil(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? (m > 0 ? `${h}시간 ${m}분` : `${h}시간`) : `${m}분`;
+};
+
+// 한쪽 사람이 거래할 자격이 되는지 (gives: 내가 보내는 펫, gets: 내가 받는 펫)
+function checkTradeSide(p, gives, gets, now) {
+  const who = `**${p.name}**님은`;
+  if (p.level < TRADE_MIN_TRAINER_LEVEL) return `${who} 트레이너 레벨 **${TRADE_MIN_TRAINER_LEVEL}** 이상부터 거래할 수 있어요.`;
+  if (p.createdAt && now - p.createdAt < TRADE_MIN_ACCOUNT_AGE_MS) {
+    const left = TRADE_MIN_ACCOUNT_AGE_MS - (now - p.createdAt);
+    return `${who} 모험을 시작한 지 얼마 안 돼서 **${fmtCooldown(left)}** 뒤부터 거래할 수 있어요.`;
+  }
+  if (p.exploration?.battle) return `${who} 지금 전투 중이라 거래할 수 없어요.`;
+  if (tradeCountToday(p, now) >= TRADE_DAILY_LIMIT) return `${who} 오늘 거래 횟수(**${TRADE_DAILY_LIMIT}회**)를 다 썼어요. 한국 시간 0시에 초기화돼요.`;
+  if (gives.uid === p.mainPetUid) return `${who} 대표 펫(👑)은 내보낼 수 없어요. \`/펫\` 에서 대표 펫을 바꿔주세요.`;
+  const cd = tradeCooldownLeftMs(gives, now);
+  if (cd > 0) return `${who} **${tradeNameOf(gives)}**(이)가 거래로 받은 지 얼마 안 돼서 **${fmtCooldown(cd)}** 뒤에 다시 거래할 수 있어요.`;
+  const gotPet = PETS[gets.petId];
+  const need = TRADE_GRADE_MIN_LEVEL[gotPet.grade] ?? 0;
+  if (p.level < need) return `${who} ${GRADES[gotPet.grade].emoji}${GRADES[gotPet.grade].name} 등급 펫을 받으려면 트레이너 레벨 **${need}** 이상이어야 해요. (현재 Lv.${p.level})`;
+  const cap = Math.min(MAX_LEVEL, p.level + TRAIN_LEVEL_CAP_OVER_TRAINER);
+  if (gets.level > cap) return `${who} 트레이너 레벨보다 너무 높은 펫은 받을 수 없어요. (받을 수 있는 최대 펫 레벨 **${cap}**, 상대 펫 Lv.${gets.level})`;
+  const fee = tradeFee(gives);
+  if (p.gold < fee) return `${who} 거래 수수료 **${fee.toLocaleString('ko-KR')}** 골드가 모자라요. (보유 ${p.gold.toLocaleString('ko-KR')})`;
+  return null;
+}
+
+// 거래가 성사될 수 있는지 전부 검사해요 (아무것도 바꾸지 않아요)
+function validateTrade(a, instA, b, instB, now = Date.now()) {
+  if (!instA || !instB) return { ok: false, msg: '거래할 펫을 찾을 수 없어요 🤔 (이미 거래됐거나 방생했을 수 있어요)' };
+  const gap = Math.abs(petGradeOrder(instA) - petGradeOrder(instB));
+  if (gap > TRADE_MAX_GRADE_GAP) {
+    return { ok: false, msg: `등급 차이가 너무 커요! 서로 바꾸는 펫의 등급은 **${TRADE_MAX_GRADE_GAP}단계** 안쪽이어야 해요.` };
+  }
+  const lvGap = Math.abs(instA.level - instB.level);
+  if (lvGap > TRADE_MAX_LEVEL_GAP) {
+    return { ok: false, msg: `레벨 차이가 너무 커요! 서로 바꾸는 펫의 레벨 차이는 **${TRADE_MAX_LEVEL_GAP}** 이하여야 해요. (지금 ${lvGap})` };
+  }
+  const errA = checkTradeSide(a, instA, instB, now);
+  if (errA) return { ok: false, msg: errA };
+  const errB = checkTradeSide(b, instB, instA, now);
+  if (errB) return { ok: false, msg: errB };
+  return { ok: true, feeA: tradeFee(instA), feeB: tradeFee(instB) };
+}
+
+// 거래 성사 — updatePlayerPair 안에서 불러요. 검증 → 맞교환 → 수수료 → 횟수 기록 (도감에는 등록되지 않아요!)
+function executeTrade(a, prefixA, b, prefixB, now = Date.now()) {
+  const instA = findPetByUidPrefix(a, prefixA);
+  const instB = findPetByUidPrefix(b, prefixB);
+  const v = validateTrade(a, instA, b, instB, now);
+  if (!v.ok) return { commit: false, value: { kind: 'invalid', msg: v.msg } };
+
+  a.pets = a.pets.filter((p) => p.uid !== instA.uid);
+  b.pets = b.pets.filter((p) => p.uid !== instB.uid);
+  a.pets.push({ ...instB, tradedAt: now });
+  b.pets.push({ ...instA, tradedAt: now });
+
+  a.gold -= v.feeA;
+  b.gold -= v.feeB;
+
+  const today = kstDate(now);
+  a.trade = { date: today, count: tradeCountToday(a, now) + 1 };
+  b.trade = { date: today, count: tradeCountToday(b, now) + 1 };
+
+  return {
+    commit: true,
+    value: {
+      kind: 'traded', instA, instB, feeA: v.feeA, feeB: v.feeB,
+      leftA: TRADE_DAILY_LIMIT - a.trade.count, leftB: TRADE_DAILY_LIMIT - b.trade.count,
+    },
+  };
 }
 
 // ============================================================
@@ -3424,6 +3574,16 @@ const help = {
                   '대결에서 져도 **펫은 사라지지 않고**, 대결이 끝나면 **체력도 대결 전 그대로** 예요. 보상도 손실도 없는 연습 경기예요!',
               },
               {
+                name: '🤝 펫 거래',
+                value:
+                  '`/거래 @유저 내펫 상대펫` 으로 펫을 **1:1 교환**해요. 상대가 [수락] 하면 성사돼요. (골드·아이템 전달은 없어요)\n' +
+                  `· 하루 **${TRADE_DAILY_LIMIT}회**까지 (한국 시간 0시 초기화) · 트레이너 Lv.**${TRADE_MIN_TRAINER_LEVEL}** 이상 · 시작 후 24시간 지나야 해요\n` +
+                  `· 받는 펫 등급별 필요 레벨: ${Object.entries(TRADE_GRADE_MIN_LEVEL).map(([g, lv]) => `${GRADES[g].emoji}${lv}`).join(' ')}\n` +
+                  `· 받는 펫 레벨은 내 트레이너 레벨 +${TRAIN_LEVEL_CAP_OVER_TRAINER} 까지 · 서로 바꾸는 펫은 등급 차이 ${TRADE_MAX_GRADE_GAP}단계, 레벨 차이 ${TRADE_MAX_LEVEL_GAP} 이내\n` +
+                  `· 대표 펫은 불가 · 거래로 받은 펫은 ${fmtCooldown(TRADE_PET_COOLDOWN_MS)} 동안 재거래 불가 · 도감 등록 안 됨\n` +
+                  `· 수수료: 보내는 펫 방생 골드의 ${pct(TRADE_FEE_RATE)}% (최소 ${TRADE_FEE_MIN}골드, 각자 부담)`,
+              },
+              {
                 name: '🛒 상점 · 도감 · 가방',
                 value: '`/상점` 에서 물건을 고르면 개수 입력창이 떠요 (숫자 또는 **최대**). `/구매` 는 상점을 안 열고 개수를 바로 적어서 사요. `/가방` 에서 가진 물건과 켜둔 부스트를 봐요. `/도감` 은 만난 펫을 기록해요.',
               },
@@ -3688,10 +3848,150 @@ const duel = {
 };
 
 // ═════════════════════════════════════════════
+// /거래
+// ═════════════════════════════════════════════
+
+function tradePetLine(inst, now = Date.now()) {
+  const pet = PETS[inst.petId];
+  const s = calcStats(inst.petId, inst.level);
+  return (
+    `${GRADES[pet.grade].emoji} ${pet.emoji} **${tradeNameOf(inst)}** Lv.${inst.level}\n` +
+    `❤️ ${currentHp(inst, now)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}`
+  );
+}
+
+// 자동완성: 거래할 수 있는 펫만 보여줘요 (대표 펫 · 방금 거래로 받은 펫은 빼요)
+function tradeChoices(player, typed, now) {
+  const t = String(typed ?? '').trim().toLowerCase();
+  return player.pets
+    .map((inst, i) => ({ inst, index: i + 1, label: tradeNameOf(inst) }))
+    .filter((c) => c.inst.uid !== player.mainPetUid && tradeCooldownLeftMs(c.inst, now) === 0)
+    .filter((c) => !t || `${c.index} ${c.label}`.toLowerCase().includes(t))
+    .slice(0, 25)
+    .map((c) => ({
+      name: `${c.index}. ${GRADES[PETS[c.inst.petId].grade].emoji} ${PETS[c.inst.petId].emoji} ${c.label} Lv.${c.inst.level}`,
+      value: c.inst.uid,
+    }));
+}
+
+const trade = {
+  data: {
+    name: '거래',
+    description: '다른 유저와 펫을 1:1로 교환해요. (하루 횟수 제한 · 등급/레벨 제한 · 수수료가 있어요)',
+    type: 1,
+    options: [
+      { type: 6, name: '유저', description: '거래할 상대', required: true },
+      { type: 3, name: '내펫', description: '내가 보낼 펫 (대표 펫은 불가)', required: true, autocomplete: true },
+      { type: 3, name: '상대펫', description: '상대에게서 받고 싶은 펫', required: true, autocomplete: true },
+    ],
+  },
+
+  async autocomplete(interaction) {
+    const focused = interaction.data.options?.find((o) => o.focused);
+    if (!focused) return autocompleteResult([]);
+    const now = Date.now();
+    const ownerId = focused.name === '내펫' ? getUser(interaction).id : getOption(interaction, '유저');
+    if (!ownerId) return autocompleteResult([]);
+    const owner = await getPlayer(ownerId);
+    if (!owner) return autocompleteResult([]);
+    return autocompleteResult(tradeChoices(owner, focused.value, now));
+  },
+
+  async execute(interaction) {
+    const me = getUser(interaction);
+    const targetId = getOption(interaction, '유저');
+    const now = Date.now();
+
+    if (targetId === me.id) return reply({ content: '나 자신과는 거래할 수 없어요 😅' }, { ephemeral: true });
+    if (interaction.data.resolved?.users?.[targetId]?.bot) return reply({ content: '봇과는 거래할 수 없어요 🤖' }, { ephemeral: true });
+
+    const [mine, theirs] = await Promise.all([getPlayer(me.id), getPlayer(targetId)]);
+    if (!mine) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    if (!theirs) return reply({ content: '그 사람은 아직 모험을 시작하지 않았어요.' }, { ephemeral: true });
+
+    const myInst = resolvePetSelector(mine, getOption(interaction, '내펫'));
+    const theirInst = resolvePetSelector(theirs, getOption(interaction, '상대펫'));
+    if (!myInst) return reply({ content: '내 펫을 찾을 수 없어요 🤔 입력하면 뜨는 목록에서 골라주세요!' }, { ephemeral: true });
+    if (!theirInst) return reply({ content: '상대의 펫을 찾을 수 없어요 🤔 입력하면 뜨는 목록에서 골라주세요!' }, { ephemeral: true });
+
+    const v = validateTrade(mine, myInst, theirs, theirInst, now);
+    if (!v.ok) return reply({ content: `🚫 ${v.msg}` }, { ephemeral: true });
+
+    const key = `${me.id}:${targetId}:${now}:${myInst.uid.slice(0, 8)}:${theirInst.uid.slice(0, 8)}`;
+    return reply({
+      content: `<@${targetId}>`,
+      embeds: [
+        {
+          title: '🤝 펫 거래 신청!',
+          description:
+            `**${mine.name}**님이 <@${targetId}>님에게 펫 교환을 신청했어요!\n\n` +
+            `**${mine.name}**님이 보내는 펫\n${tradePetLine(myInst, now)}\n\n` +
+            `**${theirs.name}**님이 보내는 펫\n${tradePetLine(theirInst, now)}\n\n` +
+            `💰 수수료: **${mine.name}** ${v.feeA.toLocaleString('ko-KR')}골드 · **${theirs.name}** ${v.feeB.toLocaleString('ko-KR')}골드 (각자 내요)\n` +
+            `⚠️ 거래한 펫은 **${fmtCooldown(TRADE_PET_COOLDOWN_MS)}** 동안 다시 거래할 수 없고, **도감에는 등록되지 않아요.**\n` +
+            `⏳ ${Math.round(TRADE_TTL_MS / 60000)}분 안에 수락해주세요.`,
+          color: 0x3498db,
+          footer: { text: `하루 거래 ${TRADE_DAILY_LIMIT}회까지 · 수락하면 되돌릴 수 없어요` },
+        },
+      ],
+      components: [
+        row(
+          button({ label: '수락', emoji: '🤝', customId: `trade:ok:${key}`, style: 3 }),
+          button({ label: '거절', emoji: '🙅', customId: `trade:no:${key}`, style: 4 }),
+        ),
+      ],
+    });
+  },
+
+  components: {
+    trade: async function tradeButton(interaction, args) {
+      const [action, challengerId, targetId, ts, prefixA, prefixB] = args;
+      const user = getUser(interaction);
+      const closed = (description) =>
+        update({ content: '', embeds: [{ title: '🤝 거래 종료', description, color: 0x99aab5 }], components: [] });
+
+      if (action === 'no') {
+        if (user.id !== targetId && user.id !== challengerId) {
+          return reply({ content: '이 거래와 상관없는 사람은 누를 수 없어요 🙅' }, { ephemeral: true });
+        }
+        return closed(user.id === targetId ? '상대가 거래를 거절했어요 🙅' : '거래 신청을 취소했어요.');
+      }
+
+      if (user.id !== targetId) return reply({ content: '신청받은 사람만 수락할 수 있어요 🙅' }, { ephemeral: true });
+      if (Date.now() - Number(ts) > TRADE_TTL_MS) return closed('⏳ 신청 시간이 지났어요. 다시 신청해주세요!');
+
+      const now = Date.now();
+      const out = await updatePlayerPair(challengerId, targetId, (a, b) => executeTrade(a, prefixA, b, prefixB, now));
+      if (!out) return reply({ content: '거래 상대의 정보를 찾을 수 없어요 🥲' }, { ephemeral: true });
+      if (out.kind === 'invalid') return reply({ content: `🚫 ${out.msg}` }, { ephemeral: true });
+
+      const [pa, pb] = await Promise.all([getPlayer(challengerId), getPlayer(targetId)]);
+      const nameA = pa?.name ?? '신청자';
+      const nameB = pb?.name ?? '상대';
+      return update({
+        content: '',
+        embeds: [
+          {
+            title: '🎉 거래 성사!',
+            description:
+              `**${nameA}**님이 받은 펫\n${tradePetLine(out.instB, now)}\n\n` +
+              `**${nameB}**님이 받은 펫\n${tradePetLine(out.instA, now)}\n\n` +
+              `💰 수수료: ${nameA} ${out.feeA.toLocaleString('ko-KR')}골드 · ${nameB} ${out.feeB.toLocaleString('ko-KR')}골드\n` +
+              `📅 오늘 남은 거래 횟수: ${nameA} ${out.leftA}회 · ${nameB} ${out.leftB}회`,
+            color: 0x57f287,
+          },
+        ],
+        components: [],
+      });
+    },
+  },
+};
+
+// ═════════════════════════════════════════════
 // 내보내기: router.js 가 이 목록을 그대로 써요
 // ═════════════════════════════════════════════
 
-const commandModules = [start, profile, places, explore, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, help];
+const commandModules = [start, profile, places, explore, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, trade, help];
 
 // ============================================================
 // 라우터 (router.js)
