@@ -65,6 +65,23 @@ const SPEEDUP_PCT = 0.3; // 탐험 시간 감소: 남은 대기 시간 -30% (1�
 const SPEEDUP_MIN_SEC = 5; // 탐험 시간 감소로는 남은 시간이 이 값(초) 아래로 내려가지 않아요
 const SPEEDUP_BLOCK_SEC = 10; // 남은 시간이 이 값(초) 이하면 탐험 시간 감소를 쓸 수 없어요 (아이템도 안 줄어요)
 
+// ───────── 탐험 대기 시간 ⏳ ─────────
+// 기본 대기 시간은 "내 트레이너 레벨"로 정해요 (maxLevel 이하일 때 min~max 초 사이에서 랜덤, 61렙부터는 마지막 줄)
+const WAIT_TIERS = [
+  { maxLevel: 19, min: 5, max: 30 }, // ~19렙: 5초 ~ 30초
+  { maxLevel: 30, min: 10, max: 60 }, // 20~30렙: 10초 ~ 1분
+  { maxLevel: 40, min: 15, max: 60 }, // 31~40렙: 15초 ~ 1분
+  { maxLevel: 50, min: 15, max: 90 }, // 41~50렙: 15초 ~ 1분 30초
+  { maxLevel: 60, min: 20, max: 90 }, // 51~60렙(그 이상도): 20초 ~ 1분 30초
+];
+// 나올 펫이 셀수록 기본 시간에 이 배수가 곱해져요 (등급 × 레벨)
+const GRADE_WAIT_MULT = { common: 1.0, uncommon: 1.1, rare: 1.25, epic: 1.5, legendary: 2.0, mythic: 2.5, divine: 3.0 };
+const LEVEL_WAIT_BONUS = 0.4; // 그 장소에서 나올 수 있는 레벨 중 가장 높은 레벨이면 시간이 +40%
+const MAX_WAIT_SEC = 300; // 아무리 길어도 5분까지만
+// 😏 훼이크: 이 확률로 "센 펫이 나올 때처럼" 오래 기다리게 해놓고, 실제로는 원래 펫이 나와요
+const FAKE_OUT_CHANCE = 0.12;
+const FAKE_OUT_MIN_GAP = 1.2; // 훼이크는 원래 펫보다 이 배수 이상 센 펫의 시간으로만 만들어요
+
 // ───────── 육성 🌱 ─────────
 const NICKNAME_MAX = 12; // 별명 최대 글자 수
 const RELEASE_BASE_GOLD = { common: 20, uncommon: 30, rare: 50, epic: 150, legendary: 500, mythic: 1500, divine: 5000 }; // 방생 골드 = 등급별 기본값 × (1 + 레벨 × RELEASE_LEVEL_BONUS)
@@ -275,11 +292,11 @@ const ITEMS = {
 
 // 장소 목록 🗺️ — 레벨이 높아야 갈 수 있는 곳일수록 강하고 경험치가 많은 펫이 나와요!
 // weight: 나올 확률의 "무게" (클수록 자주 나와요), lv: [최소, 최대] 펫 레벨
-// delay: 펫이 나타날 때까지 걸리는 시간(초) [최소, 최대] — 이 사이에서 랜덤!
+// (기다리는 시간은 장소가 아니라 "내 트레이너 레벨"과 "나올 펫의 세기"로 정해져요 → 설정값의 '탐험 대기 시간' 참고)
 
 const LOCATIONS = {
   meadow: {
-    id: 'meadow', name: '초록 초원', emoji: '🌾', minLevel: 1, expMultiplier: 1.0, delay: [5, 20],
+    id: 'meadow', name: '초록 초원', emoji: '🌾', minLevel: 1, expMultiplier: 1.0,
     description: '바람이 솔솔 부는 평화로운 들판이에요.',
     spawns: [
       { petId: 'slime', weight: 40, lv: [1, 4] },
@@ -292,7 +309,7 @@ const LOCATIONS = {
     ],
   },
   forest: {
-    id: 'forest', name: '속삭이는 숲', emoji: '🌲', minLevel: 5, expMultiplier: 1.5, delay: [5, 25],
+    id: 'forest', name: '속삭이는 숲', emoji: '🌲', minLevel: 5, expMultiplier: 1.5,
     description: '나뭇잎 사이로 무언가 지나가는 소리가 나요.',
     spawns: [
       { petId: 'owl', weight: 40, lv: [5, 10] },
@@ -307,7 +324,7 @@ const LOCATIONS = {
     ],
   },
   cave: {
-    id: 'cave', name: '어두운 동굴', emoji: '🕳️', minLevel: 10, expMultiplier: 2.0, delay: [8, 30],
+    id: 'cave', name: '어두운 동굴', emoji: '🕳️', minLevel: 10, expMultiplier: 2.0,
     description: '깜깜해서 잘 안 보이지만 반짝이는 눈이 보여요.',
     spawns: [
       { petId: 'bat', weight: 60, lv: [10, 16] },
@@ -320,7 +337,7 @@ const LOCATIONS = {
     ],
   },
   ocean: {
-    id: 'ocean', name: '푸른 바다', emoji: '🌊', minLevel: 20, expMultiplier: 3.0, delay: [8, 30],
+    id: 'ocean', name: '푸른 바다', emoji: '🌊', minLevel: 20, expMultiplier: 3.0,
     description: '파도 아래에 커다란 그림자가 보여요.',
     spawns: [
       { petId: 'pufferfish', weight: 45, lv: [20, 27] },
@@ -333,7 +350,7 @@ const LOCATIONS = {
     ],
   },
   volcano: {
-    id: 'volcano', name: '불타는 화산', emoji: '🌋', minLevel: 30, expMultiplier: 5.0, delay: [10, 40],
+    id: 'volcano', name: '불타는 화산', emoji: '🌋', minLevel: 30, expMultiplier: 5.0,
     description: '뜨거운 열기 속에서 전설의 울음소리가 들려요.',
     spawns: [
       { petId: 'magma_slime', weight: 40, lv: [30, 38] },
@@ -345,7 +362,7 @@ const LOCATIONS = {
     ],
   },
   swamp: {
-    id: 'swamp', name: '안개 늪', emoji: '🐸', minLevel: 15, expMultiplier: 2.5, delay: [8, 30],
+    id: 'swamp', name: '안개 늪', emoji: '🐸', minLevel: 15, expMultiplier: 2.5,
     description: '짙은 안개 속에서 첨벙첨벙 소리가 나요.',
     spawns: [
       { petId: 'frog', weight: 40, lv: [14, 19] },
@@ -356,7 +373,7 @@ const LOCATIONS = {
     ],
   },
   desert: {
-    id: 'desert', name: '불볕 사막', emoji: '🏜️', minLevel: 25, expMultiplier: 4.0, delay: [10, 35],
+    id: 'desert', name: '불볕 사막', emoji: '🏜️', minLevel: 25, expMultiplier: 4.0,
     description: '뜨거운 모래바람 너머로 커다란 그림자가 보여요.',
     spawns: [
       { petId: 'camel', weight: 35, lv: [24, 30] },
@@ -368,7 +385,7 @@ const LOCATIONS = {
     ],
   },
   glacier: {
-    id: 'glacier', name: '얼음 설원', emoji: '🧊', minLevel: 35, expMultiplier: 6.5, delay: [12, 40],
+    id: 'glacier', name: '얼음 설원', emoji: '🧊', minLevel: 35, expMultiplier: 6.5,
     description: '숨을 쉴 때마다 하얀 김이 나오는 꽁꽁 언 땅이에요.',
     spawns: [
       { petId: 'penguin', weight: 35, lv: [34, 40] },
@@ -380,7 +397,7 @@ const LOCATIONS = {
     ],
   },
   sky: {
-    id: 'sky', name: '구름 하늘섬', emoji: '☁️', minLevel: 45, expMultiplier: 8.0, delay: [12, 45],
+    id: 'sky', name: '구름 하늘섬', emoji: '☁️', minLevel: 45, expMultiplier: 8.0,
     description: '구름 위에 떠 있는 섬에서 천둥소리가 울려요.',
     spawns: [
       { petId: 'cloud_sheep', weight: 30, lv: [44, 50] },
@@ -393,7 +410,7 @@ const LOCATIONS = {
     ],
   },
   abyss: {
-    id: 'abyss', name: '별빛 심연', emoji: '🌌', minLevel: 55, expMultiplier: 12.0, delay: [15, 50],
+    id: 'abyss', name: '별빛 심연', emoji: '🌌', minLevel: 55, expMultiplier: 12.0,
     description: '별이 반짝이는 끝없는 어둠 속이에요. 아무도 돌아온 적이 없대요.',
     spawns: [
       { petId: 'shadow', weight: 30, lv: [54, 60] },
@@ -922,6 +939,31 @@ function rollEncounter(loc, rng = Math.random) {
   return { petId: spawn.petId, level: randInt(spawn.lv[0], spawn.lv[1], rng) };
 }
 
+// 나올 펫이 얼마나 센지에 따른 대기 시간 배수 (등급이 높을수록, 그 장소에서 높은 레벨일수록 커져요)
+function waitMultiplier(loc, enc) {
+  const spawn = loc.spawns.find((s) => s.petId === enc.petId);
+  const [lo, hi] = spawn?.lv ?? [enc.level, enc.level];
+  const t = hi > lo ? (enc.level - lo) / (hi - lo) : 0;
+  return GRADE_WAIT_MULT[PETS[enc.petId].grade] * (1 + LEVEL_WAIT_BONUS * Math.max(0, Math.min(1, t)));
+}
+
+// 기다릴 시간(초) 정하기: 트레이너 레벨로 기본 시간 → 나올 펫이 셀수록 더 오래 → 가끔 훼이크
+function calcWaitSec(loc, trainerLevel, enc, rng = Math.random) {
+  const tier = WAIT_TIERS.find((x) => trainerLevel <= x.maxLevel) ?? WAIT_TIERS[WAIT_TIERS.length - 1];
+  const base = randInt(tier.min, tier.max, rng);
+  let mult = waitMultiplier(loc, enc);
+  let fake = false;
+  if (rng() < FAKE_OUT_CHANCE) {
+    const decoys = loc.spawns.filter((s) => waitMultiplier(loc, { petId: s.petId, level: s.lv[1] }) >= mult * FAKE_OUT_MIN_GAP);
+    if (decoys.length > 0) {
+      const d = decoys[Math.floor(rng() * decoys.length)];
+      mult = waitMultiplier(loc, { petId: d.petId, level: d.lv[1] });
+      fake = true;
+    }
+  }
+  return { sec: Math.min(MAX_WAIT_SEC, Math.max(1, Math.round(base * mult))), fake };
+}
+
 // 이미 가 본 장소인지: 야생 펫을 만난 적이 있거나, 그 장소의 펫이 도감에 있으면 "가 본 곳"이에요
 function hasVisited(player, locationId) {
   if (player.visited?.[locationId]) return true;
@@ -995,14 +1037,15 @@ function startExploration(player, locationId, now = Date.now(), rng = Math.rando
     };
   }
 
-  const waitSec = randInt(loc.delay[0], loc.delay[1], rng);
+  const enc = rollEncounter(loc, rng); // 나올 펫을 먼저 정하고
+  const { sec: waitSec } = calcWaitSec(loc, player.level, enc, rng); // 그 펫이 셀수록 오래 기다려요
   player.exploration = {
     id: randomUUID().slice(0, 8),
     locationId,
     startedAt: now,
     appearAt: now + waitSec * 1000,
     encounter: null,
-    nextEncounter: rollEncounter(loc, rng), // 곧 나올 펫을 미리 정해둬요 (🔭 망원경이 이걸 알려줘요)
+    nextEncounter: enc, // 곧 나올 펫을 미리 정해둬요 (🔭 망원경이 이걸 알려줘요)
   };
   player.lastLocationId = locationId; // /탐험 을 장소 없이 쓰면 여기로 가요
   return { ok: true, resumed: false, snap: snapshot(player, now), commit: true };
@@ -3122,6 +3165,7 @@ const help = {
                 name: '🌿 탐험',
                 value:
                   '`/탐험` 으로 장소를 골라 떠나요 (장소를 비우면 지난번 장소로 가요). **[살펴보기]** 를 누르면 야생 펫이 나타나요.\n' +
+                  '기다리는 시간은 트레이너 레벨이 높을수록 길어지고, 센 펫(높은 등급·높은 레벨)이 나올수록 더 오래 걸려요. 가끔은 훼이크도 있어요 😏\n' +
                   '탐험이 끝나면 **[다시 탐험]** · **[체력 회복]** 버튼이 떠서 명령어를 다시 안 쳐도 돼요.\n' +
                   '`/장소` 에서 갈 수 있는 곳과 만나는 펫을 볼 수 있어요.',
               },
