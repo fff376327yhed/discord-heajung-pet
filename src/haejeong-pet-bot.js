@@ -94,6 +94,23 @@ const TRAIN_LEVEL_CAP_OVER_TRAINER = 10; // 훈련으로는 펫이 트레이너 
 // ───────── 체력 이어가기 ❤️ ─────────
 const HP_REGEN_PCT_PER_MIN = 0.02; // 시간이 지나면 1분마다 최대 체력의 이 비율만큼 저절로 회복돼요 (0.02 = 2%, 0%에서 가득까지 약 50분)
 
+// ───────── 출석체크 📅 ─────────
+const ATTENDANCE_BALLS = 5; // 출석 1회 보상: 해정볼
+const ATTENDANCE_GOLD = 750; // 출석 1회 보상: 골드
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000; // 출석은 한국 시간(KST) 자정에 초기화돼요
+
+// ───────── 도감 보상 🎁 ─────────
+// 한 챕터(= 장소)의 도감을 모두 채우면 보상을 한 번 받아요. 챕터는 입장 레벨이 낮은 장소부터 1, 2, 3... 번이에요.
+// 1챕터 기본값 + (챕터 번호 - 1) × 챕터당 추가량
+const DEX_REWARD = {
+  balls: { base: 20, step: 5 }, // 해정볼
+  potions: { base: 20, step: 5 }, // 회복약
+  telescopes: { base: 5, step: 5 }, // 해정 망원경
+  speedups: { base: 3, step: 5 }, // 탐험 시간 감소
+  boosts: { base: 5, step: 10 }, // 경험치 부스트 (트레이너용 · 펫용 각각 이만큼)
+};
+const DEX_GOLD_MULT = 5; // 골드 = (챕터에서 가장 강한 펫을 이겼을 때 평균 골드) × 이 값
+
 // ============================================================
 // 데이터: 해정펫 도감 (data/pets.js)
 // ============================================================
@@ -1481,6 +1498,91 @@ function dexProgress(player) {
 }
 
 // ============================================================
+// 시스템: 출석체크 · 도감 보상 (systems/reward.js)
+// ============================================================
+
+// 출석체크 📅 — 하루(한국 시간 기준)에 한 번!
+const kstDate = (now = Date.now()) => new Date(now + KST_OFFSET_MS).toISOString().slice(0, 10);
+
+function claimAttendance(player, now = Date.now()) {
+  const today = kstDate(now);
+  const last = player.attendance?.lastDate;
+  if (last === today) {
+    return { kind: 'already', streak: player.attendance.streak ?? 1, total: player.attendance.total ?? 1 };
+  }
+
+  const streak = last === kstDate(now - 24 * 60 * 60 * 1000) ? (player.attendance?.streak ?? 0) + 1 : 1;
+  const total = (player.attendance?.total ?? 0) + 1;
+  player.attendance = { lastDate: today, streak, total };
+
+  player.inventory ??= {};
+  player.inventory[BALL_ID] = (player.inventory[BALL_ID] ?? 0) + ATTENDANCE_BALLS;
+  player.gold += ATTENDANCE_GOLD;
+  return { kind: 'claimed', commit: true, balls: ATTENDANCE_BALLS, gold: ATTENDANCE_GOLD, streak, total, owned: player.inventory[BALL_ID] };
+}
+
+// 도감 보상 🎁 — 챕터 번호(1부터)에 따라 보상이 커져요
+const chapterPetIds = (loc) => [...new Set(loc.spawns.map((s) => s.petId))];
+
+function chapterReward(index, loc) {
+  const n = index; // 0부터: 1챕터 = 0
+  const grow = (r) => r.base + r.step * n;
+  const strongest = chapterPetIds(loc).reduce((a, id) => (PETS[id].expYield > PETS[a].expYield ? id : a));
+  // 승리 골드 = expYield × GOLD_PER_YIELD (±20% 랜덤) → 평균은 expYield × GOLD_PER_YIELD
+  const avgGold = PETS[strongest].expYield * GOLD_PER_YIELD;
+  return {
+    balls: grow(DEX_REWARD.balls),
+    potions: grow(DEX_REWARD.potions),
+    telescopes: grow(DEX_REWARD.telescopes),
+    speedups: grow(DEX_REWARD.speedups),
+    boosts: grow(DEX_REWARD.boosts),
+    gold: Math.round(avgGold * DEX_GOLD_MULT),
+    strongest,
+  };
+}
+
+function chapterProgress(player, loc) {
+  const ids = chapterPetIds(loc);
+  const have = ids.filter((id) => player.dex?.[id]).length;
+  return { have, total: ids.length, complete: have === ids.length };
+}
+
+const rewardText = (r) =>
+  `🔴 해정볼 ${r.balls}개 · 🧪 회복약 ${r.potions}개 · 🔭 해정 망원경 ${r.telescopes}개 · ⏩ 탐험 시간 감소 ${r.speedups}개\n` +
+  `🌟 트레이너 경험치 부스트 ${r.boosts}개 · 💫 펫 경험치 부스트 ${r.boosts}개 · 💰 ${r.gold.toLocaleString('ko-KR')} 골드`;
+
+// 다 채웠는데 아직 안 받은 챕터의 보상을 한꺼번에 받아요
+function claimDexRewards(player) {
+  const claimed = player.dexClaimed ?? {};
+  const got = [];
+  const total = { balls: 0, potions: 0, telescopes: 0, speedups: 0, boosts: 0, gold: 0 };
+
+  LOCATION_LIST.forEach((loc, index) => {
+    if (claimed[loc.id] || !chapterProgress(player, loc).complete) return;
+    const r = chapterReward(index, loc);
+    claimed[loc.id] = true;
+    got.push({ loc, index, reward: r });
+    for (const k of Object.keys(total)) total[k] += r[k];
+  });
+
+  if (got.length === 0) return { kind: 'nothing' };
+
+  player.dexClaimed = claimed;
+  player.inventory ??= {};
+  const give = (id, n) => {
+    if (n > 0) player.inventory[id] = (player.inventory[id] ?? 0) + n;
+  };
+  give(BALL_ID, total.balls);
+  give('potion_small', total.potions);
+  give('pet_telescope', total.telescopes);
+  give('explore_speedup', total.speedups);
+  give('exp_boost_trainer', total.boosts);
+  give('exp_boost_pet', total.boosts);
+  player.gold += total.gold;
+  return { kind: 'claimed', commit: true, got, total };
+}
+
+// ============================================================
 // 시스템: 펫 육성 (systems/care.js)
 // ============================================================
 
@@ -2731,7 +2833,7 @@ const dexCmd = {
           description: `${expBar(count, total)}  **${count} / ${total}**`,
           color: EMBED_COLOR,
           fields,
-          footer: { text: '해정볼로 잡으면 도감에 등록돼요!' },
+          footer: { text: '해정볼로 잡으면 도감에 등록돼요! 챕터를 다 채우면 /도감보상' },
         },
       ],
     });
@@ -3222,6 +3324,12 @@ const help = {
                   '`/훈련` 은 횟수를 적으면 훈련장 없이 바로 훈련해요.',
               },
               {
+                name: '📅 출석 · 🎁 도감 보상',
+                value:
+                  `\`/출석\` 은 하루(한국 시간 0시 기준)에 한 번, 🔴 해정볼 ${ATTENDANCE_BALLS}개와 💰 ${ATTENDANCE_GOLD}골드를 줘요.\n` +
+                  '한 챕터(장소)의 도감을 모두 채우면 `/도감보상` 으로 큰 보상을 받아요! 챕터가 올라갈수록 보상도 커져요. (진행 상황은 `/도감보상` 에서 확인)',
+              },
+              {
                 name: '🛒 상점 · 도감 · 가방',
                 value: '`/상점` 에서 물건을 고르면 개수 입력창이 떠요 (숫자 또는 **최대**). `/구매` 는 상점을 안 열고 개수를 바로 적어서 사요. `/가방` 에서 가진 물건과 켜둔 부스트를 봐요. `/도감` 은 만난 펫을 기록해요.',
               },
@@ -3236,10 +3344,115 @@ const help = {
 };
 
 // ═════════════════════════════════════════════
+// /출석
+// ═════════════════════════════════════════════
+
+const attendance = {
+  data: {
+    name: '출석',
+    description: '하루에 한 번 출석체크하고 선물을 받아요!',
+    type: 1,
+  },
+
+  async execute(interaction) {
+    const user = getUser(interaction);
+    const out = await updatePlayer(user.id, (player) => {
+      const r = claimAttendance(player);
+      return { commit: !!r.commit, value: r };
+    });
+
+    if (!out) return reply({ content: NOT_STARTED }, { ephemeral: true });
+
+    if (out.kind === 'already') {
+      return reply(
+        { content: `📅 오늘은 이미 출석했어요! (연속 **${out.streak}일** · 총 **${out.total}일**)\n내일 한국 시간 0시 이후에 다시 와주세요 😊` },
+        { ephemeral: true },
+      );
+    }
+
+    return reply({
+      embeds: [
+        {
+          title: '📅 출석체크 완료!',
+          description:
+            `🔴 **해정볼 ${out.balls}개**와 💰 **${out.gold.toLocaleString('ko-KR')} 골드**를 받았어요!\n\n` +
+            `연속 **${out.streak}일** · 총 **${out.total}일** 출석 중이에요.\n` +
+            `지금 해정볼은 **${out.owned}개**예요.`,
+          color: 0x57f287,
+          footer: { text: '출석은 한국 시간 0시에 초기화돼요.' },
+        },
+      ],
+    });
+  },
+};
+
+// ═════════════════════════════════════════════
+// /도감보상
+// ═════════════════════════════════════════════
+
+const dexReward = {
+  data: {
+    name: '도감보상',
+    description: '챕터(장소)의 도감을 모두 채웠다면 보상을 받아요!',
+    type: 1,
+  },
+
+  async execute(interaction) {
+    const user = getUser(interaction);
+    const out = await updatePlayer(user.id, (player) => {
+      const r = claimDexRewards(player);
+      if (r.kind === 'claimed') return { commit: true, value: r };
+
+      // 받을 게 없으면 진행 상황을 보여줘요
+      const lines = LOCATION_LIST.map((loc, index) => {
+        const p = chapterProgress(player, loc);
+        const mark = player.dexClaimed?.[loc.id] ? '✅ 수령 완료' : p.complete ? '🎁 수령 가능' : `📖 ${p.have}/${p.total}`;
+        return `**${index + 1}챕터** ${loc.emoji} ${loc.name} — ${mark}`;
+      });
+      const nextIndex = LOCATION_LIST.findIndex((loc) => !player.dexClaimed?.[loc.id]);
+      const next = nextIndex >= 0 ? { index: nextIndex, loc: LOCATION_LIST[nextIndex], reward: chapterReward(nextIndex, LOCATION_LIST[nextIndex]) } : null;
+      return { commit: false, value: { kind: 'nothing', lines, next } };
+    });
+
+    if (!out) return reply({ content: NOT_STARTED }, { ephemeral: true });
+
+    if (out.kind === 'nothing') {
+      return reply(
+        {
+          embeds: [
+            {
+              title: '🎁 도감 보상',
+              description:
+                `아직 받을 수 있는 보상이 없어요. 한 챕터의 도감을 모두 채우면 받을 수 있어요!\n\n${out.lines.join('\n')}` +
+                (out.next ? `\n\n**다음 보상 — ${out.next.index + 1}챕터 ${out.next.loc.name}**\n${rewardText(out.next.reward)}` : '\n\n🎉 모든 챕터의 보상을 받았어요!'),
+              color: EMBED_COLOR,
+              footer: { text: '해정볼로 잡으면 도감에 등록돼요. 챕터는 입장 레벨 순서예요.' },
+            },
+          ],
+        },
+        { ephemeral: true },
+      );
+    }
+
+    const gotLines = out.got.map((g) => `**${g.index + 1}챕터** ${g.loc.emoji} ${g.loc.name}`);
+    return reply({
+      embeds: [
+        {
+          title: '🎉 도감 보상 수령!',
+          description:
+            `${gotLines.join('\n')}\n\n**받은 보상${out.got.length > 1 ? ' (합계)' : ''}**\n${rewardText(out.total)}`,
+          color: 0x57f287,
+        },
+      ],
+    });
+  },
+};
+
+// ═════════════════════════════════════════════
 // 내보내기: router.js 가 이 목록을 그대로 써요
 // ═════════════════════════════════════════════
 
-const commandModules = [start, profile, places, explore, shop, buy, bag, pets, dexCmd, nickname, release, train, use, help];
+const commandModules = [start, profile, places, explore, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, help];
 
 // ============================================================
 // 라우터 (router.js)
