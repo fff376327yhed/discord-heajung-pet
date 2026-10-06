@@ -30,6 +30,8 @@ const FLEE_FAIL_CHANCE = 0.1; // [도망] 버튼을 눌러도 이 확률로 실�
 const GOLD_PER_YIELD = 3; // 승리 골드 = 펫 expYield × 이 값 (±20% 랜덤). 해정볼이 100골드라서 이 값으로 균형을 잡아요
 const WIN_TRAINER_EXP_MULT = 1.5; // 승리 시 트레이너 경험치 = expYield × 장소배율 × 이 값
 const WIN_PET_EXP_MULT = 2.0; // 승리 시 대표 펫 경험치 = expYield × 장소배율 × 이 값 (펫이 트레이너보다 빨리 크도록 더 크게)
+const BONUS_TRIPLE_CHANCE = 0.001; // 승리 시 0.1% 확률로 경험치·골드 3배 🎰
+const BONUS_DOUBLE_CHANCE = 0.005; // 승리 시 0.5% 확률로 경험치·골드 2배 (3배와 동시에 나오지 않아요)
 
 // ───────── 육성 🌱 ─────────
 const NICKNAME_MAX = 12; // 별명 최대 글자 수
@@ -811,9 +813,13 @@ function finishTurn(player, ex, c, log, now, rng) {
   // 승리!
   if (b.wildHp <= 0) {
     const loc = LOCATIONS[ex.locationId];
-    const gold = Math.max(1, Math.round(wildPet.expYield * GOLD_PER_YIELD * (0.8 + rng() * 0.4)));
-    const trainerExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_TRAINER_EXP_MULT);
-    const petExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_PET_EXP_MULT);
+    // 🎰 보너스 추첨: 한 번만 굴려서 3배(0.1%) / 2배(0.5%) / 보통(나머지)
+    const bonusRoll = rng();
+    const bonusMult = bonusRoll < BONUS_TRIPLE_CHANCE ? 3 : bonusRoll < BONUS_TRIPLE_CHANCE + BONUS_DOUBLE_CHANCE ? 2 : 1;
+
+    const gold = Math.max(1, Math.round(wildPet.expYield * GOLD_PER_YIELD * (0.8 + rng() * 0.4))) * bonusMult;
+    const trainerExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_TRAINER_EXP_MULT) * bonusMult;
+    const petExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_PET_EXP_MULT) * bonusMult;
 
     player.gold += gold;
     const before = player.level;
@@ -827,7 +833,7 @@ function finishTurn(player, ex, c, log, now, rng) {
       kind: 'won', commit: true, log,
       wildPetId: wildInfo.petId, wildLevel: wildInfo.level,
       myPetId: main.petId, myName,
-      gold, trainerExp, petExp,
+      gold, trainerExp, petExp, bonusMult,
       levelsGained: t.levelsGained, newLevel: player.level,
       petLevelsGained: p.levelsGained, petNewLevel: main.level,
       petHp: currentHp(main, now), petMaxHp: maxHp(main),
@@ -1403,6 +1409,8 @@ function battleOutcomeView(out) {
       out.log.join('\n'),
       '',
       `${wild.emoji} **${wild.name}** (Lv.${out.wildLevel}) 을(를) 쓰러뜨렸어요!`,
+      out.bonusMult === 3 ? '🌟🎰 **대박!! 경험치·골드 3배 보너스!** 🎰🌟' : null,
+      out.bonusMult === 2 ? '✨ **럭키! 경험치·골드 2배 보너스!** ✨' : null,
       `💰 골드 +${out.gold}`,
       `⭐ 트레이너 경험치 +${out.trainerExp}`,
       out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
