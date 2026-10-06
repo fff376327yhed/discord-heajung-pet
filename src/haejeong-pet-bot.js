@@ -37,9 +37,12 @@ const WILD_FLEE_CHANCE = 0.01; // 매 턴 끝에 야생 펫이 겁먹고 스스�
 // (일반 등급은 예전 값과 똑같아요: 빗나감 3%, 급소 10%, 도망 실패 10%)
 const GRADE_EFFECTS = {
   common: { missChance: 0.03, critChance: 0.1, fleeFail: 0.1, aura: null },
+  uncommon: { missChance: 0.05, critChance: 0.115, fleeFail: 0.15, aura: null },
   rare: { missChance: 0.07, critChance: 0.13, fleeFail: 0.2, aura: null },
   epic: { missChance: 0.12, critChance: 0.18, fleeFail: 0.35, aura: '😨 뭔가 위압감이 든다...' },
   legendary: { missChance: 0.2, critChance: 0.25, fleeFail: 0.5, aura: '😱 뭔가 엄청난 위압감이 든다...' },
+  mythic: { missChance: 0.28, critChance: 0.32, fleeFail: 0.65, aura: '😱 숨이 막힐 만큼 위압감이 든다...' },
+  divine: { missChance: 0.35, critChance: 0.4, fleeFail: 0.8, aura: '💀 도저히 이길 수 없을 것 같은 위압감이 든다...' },
 };
 const GOLD_PER_YIELD = 3; // 승리 골드 = 펫 expYield × 이 값 (±20% 랜덤). 해정볼이 100골드라서 이 값으로 균형을 잡아요
 const WIN_TRAINER_EXP_MULT = 1.5; // 승리 시 트레이너 경험치 = expYield × 장소배율 × 이 값
@@ -64,7 +67,7 @@ const SPEEDUP_BLOCK_SEC = 10; // 남은 시간이 이 값(초) 이하면 탐험 
 
 // ───────── 육성 🌱 ─────────
 const NICKNAME_MAX = 12; // 별명 최대 글자 수
-const RELEASE_BASE_GOLD = { common: 20, rare: 50, epic: 150, legendary: 500 }; // 방생 골드 = 등급별 기본값 × (1 + 레벨 × RELEASE_LEVEL_BONUS)
+const RELEASE_BASE_GOLD = { common: 20, uncommon: 30, rare: 50, epic: 150, legendary: 500, mythic: 1500, divine: 5000 }; // 방생 골드 = 등급별 기본값 × (1 + 레벨 × RELEASE_LEVEL_BONUS)
 const RELEASE_LEVEL_BONUS = 0.1;
 const TRAIN_BASE_COST = 30; // 훈련 1회 비용 = 이 값 + 펫 레벨 × TRAIN_COST_PER_LEVEL (골드)
 const TRAIN_COST_PER_LEVEL = 10;
@@ -84,9 +87,12 @@ const HP_REGEN_PCT_PER_MIN = 0.02; // 시간이 지나면 1분마다 최대 체�
 
 const GRADES = {
   common: { name: '일반', emoji: '⚪', order: 1 },
-  rare: { name: '희귀', emoji: '🔵', order: 2 },
-  epic: { name: '영웅', emoji: '🟣', order: 3 },
-  legendary: { name: '전설', emoji: '🟡', order: 4 },
+  uncommon: { name: '고급', emoji: '🟢', order: 2 },
+  rare: { name: '희귀', emoji: '🔵', order: 3 },
+  epic: { name: '영웅', emoji: '🟣', order: 4 },
+  legendary: { name: '전설', emoji: '🟡', order: 5 },
+  mythic: { name: '신화', emoji: '🔴', order: 6 },
+  divine: { name: '초월', emoji: '🌈', order: 7 },
 };
 
 const stats = (hp, atk, def, spd) => ({ hp, atk, def, spd });
@@ -101,23 +107,89 @@ const PETS = {
   slime: { id: 'slime', name: '말랑이', emoji: '🟢', grade: 'common', baseStats: stats(30, 6, 5, 5), expYield: 8, catchRate: 0.8 },
   mouse: { id: 'mouse', name: '쪼르', emoji: '🐭', grade: 'common', baseStats: stats(25, 7, 4, 12), expYield: 10, catchRate: 0.75 },
   bee: { id: 'bee', name: '윙윙이', emoji: '🐝', grade: 'rare', baseStats: stats(28, 10, 4, 14), expYield: 16, catchRate: 0.5 },
+  rabbit: { id: 'rabbit', name: '깡총이', emoji: '🐰', grade: 'common', baseStats: stats(28, 6, 4, 11), expYield: 9, catchRate: 0.75 },
+  ladybug: { id: 'ladybug', name: '무당이', emoji: '🐞', grade: 'common', baseStats: stats(26, 7, 7, 6), expYield: 9, catchRate: 0.75 },
+  butterfly: { id: 'butterfly', name: '나비나', emoji: '🦋', grade: 'rare', baseStats: stats(24, 9, 4, 16), expYield: 15, catchRate: 0.5 },
 
   // ── 숲 ──
-  owl: { id: 'owl', name: '부엉이', emoji: '🦉', grade: 'common', baseStats: stats(40, 11, 8, 10), expYield: 22, catchRate: 0.65 },
+  owl: { id: 'owl', name: '부엉이', emoji: '🦉', grade: 'uncommon', baseStats: stats(40, 11, 8, 10), expYield: 22, catchRate: 0.65 },
   fox: { id: 'fox', name: '여우비', emoji: '🦊', grade: 'rare', baseStats: stats(42, 14, 9, 15), expYield: 35, catchRate: 0.4 },
   treant: { id: 'treant', name: '나무지기', emoji: '🌳', grade: 'epic', baseStats: stats(80, 15, 20, 4), expYield: 70, catchRate: 0.2 },
+  deer: { id: 'deer', name: '새벽사슴', emoji: '🦌', grade: 'common', baseStats: stats(44, 12, 9, 13), expYield: 24, catchRate: 0.6 },
+  squirrel: { id: 'squirrel', name: '도토리다람', emoji: '🐿️', grade: 'common', baseStats: stats(36, 11, 7, 14), expYield: 20, catchRate: 0.65 },
+  mushroom: { id: 'mushroom', name: '버섯돌이', emoji: '🍄', grade: 'rare', baseStats: stats(50, 13, 12, 6), expYield: 38, catchRate: 0.4 },
+  wolf: { id: 'wolf', name: '그림자늑대', emoji: '🐺', grade: 'epic', baseStats: stats(75, 22, 12, 18), expYield: 75, catchRate: 0.2 },
 
   // ── 동굴 ──
-  bat: { id: 'bat', name: '박쥐돌', emoji: '🦇', grade: 'common', baseStats: stats(45, 14, 10, 16), expYield: 45, catchRate: 0.6 },
+  bat: { id: 'bat', name: '박쥐돌', emoji: '🦇', grade: 'uncommon', baseStats: stats(45, 14, 10, 16), expYield: 45, catchRate: 0.6 },
   golem: { id: 'golem', name: '바위거인', emoji: '🪨', grade: 'epic', baseStats: stats(110, 20, 30, 3), expYield: 120, catchRate: 0.15 },
+  spider: { id: 'spider', name: '거미줄이', emoji: '🕷️', grade: 'common', baseStats: stats(50, 15, 11, 12), expYield: 48, catchRate: 0.6 },
+  scorpion: { id: 'scorpion', name: '전갈왕', emoji: '🦂', grade: 'rare', baseStats: stats(65, 19, 18, 10), expYield: 70, catchRate: 0.4 },
+  crystal: { id: 'crystal', name: '수정정령', emoji: '💎', grade: 'epic', baseStats: stats(90, 22, 24, 9), expYield: 130, catchRate: 0.15 },
 
   // ── 바다 ──
   crab: { id: 'crab', name: '집게', emoji: '🦀', grade: 'rare', baseStats: stats(60, 18, 25, 6), expYield: 90, catchRate: 0.45 },
   shark: { id: 'shark', name: '상어왕', emoji: '🦈', grade: 'epic', baseStats: stats(100, 30, 15, 20), expYield: 200, catchRate: 0.15 },
+  pufferfish: { id: 'pufferfish', name: '뾰족복어', emoji: '🐡', grade: 'common', baseStats: stats(50, 17, 12, 14), expYield: 70, catchRate: 0.55 },
+  octopus: { id: 'octopus', name: '문어박사', emoji: '🐙', grade: 'rare', baseStats: stats(75, 22, 18, 15), expYield: 110, catchRate: 0.4 },
+  whale: { id: 'whale', name: '푸른고래', emoji: '🐋', grade: 'legendary', baseStats: stats(180, 34, 28, 10), expYield: 400, catchRate: 0.06 },
 
   // ── 화산 ──
   baby_dragon: { id: 'baby_dragon', name: '아기용', emoji: '🐲', grade: 'epic', baseStats: stats(120, 35, 25, 14), expYield: 300, catchRate: 0.12 },
   phoenix: { id: 'phoenix', name: '불사조', emoji: '🦅', grade: 'legendary', baseStats: stats(150, 45, 30, 25), expYield: 600, catchRate: 0.05 },
+  magma_slime: { id: 'magma_slime', name: '마그마말랑', emoji: '🟠', grade: 'rare', baseStats: stats(110, 32, 22, 10), expYield: 220, catchRate: 0.4 },
+  salamander: { id: 'salamander', name: '불도마뱀', emoji: '🦎', grade: 'rare', baseStats: stats(100, 34, 20, 18), expYield: 240, catchRate: 0.35 },
+  flame_lord: { id: 'flame_lord', name: '화염마왕', emoji: '👹', grade: 'legendary', baseStats: stats(170, 48, 32, 22), expYield: 650, catchRate: 0.04 },
+  // ── 새 친구들: 기존 장소 ──
+  clover_fairy: { id: 'clover_fairy', name: '네잎요정', emoji: '🧚', grade: 'uncommon', baseStats: stats(30, 8, 6, 13), expYield: 18, catchRate: 0.6 },
+  boar: { id: 'boar', name: '멧돼지', emoji: '🐗', grade: 'uncommon', baseStats: stats(60, 16, 12, 8), expYield: 47, catchRate: 0.55 },
+  unicorn: { id: 'unicorn', name: '숲의 유니콘', emoji: '🦄', grade: 'legendary', baseStats: stats(110, 28, 20, 22), expYield: 200, catchRate: 0.06 },
+  skeleton: { id: 'skeleton', name: '해골전사', emoji: '💀', grade: 'uncommon', baseStats: stats(60, 17, 14, 9), expYield: 73, catchRate: 0.5 },
+  ghost: { id: 'ghost', name: '떠도는 유령', emoji: '👻', grade: 'rare', baseStats: stats(55, 18, 6, 20), expYield: 104, catchRate: 0.35 },
+  turtle: { id: 'turtle', name: '바다거북', emoji: '🐢', grade: 'uncommon', baseStats: stats(80, 16, 28, 5), expYield: 144, catchRate: 0.5 },
+  mermaid: { id: 'mermaid', name: '인어', emoji: '🧜', grade: 'epic', baseStats: stats(95, 26, 20, 24), expYield: 308, catchRate: 0.12 },
+  fire_dragon: { id: 'fire_dragon', name: '불의 용왕', emoji: '🐉', grade: 'mythic', baseStats: stats(200, 52, 36, 24), expYield: 1037, catchRate: 0.03 },
+
+  // ── 안개 늪 ──
+  frog: { id: 'frog', name: '개굴이', emoji: '🐸', grade: 'common', baseStats: stats(55, 14, 10, 10), expYield: 63, catchRate: 0.6 },
+  snake: { id: 'snake', name: '독뱀', emoji: '🐍', grade: 'uncommon', baseStats: stats(62, 19, 11, 14), expYield: 89, catchRate: 0.5 },
+  croc: { id: 'croc', name: '늪악어', emoji: '🐊', grade: 'rare', baseStats: stats(95, 24, 22, 6), expYield: 127, catchRate: 0.35 },
+  wisp: { id: 'wisp', name: '도깨비불', emoji: '🕯️', grade: 'epic', baseStats: stats(80, 26, 12, 26), expYield: 190, catchRate: 0.15 },
+  witch: { id: 'witch', name: '늪의 마녀', emoji: '🧙', grade: 'legendary', baseStats: stats(130, 36, 24, 20), expYield: 380, catchRate: 0.05 },
+
+  // ── 불볕 사막 ──
+  camel: { id: 'camel', name: '낙타돌이', emoji: '🐪', grade: 'common', baseStats: stats(85, 22, 18, 8), expYield: 87, catchRate: 0.55 },
+  cactus: { id: 'cactus', name: '선인장이', emoji: '🌵', grade: 'uncommon', baseStats: stats(90, 24, 22, 5), expYield: 122, catchRate: 0.5 },
+  scarab: { id: 'scarab', name: '황금풍뎅이', emoji: '🪲', grade: 'rare', baseStats: stats(80, 28, 30, 12), expYield: 174, catchRate: 0.35 },
+  lion: { id: 'lion', name: '사막사자', emoji: '🦁', grade: 'epic', baseStats: stats(130, 38, 26, 22), expYield: 261, catchRate: 0.15 },
+  mummy: { id: 'mummy', name: '파라오 미라', emoji: '⚰️', grade: 'legendary', baseStats: stats(170, 44, 36, 14), expYield: 522, catchRate: 0.05 },
+  sandworm: { id: 'sandworm', name: '모래벌레', emoji: '🐛', grade: 'mythic', baseStats: stats(260, 56, 40, 10), expYield: 870, catchRate: 0.03 },
+
+  // ── 얼음 설원 ──
+  penguin: { id: 'penguin', name: '뒤뚱이', emoji: '🐧', grade: 'common', baseStats: stats(110, 28, 22, 12), expYield: 94, catchRate: 0.55 },
+  bear: { id: 'bear', name: '흰곰', emoji: '🐻', grade: 'uncommon', baseStats: stats(140, 34, 28, 10), expYield: 132, catchRate: 0.45 },
+  yeti: { id: 'yeti', name: '설인', emoji: '🦍', grade: 'rare', baseStats: stats(150, 38, 30, 14), expYield: 188, catchRate: 0.3 },
+  ice_spirit: { id: 'ice_spirit', name: '얼음정령', emoji: '🧊', grade: 'epic', baseStats: stats(160, 44, 36, 16), expYield: 283, catchRate: 0.12 },
+  frost_dragon: { id: 'frost_dragon', name: '서리용', emoji: '❄️', grade: 'legendary', baseStats: stats(230, 56, 38, 26), expYield: 566, catchRate: 0.04 },
+  ice_queen: { id: 'ice_queen', name: '눈의 여왕', emoji: '👸', grade: 'mythic', baseStats: stats(300, 64, 44, 30), expYield: 943, catchRate: 0.02 },
+
+  // ── 구름 하늘섬 ──
+  cloud_sheep: { id: 'cloud_sheep', name: '구름양', emoji: '🐑', grade: 'common', baseStats: stats(140, 30, 26, 16), expYield: 109, catchRate: 0.5 },
+  parrot: { id: 'parrot', name: '바람앵무', emoji: '🦜', grade: 'uncommon', baseStats: stats(150, 36, 28, 24), expYield: 153, catchRate: 0.45 },
+  thunder_bird: { id: 'thunder_bird', name: '번개새', emoji: '⚡', grade: 'rare', baseStats: stats(170, 46, 32, 30), expYield: 219, catchRate: 0.3 },
+  pegasus: { id: 'pegasus', name: '천마', emoji: '🐴', grade: 'epic', baseStats: stats(210, 52, 38, 34), expYield: 328, catchRate: 0.12 },
+  wyvern: { id: 'wyvern', name: '하늘와이번', emoji: '🦖', grade: 'legendary', baseStats: stats(280, 62, 44, 30), expYield: 656, catchRate: 0.04 },
+  angel: { id: 'angel', name: '대천사', emoji: '👼', grade: 'mythic', baseStats: stats(340, 70, 50, 38), expYield: 1093, catchRate: 0.02 },
+  sun_god: { id: 'sun_god', name: '태양신', emoji: '☀️', grade: 'divine', baseStats: stats(420, 82, 58, 40), expYield: 1748, catchRate: 0.01 },
+
+  // ── 별빛 심연 ──
+  shadow: { id: 'shadow', name: '그림자', emoji: '👤', grade: 'common', baseStats: stats(180, 38, 32, 20), expYield: 97, catchRate: 0.45 },
+  void_eye: { id: 'void_eye', name: '허공의 눈', emoji: '👁️', grade: 'uncommon', baseStats: stats(200, 44, 36, 22), expYield: 136, catchRate: 0.4 },
+  star_whale: { id: 'star_whale', name: '별고래', emoji: '🐳', grade: 'rare', baseStats: stats(260, 52, 42, 18), expYield: 195, catchRate: 0.28 },
+  comet: { id: 'comet', name: '혜성정령', emoji: '☄️', grade: 'epic', baseStats: stats(280, 60, 44, 36), expYield: 292, catchRate: 0.1 },
+  void_dragon: { id: 'void_dragon', name: '공허용', emoji: '🌑', grade: 'legendary', baseStats: stats(360, 72, 52, 32), expYield: 584, catchRate: 0.035 },
+  chaos_lord: { id: 'chaos_lord', name: '혼돈군주', emoji: '😈', grade: 'mythic', baseStats: stats(440, 84, 60, 40), expYield: 973, catchRate: 0.02 },
+  creator: { id: 'creator', name: '태초의 별', emoji: '🌌', grade: 'divine', baseStats: stats(600, 100, 70, 45), expYield: 1556, catchRate: 0.008 },
 };
 
 const STARTER_IDS = Object.values(PETS).filter((p) => p.starter).map((p) => p.id);
@@ -201,42 +273,127 @@ const LOCATIONS = {
     id: 'meadow', name: '초록 초원', emoji: '🌾', minLevel: 1, expMultiplier: 1.0, delay: [5, 20],
     description: '바람이 솔솔 부는 평화로운 들판이에요.',
     spawns: [
-      { petId: 'slime', weight: 50, lv: [1, 4] },
-      { petId: 'mouse', weight: 40, lv: [1, 5] },
+      { petId: 'slime', weight: 40, lv: [1, 4] },
+      { petId: 'mouse', weight: 35, lv: [1, 5] },
+      { petId: 'rabbit', weight: 30, lv: [1, 5] },
+      { petId: 'ladybug', weight: 25, lv: [2, 5] },
       { petId: 'bee', weight: 10, lv: [3, 6] },
+      { petId: 'butterfly', weight: 8, lv: [3, 7] },
+      { petId: 'clover_fairy', weight: 12, lv: [2, 6] },
     ],
   },
   forest: {
     id: 'forest', name: '속삭이는 숲', emoji: '🌲', minLevel: 5, expMultiplier: 1.5, delay: [5, 25],
     description: '나뭇잎 사이로 무언가 지나가는 소리가 나요.',
     spawns: [
-      { petId: 'owl', weight: 50, lv: [5, 10] },
-      { petId: 'fox', weight: 35, lv: [6, 11] },
-      { petId: 'treant', weight: 15, lv: [8, 12] },
+      { petId: 'owl', weight: 40, lv: [5, 10] },
+      { petId: 'deer', weight: 35, lv: [5, 10] },
+      { petId: 'squirrel', weight: 35, lv: [5, 9] },
+      { petId: 'fox', weight: 25, lv: [6, 11] },
+      { petId: 'mushroom', weight: 20, lv: [6, 11] },
+      { petId: 'treant', weight: 12, lv: [8, 12] },
+      { petId: 'wolf', weight: 8, lv: [9, 13] },
+      { petId: 'boar', weight: 20, lv: [6, 11] },
+      { petId: 'unicorn', weight: 2, lv: [12, 16] },
     ],
   },
   cave: {
     id: 'cave', name: '어두운 동굴', emoji: '🕳️', minLevel: 10, expMultiplier: 2.0, delay: [8, 30],
     description: '깜깜해서 잘 안 보이지만 반짝이는 눈이 보여요.',
     spawns: [
-      { petId: 'bat', weight: 70, lv: [10, 16] },
-      { petId: 'golem', weight: 30, lv: [13, 18] },
+      { petId: 'bat', weight: 60, lv: [10, 16] },
+      { petId: 'spider', weight: 45, lv: [10, 16] },
+      { petId: 'golem', weight: 25, lv: [13, 18] },
+      { petId: 'scorpion', weight: 25, lv: [12, 17] },
+      { petId: 'crystal', weight: 12, lv: [14, 19] },
+      { petId: 'skeleton', weight: 25, lv: [11, 17] },
+      { petId: 'ghost', weight: 15, lv: [12, 18] },
     ],
   },
   ocean: {
     id: 'ocean', name: '푸른 바다', emoji: '🌊', minLevel: 20, expMultiplier: 3.0, delay: [8, 30],
     description: '파도 아래에 커다란 그림자가 보여요.',
     spawns: [
-      { petId: 'crab', weight: 70, lv: [20, 28] },
-      { petId: 'shark', weight: 30, lv: [24, 32] },
+      { petId: 'pufferfish', weight: 45, lv: [20, 27] },
+      { petId: 'crab', weight: 45, lv: [20, 28] },
+      { petId: 'octopus', weight: 30, lv: [22, 30] },
+      { petId: 'shark', weight: 22, lv: [24, 32] },
+      { petId: 'whale', weight: 6, lv: [28, 35] },
+      { petId: 'turtle', weight: 30, lv: [21, 28] },
+      { petId: 'mermaid', weight: 10, lv: [25, 32] },
     ],
   },
   volcano: {
     id: 'volcano', name: '불타는 화산', emoji: '🌋', minLevel: 30, expMultiplier: 5.0, delay: [10, 40],
     description: '뜨거운 열기 속에서 전설의 울음소리가 들려요.',
     spawns: [
-      { petId: 'baby_dragon', weight: 85, lv: [30, 40] },
-      { petId: 'phoenix', weight: 15, lv: [35, 45] },
+      { petId: 'magma_slime', weight: 40, lv: [30, 38] },
+      { petId: 'salamander', weight: 35, lv: [30, 40] },
+      { petId: 'baby_dragon', weight: 55, lv: [30, 40] },
+      { petId: 'phoenix', weight: 12, lv: [35, 45] },
+      { petId: 'flame_lord', weight: 8, lv: [38, 48] },
+      { petId: 'fire_dragon', weight: 3, lv: [40, 50] },
+    ],
+  },
+  swamp: {
+    id: 'swamp', name: '안개 늪', emoji: '🐸', minLevel: 15, expMultiplier: 2.5, delay: [8, 30],
+    description: '짙은 안개 속에서 첨벙첨벙 소리가 나요.',
+    spawns: [
+      { petId: 'frog', weight: 40, lv: [14, 19] },
+      { petId: 'snake', weight: 30, lv: [15, 20] },
+      { petId: 'croc', weight: 20, lv: [16, 22] },
+      { petId: 'wisp', weight: 10, lv: [18, 24] },
+      { petId: 'witch', weight: 3, lv: [22, 28] },
+    ],
+  },
+  desert: {
+    id: 'desert', name: '불볕 사막', emoji: '🏜️', minLevel: 25, expMultiplier: 4.0, delay: [10, 35],
+    description: '뜨거운 모래바람 너머로 커다란 그림자가 보여요.',
+    spawns: [
+      { petId: 'camel', weight: 35, lv: [24, 30] },
+      { petId: 'cactus', weight: 30, lv: [25, 31] },
+      { petId: 'scarab', weight: 22, lv: [26, 32] },
+      { petId: 'lion', weight: 10, lv: [28, 35] },
+      { petId: 'mummy', weight: 4, lv: [32, 38] },
+      { petId: 'sandworm', weight: 2, lv: [36, 42] },
+    ],
+  },
+  glacier: {
+    id: 'glacier', name: '얼음 설원', emoji: '🧊', minLevel: 35, expMultiplier: 6.5, delay: [12, 40],
+    description: '숨을 쉴 때마다 하얀 김이 나오는 꽁꽁 언 땅이에요.',
+    spawns: [
+      { petId: 'penguin', weight: 35, lv: [34, 40] },
+      { petId: 'bear', weight: 28, lv: [35, 42] },
+      { petId: 'yeti', weight: 22, lv: [36, 44] },
+      { petId: 'ice_spirit', weight: 10, lv: [38, 46] },
+      { petId: 'frost_dragon', weight: 4, lv: [42, 50] },
+      { petId: 'ice_queen', weight: 2, lv: [46, 54] },
+    ],
+  },
+  sky: {
+    id: 'sky', name: '구름 하늘섬', emoji: '☁️', minLevel: 45, expMultiplier: 8.0, delay: [12, 45],
+    description: '구름 위에 떠 있는 섬에서 천둥소리가 울려요.',
+    spawns: [
+      { petId: 'cloud_sheep', weight: 30, lv: [44, 50] },
+      { petId: 'parrot', weight: 28, lv: [45, 51] },
+      { petId: 'thunder_bird', weight: 22, lv: [46, 54] },
+      { petId: 'pegasus', weight: 12, lv: [48, 56] },
+      { petId: 'wyvern', weight: 5, lv: [50, 58] },
+      { petId: 'angel', weight: 2, lv: [54, 62] },
+      { petId: 'sun_god', weight: 0.5, lv: [58, 66] },
+    ],
+  },
+  abyss: {
+    id: 'abyss', name: '별빛 심연', emoji: '🌌', minLevel: 55, expMultiplier: 12.0, delay: [15, 50],
+    description: '별이 반짝이는 끝없는 어둠 속이에요. 아무도 돌아온 적이 없대요.',
+    spawns: [
+      { petId: 'shadow', weight: 30, lv: [54, 60] },
+      { petId: 'void_eye', weight: 28, lv: [55, 61] },
+      { petId: 'star_whale', weight: 22, lv: [56, 64] },
+      { petId: 'comet', weight: 12, lv: [58, 66] },
+      { petId: 'void_dragon', weight: 6, lv: [60, 68] },
+      { petId: 'chaos_lord', weight: 3, lv: [62, 70] },
+      { petId: 'creator', weight: 1, lv: [66, 75] },
     ],
   },
 };
@@ -1168,6 +1325,36 @@ function battleHeal(player, id, now = Date.now(), rng = Math.random, qty = 1) {
   return finishTurn(player, ex, c, log, now, rng);
 }
 
+// [교체] — 대표 펫을 다른 펫(체력이 남은 펫)으로 바꿔요. 한 턴을 쓰고, 새로 나온 펫이 야생 펫의 공격을 맞아요!
+// (물러난 펫의 체력은 그대로 저장돼요)
+function battleSwap(player, id, uid, now = Date.now(), rng = Math.random) {
+  const ex = player.exploration;
+  if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
+  if (!ex.battle) return { kind: 'no_battle' };
+
+  const b = ex.battle;
+  const next = player.pets.find((p) => p.uid === uid);
+  if (!next) return { kind: 'swap_not_found' };
+  if (next.uid === player.mainPetUid) return { kind: 'swap_same' };
+  const hp = currentHp(next, now);
+  if (hp <= 0) return { kind: 'swap_fainted' };
+
+  const old = getMainPet(player);
+  const oldName = old.nickname ?? PETS[old.petId].name;
+  setHp(old, b.myHp, now); // 물러나는 펫의 체력을 저장해요
+  player.mainPetUid = next.uid;
+  b.myHp = hp;
+  b.myMax = maxHp(next);
+
+  const c = context(player, ex);
+  const log = [
+    `🔄 ${oldName}(이)가 물러나고 ${c.myPet.emoji} ${c.myName}(이)가 나왔어요! (한 턴을 써요)`,
+    `교체하는 틈을 노려 ${c.wildPet.emoji} ${c.wildPet.name}(이)가 공격해요!`,
+  ];
+  wildAttack(c, b, log, rng);
+  return finishTurn(player, ex, c, log, now, rng);
+}
+
 // ============================================================
 // 시스템: 상점 (systems/shop.js)
 // ============================================================
@@ -1284,7 +1471,7 @@ function trainPet(player, uid, times, now = Date.now()) {
 // ============================================================
 
 const exploreSys = { startExploration, lookAround, attemptCatch, attemptCatchMulti, leave, attemptFlee };
-const battleSys = { startBattle, battleTurn, battleTurns, battleHeal };
+const battleSys = { startBattle, battleTurn, battleTurns, battleHeal, battleSwap };
 const shopSys = { buyItem };
 
 // ============================================================
@@ -1643,12 +1830,59 @@ function exploreViewBattle(snap, userId, note) {
         button({ label: `잡기 ×${MULTI_THROWS}`, emoji: BALL.emoji, customId: `explore:catch3:${userId}:${snap.id}`, style: 3 }),
         button({ label: '회복 ×3', emoji: '🧪', customId: `explore:heal3:${userId}:${snap.id}`, style: 1 }),
         button({ label: '회복 가득', emoji: '🍶', customId: `explore:healfull:${userId}:${snap.id}`, style: 1 }),
+        button({ label: '교체', emoji: '🔄', customId: `explore:swap:${userId}:${snap.id}`, style: 1 }),
       ),
       row(
         button({ label: '공격 (턴 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:attack`, style: 4 }),
         button({ label: '잡기 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:catch`, style: 3 }),
         button({ label: '회복 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:heal`, style: 1 }),
       ),
+    ],
+  };
+}
+
+// 🔄 교체 화면 — 대표 펫 말고, 체력이 남은 펫 중에서 골라요
+function exploreViewSwap(player, snap, userId, note) {
+  const now = Date.now();
+  const wild = PETS[snap.encounter.petId];
+  const cands = player.pets
+    .map((inst, i) => ({ inst, index: i + 1 }))
+    .filter((c) => c.inst.uid !== player.mainPetUid && currentHp(c.inst, now) > 0)
+    .slice(0, 25);
+
+  const header = `${note ? note + '\n\n' : ''}누구와 바꿀까요?\n⚠️ 교체도 **한 턴**을 써요! 새로 나온 펫이 ${wild.emoji} ${wild.name}의 공격을 맞아요.`;
+  const cancel = button({ label: '취소', emoji: '↩️', customId: `explore:swapno:${userId}:${snap.id}`, style: 2 });
+
+  if (cands.length === 0) {
+    return {
+      embeds: [{ title: '🔄 교체', description: `${header}\n\n😢 바꿀 수 있는 펫이 없어요. (대표 펫 말고 체력이 남은 펫이 있어야 해요)`, color: 0xfee75c }],
+      components: [row(cancel)],
+    };
+  }
+
+  const lines = cands.map(({ inst, index }) => {
+    const pet = PETS[inst.petId];
+    return `**${index}.** ${GRADES[pet.grade].emoji} ${pet.emoji} **${inst.nickname ?? pet.name}** Lv.${inst.level} · ❤️ ${currentHp(inst, now)}/${maxHp(inst)}`;
+  });
+  return {
+    embeds: [{ title: '🔄 교체', description: `${header}\n\n${lines.join('\n')}`, color: 0xfee75c }],
+    components: [
+      row(
+        select({
+          customId: `explore:swapgo:${userId}:${snap.id}`,
+          placeholder: '🔄 나올 펫을 골라요',
+          options: cands.map(({ inst, index }) => {
+            const pet = PETS[inst.petId];
+            return {
+              label: `${index}. ${inst.nickname ?? pet.name} Lv.${inst.level}`,
+              value: inst.uid,
+              description: `❤️ ${currentHp(inst, now)}/${maxHp(inst)} · ${GRADES[pet.grade].name} 등급`,
+              emoji: pet.emoji,
+            };
+          }),
+        }),
+      ),
+      row(cancel),
     ],
   };
 }
@@ -1837,6 +2071,34 @@ async function exploreHandleButton(interaction, args) {
       );
     }
     return update(exploreViewBattle(out.snap, user.id, '⚔️ 전투 시작! **[공격]** 으로 싸워요.'));
+  }
+
+  // 🔄 [교체] — 교체할 펫을 고르는 화면으로 바꿔요 (아직 턴은 안 써요)
+  if (action === 'swap' || action === 'swapno') {
+    const player = await getPlayer(user.id);
+    const ex = player?.exploration;
+    if (!ex || ex.id !== id || !ex.encounter) return exploreViewExpired();
+    if (!ex.battle) {
+      return reply({ content: '아직 전투가 시작되지 않았어요! **[싸우기]** 를 먼저 눌러요 ⚔️' }, { ephemeral: true });
+    }
+    const snap = snapshot(player, Date.now());
+    return update(action === 'swap' ? exploreViewSwap(player, snap, user.id) : exploreViewBattle(snap, user.id));
+  }
+
+  // 🔄 고른 펫으로 교체! (한 턴을 쓰고, 나온 펫이 공격을 맞아요)
+  if (action === 'swapgo') {
+    const uid = interaction.data.values?.[0];
+    const out = await updatePlayer(user.id, (p) => {
+      const r = battleSys.battleSwap(p, id, uid, Date.now());
+      return { commit: r.commit === true, value: r };
+    });
+    if (!out || out.kind === 'expired') return exploreViewExpired();
+    if (out.kind === 'no_battle') return reply({ content: '아직 전투가 시작되지 않았어요! **[싸우기]** 를 먼저 눌러요 ⚔️' }, { ephemeral: true });
+    if (out.kind === 'swap_not_found') return reply({ content: '그 펫을 찾을 수 없어요 🤔 [교체] 를 다시 눌러주세요!' }, { ephemeral: true });
+    if (out.kind === 'swap_same') return reply({ content: '👑 이미 싸우고 있는 펫이에요! 다른 펫을 골라주세요.' }, { ephemeral: true });
+    if (out.kind === 'swap_fainted') return reply({ content: '💫 그 펫은 체력이 없어서 나올 수 없어요!' }, { ephemeral: true });
+    if (out.kind === 'continue') return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
+    return battleOutcomeView(out, user.id); // won / lost / draw / wild_flee
   }
 
   const BATTLE_ACTIONS = {
@@ -2814,12 +3076,20 @@ const help = {
                   `🎰 이기면 0.1% 확률로 경험치·골드 **3배**, 0.5% 확률로 **2배**!\n` +
                   `치명타 확률 ${pct(CRIT_CHANCE)}%, 회피 확률 ${pct(EVADE_CHANCE)}%(공격이 통째로 빗나가요), ` +
                   `매 턴 ${pct(WILD_FLEE_CHANCE)}% 확률로 야생 펫이 겁먹고 도망가요.\n` +
-                  `**[도망]** 은 실패하면 턴을 날려요.\n` +
-                  `😨 **등급이 높을수록 위압감이 커져요!** 일반 → 전설로 갈수록 내 공격이 빗나갈 확률(${pct(GRADE_EFFECTS.common.missChance)}% → ${pct(GRADE_EFFECTS.legendary.missChance)}%), ` +
-                  `상대가 급소로 때릴 확률(${pct(GRADE_EFFECTS.common.critChance)}% → ${pct(GRADE_EFFECTS.legendary.critChance)}%), ` +
-                  `도망 실패 확률(${pct(GRADE_EFFECTS.common.fleeFail)}% → ${pct(GRADE_EFFECTS.legendary.fleeFail)}%)이 올라가요.\n` +
+                  `**[도망]** 은 실패하면 턴을 날려요.
+` +
                   `${BATTLE_MAX_ROUNDS}턴 안에 끝나지 않아도 야생 펫이 떠나요.\n` +
                   `⚠️ **체력이 0이 되면 그 펫은 영영 사라져요!** 전투 전에 체력을 꼭 확인해요.`,
+              },
+              {
+                name: '😨 등급 · 위압감 · 🔄 교체',
+                value:
+                  `등급: ${Object.values(GRADES).map((g) => `${g.emoji}${g.name}`).join(' › ')}\n` +
+                  `등급이 높을수록 위압감이 커져요! (일반 → 초월)\n` +
+                  `· 내 공격이 빗나갈 확률 ${pct(GRADE_EFFECTS.common.missChance)}% → ${pct(GRADE_EFFECTS.divine.missChance)}%\n` +
+                  `· 상대가 급소로 때릴 확률 ${pct(GRADE_EFFECTS.common.critChance)}% → ${pct(GRADE_EFFECTS.divine.critChance)}%\n` +
+                  `· 도망 실패 확률 ${pct(GRADE_EFFECTS.common.fleeFail)}% → ${pct(GRADE_EFFECTS.divine.fleeFail)}%\n` +
+                  `🔄 **[교체]** 는 대표 펫 말고 체력이 남은 다른 펫과 바꿔요. 교체도 한 턴을 쓰고, **새로 나온 펫이 야생 펫의 공격을 맞아요!**`,
               },
               {
                 name: '🧪 회복',
