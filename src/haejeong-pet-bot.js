@@ -229,6 +229,20 @@ function autocompleteResult(choices) {
   return { type: ResponseType.AUTOCOMPLETE_RESULT, data: { choices: choices.slice(0, 25) } };
 }
 
+// 버튼 응답과 별개로 채널에 "새 메시지"를 하나 더 보내요.
+// 채팅이 올라와서 탐험 패널이 위로 묻혔을 때, 패널을 맨 아래로 다시 띄우는 용도예요.
+async function postChannelMessage(channelId, data) {
+  const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+    },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) console.error('새 메시지 보내기 실패:', res.status, await res.text());
+}
+
 function getUser(interaction) {
   return interaction.member?.user ?? interaction.user;
 }
@@ -1227,6 +1241,11 @@ const explore = {
 
 // ───────── 탐험 화면 그리기 ─────────
 
+// 채팅이 쌓여서 패널이 안 보일 때, 채널 맨 아래로 다시 올려주는 버튼이에요
+function bumpButton(userId, snapId) {
+  return button({ label: '아래로', emoji: '🔽', customId: `explore:bump:${userId}:${snapId}`, style: 2 });
+}
+
 function exploreViewExploring(snap, userId, note) {
   const loc = LOCATIONS[snap.locationId];
   const wait =
@@ -1239,6 +1258,7 @@ function exploreViewExploring(snap, userId, note) {
       row(
         button({ label: '살펴보기', emoji: '👀', customId: `explore:look:${userId}:${snap.id}`, style: 1 }),
         button({ label: '그만두기', emoji: '🚪', customId: `explore:quit:${userId}:${snap.id}`, style: 2 }),
+        bumpButton(userId, snap.id),
       ),
     ],
   };
@@ -1265,6 +1285,7 @@ function exploreViewEncounter(snap, userId, note) {
         button({ label: '잡기', emoji: BALL.emoji, customId: `explore:catch:${userId}:${snap.id}`, style: 3 }),
         button({ label: '싸우기', emoji: '⚔️', customId: `explore:fight:${userId}:${snap.id}`, style: 4 }),
         button({ label: '무시하기', emoji: '👋', customId: `explore:ignore:${userId}:${snap.id}`, style: 2 }),
+        bumpButton(userId, snap.id),
       ),
     ],
   };
@@ -1298,6 +1319,7 @@ function exploreViewBattle(snap, userId, note) {
         button({ label: '잡기', emoji: BALL.emoji, customId: `explore:catch:${userId}:${snap.id}`, style: 3 }),
         button({ label: '회복', emoji: '🧪', customId: `explore:heal:${userId}:${snap.id}`, style: 1 }),
         button({ label: '도망', emoji: '🏃', customId: `explore:run:${userId}:${snap.id}`, style: 2 }),
+        bumpButton(userId, snap.id),
       ),
     ],
   };
@@ -1451,6 +1473,20 @@ async function exploreHandleButton(interaction, args) {
       `\n남은 ${BALL.name} ${out.ballsLeft}개 · \`/탐험\` 으로 계속 모험해요!`,
     ].filter(Boolean);
     return update({ embeds: [{ title: '🎉 잡았다!', description: lines.join('\n'), color: 0x57f287 }], components: [] });
+  }
+
+  if (action === 'bump') {
+    const player = await getPlayer(user.id);
+    const ex = player?.exploration;
+    if (!ex || ex.id !== id) return exploreViewExpired();
+
+    const snap = snapshot(player, Date.now());
+    await postChannelMessage(interaction.channel_id, exploreViewSnap(snap, user.id));
+
+    return update({
+      embeds: [{ title: '🔽 아래로 내려갔어요!', description: '채팅 맨 아래에서 새 탐험 패널을 이어서 눌러주세요!', color: 0x99aab5 }],
+      components: [],
+    });
   }
 
   if (action === 'ignore' || action === 'quit' || action === 'run') {
