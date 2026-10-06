@@ -4,6 +4,20 @@ import { randomUUID } from 'node:crypto';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { createConfigManager } from './admin-config.js';
+import {
+  SKILLS,
+  SKILL_CFG,
+  SLOT_HINT,
+  grantSkills,
+  slotsOpen,
+  maxMana,
+  castSkill,
+  tickSide,
+  pickWildSkill,
+  statusText,
+  describeSkill,
+  tierStars,
+} from './skill.js';
 
 // ============================================================
 // 설정값 (config.js)
@@ -795,6 +809,8 @@ function addExp(target, amount) {
     target.level = MAX_LEVEL;
     target.exp = 0;
   }
+  // 펫(스킬 슬롯이 있는 대상)이면 레벨이 오른 만큼 열린 슬롯에 스킬을 채워요
+  if (Array.isArray(target.skills)) grantSkills(target);
 
   return { gained: gain, levelsGained: target.level - startLevel, level: target.level };
 }
@@ -825,14 +841,24 @@ function calcStats(petId, level) {
 // 내가 가진 펫 한 마리의 "정보 카드" 만들기
 function createPetInstance(petId, level = 1) {
   if (!PETS[petId]) throw new Error(`없는 펫이에요: ${petId}`);
-  return {
+  const inst = {
     uid: randomUUID(),
     petId,
     level,
     exp: 0,
     nickname: null,
     caughtAt: Date.now(),
+    skills: [null, null, null], // 스킬 슬롯 3칸 (1·2번은 레벨, 3번은 상점 개방권)
   };
+  grantSkills(inst); // 이미 열려 있는 슬롯이 있으면 바로 채워요
+  return inst;
+}
+
+// 예전에 만들어진 펫에 스킬 슬롯이 없으면 붙여줘요 (호환용)
+function ensureSkills(inst) {
+  if (!Array.isArray(inst.skills)) inst.skills = [null, null, null];
+  grantSkills(inst);
+  return inst;
 }
 
 function petLabel(petInstanceOrId) {
@@ -882,7 +908,9 @@ function buildNewPlayer(userId, username, starterPetId) {
 }
 
 function getMainPet(player) {
-  return player.pets.find((p) => p.uid === player.mainPetUid) ?? player.pets[0] ?? null;
+  const main = player.pets.find((p) => p.uid === player.mainPetUid) ?? player.pets[0] ?? null;
+  if (main) ensureSkills(main);
+  return main;
 }
 
 // 대표 펫 바꾸기 (전투 중에는 못 바꿔요: 체력 정보가 꼬여요!)
@@ -924,17 +952,20 @@ function resolvePetSelector(player, selector) {
   if (text === '') return getMainPet(player);
 
   const byUid = player.pets.find((p) => p.uid === text);
-  if (byUid) return byUid;
+  if (byUid) return ensureSkills(byUid);
 
-  if (/^\d+$/.test(text)) return player.pets[Number(text) - 1] ?? null;
+  if (/^\d+$/.test(text)) {
+    const byIndex = player.pets[Number(text) - 1];
+    return byIndex ? ensureSkills(byIndex) : null;
+  }
 
   const lower = text.toLowerCase();
   const label = (p) => (p.nickname ?? PETS[p.petId].name).toLowerCase();
   const exact = player.pets.find((p) => label(p) === lower);
-  if (exact) return exact;
+  if (exact) return ensureSkills(exact);
 
   const partial = player.pets.filter((p) => label(p).includes(lower));
-  return partial.length === 1 ? partial[0] : null;
+  return partial.length === 1 ? ensureSkills(partial[0]) : null;
 }
 
 // selector: /펫 목록 번호, 별명/이름, 또는 비우면 대표 펫. qty: 한 번에 몇 개를 쓸지 (기본 1, 한꺼번에 일괄 사용)
@@ -1261,7 +1292,6 @@ function snapshot(player, now = Date.now()) {
   if (ex.encounter) {
     const main = getMainPet(player);
     const b = ex.battle ?? null;
-    const ratio = b ? b.wildHp / b.wildMax : 1;
     const snap = {
       ...base,
       state: b ? 'battle' : 'encounter',
@@ -1276,6 +1306,7 @@ function snapshot(player, now = Date.now()) {
         myPetId: main.petId,
         myLevel: main.level,
         myName: main.nickname ?? PETS[main.petId].name,
+        skills: main.skills ?? [null, null, null], // 🆕 스킬 슬롯 (전투 버튼에 쓰여요)
       };
     }
     return snap;
@@ -1456,8 +1487,8 @@ function attemptCatchMulti(player, id, now = Date.now(), rng = Math.random, time
 
 // 전투 규칙 ⚔️ (디스코드와 상관없는 "순수한 게임 규칙")
 //
-// 전투 흐름: 야생 펫 등장 → [싸우기] → (턴마다 [공격] / [잡기] / [회복] / [도망]) → 승리 / 패배 / 무승부
-// player.exploration.battle = { myHp, myMax, wildHp, wildMax, round }
+// 전투 흐름: 야생 펫 등장 → [싸우기] → (턴마다 [공격] / [잡기] / [회복] / [도망] / [스킬]) → 승리 / 패배 / 무승부
+// player.exploration.battle = { myHp, myMax, wildHp, wildMax, round, myMana, wildMana, mySt, wildSt }
 // 한 턴 = 속도가 빠른 쪽이 먼저 때리고, 이어서 상대가 때려요 (속도가 같으면 내 펫이 먼저!)
 //
 // ❤️ 체력은 전투가 끝나도 이어져요! 매 턴 끝에 대표 펫의 체력(hp)을 저장해요.
@@ -1604,7 +1635,17 @@ function startBattle(player, id, now = Date.now()) {
   const hp = currentHp(c.main, now);
   if (hp <= 0) return { kind: 'fainted', name: c.myName, petId: c.main.petId };
 
-  ex.battle = { myHp: hp, myMax: c.mine.hp, wildHp: c.wild.hp, wildMax: c.wild.hp, round: 0 };
+  ex.battle = {
+    myHp: hp,
+    myMax: c.mine.hp,
+    wildHp: c.wild.hp,
+    wildMax: c.wild.hp,
+    round: 0,
+    myMana: SKILL_CFG.manaStart, // 🆕 전투 시작 마나
+    wildMana: SKILL_CFG.manaStart,
+    mySt: {}, // 🆕 내 펫 상태이상 (화상·공격↑ 등)
+    wildSt: {}, // 🆕 야생 펫 상태이상
+  };
   return { kind: 'started', commit: true, snap: snapshot(player, now) };
 }
 
@@ -1700,6 +1741,7 @@ function battleSwap(player, id, uid, now = Date.now(), rng = Math.random) {
   player.mainPetUid = next.uid;
   b.myHp = hp;
   b.myMax = maxHp(next);
+  b.mySt = {}; // 교체하면 이전 펫의 상태이상은 사라져요
 
   const c = context(player, ex);
   const log = [
@@ -1707,6 +1749,56 @@ function battleSwap(player, id, uid, now = Date.now(), rng = Math.random) {
     `교체하는 틈을 노려 ${c.wildPet.emoji} ${c.wildPet.name}(이)가 공격해요!`,
   ];
   wildAttack(c, b, log, rng);
+  return finishTurn(player, ex, c, log, now, rng);
+}
+
+// [스킬] — 슬롯 번호(0~2)의 스킬을 써요. 한 턴을 쓰고, 야생 펫이 반격해요.
+// 마나가 모자라면 못 써요. 야생 펫도 가끔 전용기를 써요.
+function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
+  const ex = player.exploration;
+  if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
+  if (!ex.battle) return { kind: 'no_battle' };
+
+  const main = getMainPet(player);
+  const sid = main.skills?.[slot];
+  const sk = SKILLS[sid];
+  if (!sk) return { kind: 'no_skill' };
+
+  const b = ex.battle;
+  if (b.myMana < sk.cost) return { kind: 'no_mana', need: sk.cost, have: b.myMana };
+
+  const c = context(player, ex);
+  const log = [];
+  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, crit: CRIT_CHANCE, mana: b.myMana, manaMax: maxMana(main), st: b.mySt };
+  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, crit: GRADE_EFFECTS[c.wildPet.grade].critChance, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt };
+
+  // 1) 내가 스킬을 써요
+  castSkill(sk, me, wild, rng, log);
+  b.myHp = me.hp; b.myMana = me.mana;
+  b.wildHp = wild.hp; b.wildMana = wild.mana;
+
+  // 2) 야생 펫이 기본 공격 또는 전용기로 반격해요
+  if (b.wildHp > 0 && b.myHp > 0) {
+    const wsk = pickWildSkill(c.wildInfo.petId, b.wildMana, rng);
+    if (wsk) {
+      castSkill(wsk, wild, me, rng, log);
+      b.wildHp = wild.hp; b.wildMana = wild.mana;
+      b.myHp = me.hp; b.myMana = me.mana;
+    } else {
+      wildAttack(c, b, log, rng);
+    }
+  }
+
+  // 3) 턴 끝: 지속 피해 · 재생 · 마나 +5
+  if (b.myHp > 0 && b.wildHp > 0) {
+    const tMe = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, mana: b.myMana, manaMax: maxMana(main), st: b.mySt };
+    const tWild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt };
+    tickSide(tMe, log);
+    tickSide(tWild, log);
+    b.myHp = tMe.hp; b.myMana = tMe.mana;
+    b.wildHp = tWild.hp; b.wildMana = tWild.mana;
+  }
+
   return finishTurn(player, ex, c, log, now, rng);
 }
 
@@ -2093,7 +2185,7 @@ function trainPet(player, uid, times, now = Date.now()) {
 // ============================================================
 
 const exploreSys = { startExploration, lookAround, attemptCatch, attemptCatchMulti, leave, attemptFlee };
-const battleSys = { startBattle, battleTurn, battleTurns, battleHeal, battleSwap };
+const battleSys = { startBattle, battleTurn, battleTurns, battleHeal, battleSwap, battleSkill };
 const shopSys = { buyItem };
 
 // ============================================================
@@ -2227,12 +2319,20 @@ const profile = {
       const pet = PETS[main.petId];
       const s = calcStats(main.petId, main.level);
       const name = main.nickname ?? pet.name;
+      const skillLines = [0, 1, 2]
+        .map((i) => {
+          const sk = SKILLS[main.skills[i]];
+          if (sk) return `　${i + 1}번 ${sk.emoji} **${sk.name}** (마나 ${sk.cost}) ${tierStars(sk.tier)}`;
+          return `　${i + 1}번 🔒 ${SLOT_HINT()[i]}`;
+        })
+        .join('\n');
       mainText =
         `${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** Lv.${main.level}\n` +
         `❤️ ${currentHp(main)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
         (main.level >= MAX_LEVEL
           ? '⭐ MAX'
-          : `⭐ ${expBar(main.exp, expToNext(main.level))}  ${main.exp}/${expToNext(main.level)}`);
+          : `⭐ ${expBar(main.exp, expToNext(main.level))}  ${main.exp}/${expToNext(main.level)}`) +
+        `\n✨ **스킬** (전투 마나 최대 ${maxMana(main)})\n${skillLines}`;
     }
 
     const dex = dexProgress(player);
@@ -2400,6 +2500,25 @@ function catchItemRows(snap, userId) {
   return btns.length ? [row(...btns)] : [];
 }
 
+// 🆕 전투 중 스킬 버튼 줄 (비어 있지 않은 슬롯만 보여줘요, 마나가 모자라면 회색)
+function skillRows(snap, userId) {
+  const b = snap.battle;
+  if (!b) return [];
+  const btns = [0, 1, 2]
+    .filter((i) => SKILLS[b.skills?.[i]])
+    .map((i) => {
+      const sk = SKILLS[b.skills[i]];
+      return button({
+        label: `${sk.name} (${sk.cost})`,
+        emoji: sk.emoji,
+        customId: `explore:skill:${userId}:${snap.id}:${i}`,
+        style: 1,
+        disabled: b.myMana < sk.cost,
+      });
+    });
+  return btns.length ? [row(...btns)] : [];
+}
+
 // 포획 아이템을 못 썼을 때 안내
 function catchItemFailText(out) {
   switch (out.kind) {
@@ -2481,12 +2600,13 @@ function exploreViewBattle(snap, userId, note) {
         title: `⚔️ ${mine.emoji} ${b.myName} VS ${wild.emoji} ${wild.name}`,
         description:
           `${note ? note + '\n\n' : ''}${b.round}턴째 · 약해질수록 **[잡기]** 가 쉬워져요!` +
+          `\n🔋 내 마나 **${b.myMana}** / ${maxMana(getMainPetFromSnap(snap))}` +
           (GRADE_EFFECTS[wild.grade].aura ? `\n${GRADE_EFFECTS[wild.grade].aura}` : '') +
           catchInfoText(snap),
         color: 0xed4245,
         fields: [
-          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}`, inline: true },
-          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}`, inline: true },
+          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
+          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
           { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개`, inline: false },
         ],
       },
@@ -2499,6 +2619,7 @@ function exploreViewBattle(snap, userId, note) {
         button({ label: '도망', emoji: '🏃', customId: `explore:run:${userId}:${snap.id}`, style: 2 }),
         bumpButton(userId, snap.id),
       ),
+      ...skillRows(snap, userId),
       row(
         button({ label: `공격 ×${MULTI_TURNS}`, emoji: '⚔️', customId: `explore:attack3:${userId}:${snap.id}`, style: 4 }),
         button({ label: `잡기 ×${MULTI_THROWS}`, emoji: BALL.emoji, customId: `explore:catch3:${userId}:${snap.id}`, style: 3 }),
@@ -2514,6 +2635,11 @@ function exploreViewBattle(snap, userId, note) {
       ...catchItemRows(snap, userId),
     ],
   };
+}
+
+// 전투 화면에서 대표 펫의 최대 마나를 알려줄 때 쓰는 도우미 (스냅샷에는 펫 정보가 없어서 이름으로만 찾아요)
+function getMainPetFromSnap(snap) {
+  return snap.battle?.mainRef ?? { manaBonus: 0 };
 }
 
 // 🔄 교체 화면 — 대표 펫 말고, 체력이 남은 펫 중에서 골라요
@@ -2636,7 +2762,7 @@ function afterBattleComponents(userId, locationId) {
   ];
 }
 
-// 전투가 끝났을 때(승리/패배/무승부) 화면 — [공격]/[회복]/[잡기] 중 무엇으로 끝났든 똑같이 써요
+// 전투가 끝났을 때(승리/패배/무승부) 화면 — [공격]/[회복]/[잡기]/[스킬] 중 무엇으로 끝났든 똑같이 써요
 function battleOutcomeView(out, userId) {
   if (out.kind === 'won') {
     const wild = PETS[out.wildPetId];
@@ -2760,7 +2886,7 @@ async function exploreHandleButton(interaction, args) {
         { ephemeral: true },
       );
     }
-    return update(exploreViewBattle(out.snap, user.id, '⚔️ 전투 시작! **[공격]** 으로 싸워요.'));
+    return update(exploreViewBattle(out.snap, user.id, '⚔️ 전투 시작! **[공격]** 이나 **[스킬]** 로 싸워요.'));
   }
 
   // 🔄 [교체] — 교체할 펫을 고르는 화면으로 바꿔요 (아직 턴은 안 써요)
@@ -2787,6 +2913,22 @@ async function exploreHandleButton(interaction, args) {
     if (out.kind === 'swap_not_found') return reply({ content: '그 펫을 찾을 수 없어요 🤔 [교체] 를 다시 눌러주세요!' }, { ephemeral: true });
     if (out.kind === 'swap_same') return reply({ content: '👑 이미 싸우고 있는 펫이에요! 다른 펫을 골라주세요.' }, { ephemeral: true });
     if (out.kind === 'swap_fainted') return reply({ content: '💫 그 펫은 체력이 없어서 나올 수 없어요!' }, { ephemeral: true });
+    if (out.kind === 'continue') return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
+    return battleOutcomeView(out, user.id); // won / lost / draw / wild_flee
+  }
+
+  // 🆕 [스킬] — 슬롯 번호(extra)의 스킬을 써요
+  if (action === 'skill') {
+    const out = await updatePlayer(user.id, (p) => {
+      const r = battleSys.battleSkill(p, id, Number(extra), Date.now());
+      return { commit: r.commit === true, value: r };
+    });
+    if (!out || out.kind === 'expired') return exploreViewExpired();
+    if (out.kind === 'no_battle') return reply({ content: '아직 전투가 시작되지 않았어요! **[싸우기]** 를 먼저 눌러요 ⚔️' }, { ephemeral: true });
+    if (out.kind === 'no_skill') return reply({ content: '그 슬롯에는 스킬이 없어요!' }, { ephemeral: true });
+    if (out.kind === 'no_mana') {
+      return reply({ content: `🔋 마나가 모자라요! (필요 ${out.need} / 현재 ${out.have}) 공격이나 회복으로 턴을 넘겨봐요.` }, { ephemeral: true });
+    }
     if (out.kind === 'continue') return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
     return battleOutcomeView(out, user.id); // won / lost / draw / wild_flee
   }
@@ -3788,17 +3930,25 @@ const help = {
               {
                 name: '⚔️ 전투',
                 value:
-                  `**[공격]**, **[잡기]**, **[회복]**, **[도망]** 은 모두 한 턴을 써요. 턴 끝에는 야생 펫이 반격해요.\n` +
+                  `**[공격]**, **[잡기]**, **[회복]**, **[도망]**, **[스킬]** 은 모두 한 턴을 써요. 턴 끝에는 야생 펫이 반격해요.\n` +
                   `**[공격 ×${MULTI_TURNS}]** · **[잡기 ×${MULTI_THROWS}]** 로 여러 턴을 한 번에 진행해요 (내 체력이 ${pct(MULTI_STOP_HP_RATIO)}% 이하면 자동으로 멈춰요).\n` +
                   `**[회복 ×3]** · **[회복 가득]** 은 약을 여러 개 먹어도 야생 펫은 한 번만 공격해요.\n` +
                   `**[✏️ 직접 입력]** 버튼은 숫자 입력창이 떠서 원하는 만큼(공격 최대 ${BATTLE_MAX_ROUNDS}턴, 잡기·회복 최대 ${MAX_CUSTOM_COUNT}개) 한 번에 해요.\n` +
                   `🎰 이기면 0.1% 확률로 경험치·골드 **3배**, 0.5% 확률로 **2배**!\n` +
                   `치명타 확률 ${pct(CRIT_CHANCE)}%, 회피 확률 ${pct(EVADE_CHANCE)}%(공격이 통째로 빗나가요), ` +
                   `매 턴 ${pct(WILD_FLEE_CHANCE)}% 확률로 야생 펫이 겁먹고 도망가요.\n` +
-                  `**[도망]** 은 실패하면 턴을 날려요.
-` +
+                  `**[도망]** 은 실패하면 턴을 날려요.\n` +
                   `${BATTLE_MAX_ROUNDS}턴 안에 끝나지 않아도 야생 펫이 떠나요.\n` +
                   `⚠️ **체력이 0이 되면 그 펫은 영영 사라져요!** 전투 전에 체력을 꼭 확인해요.`,
+              },
+              {
+                name: '✨ 스킬 · 🔋 마나',
+                value:
+                  `전투 시작 시 마나 **${SKILL_CFG.manaStart}** 로 시작하고, 매 턴 **+${SKILL_CFG.manaPerTurn}** 씩 차요 (최대 ${SKILL_CFG.manaMax}).\n` +
+                  `스킬 칸은 **Lv.${SKILL_CFG.slot1Level}** 에 1번, **Lv.${SKILL_CFG.slot2Level}** 에 2번이 열리고, 3번은 상점의 🎫 **스킬 슬롯 개방권**으로 열어요.\n` +
+                  `열린 칸에는 랜덤 스킬이 들어와요. 펫마다 **전용기**가 있고, 그 펫만 배울 수 있어요. 전용기는 같은 마나의 일반 스킬보다 세요.\n` +
+                  `🔄 스킬을 바꾸는 방법은 나중에 추가될 예정이에요.\n` +
+                  `\`/내정보\` 에서 대표 펫의 스킬 칸을 확인해요.`,
               },
               {
                 name: '🍖 포획 아이템',
