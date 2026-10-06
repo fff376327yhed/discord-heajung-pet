@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>해정펫 관리자</title>
+<script>
+// 다크모드: 저장된 선택 → 없으면 기기 설정을 따라가요 (깜빡임 방지로 맨 위에서 실행)
+document.documentElement.dataset.theme = localStorage.hj_theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+</script>
+<style>
+:root{--bg:#f4f5fa;--card:#fff;--ink:#1c2230;--sub:#667085;--line:#dfe3ee;--pri:#4f46e5;--on:#fff;--bad:#d92d20;--ok:#12805c;--chg:#fff3c4;--field:#fff;color-scheme:light}
+:root[data-theme=dark]{--bg:#0e1220;--card:#171c2d;--ink:#e7eaf6;--sub:#98a2bf;--line:#283050;--pri:#8e96ff;--on:#0e1220;--bad:#ff7b72;--ok:#4cd6a0;--chg:#40371c;--field:#0f1424;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+input,select,textarea{background:var(--field);border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-height:38px;width:100%}
+input[type=checkbox]{width:20px;min-height:20px;accent-color:var(--pri)}
+:focus-visible{outline:2px solid var(--pri);outline-offset:1px}
+button{cursor:pointer;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:7px 14px;min-height:38px}
+button:hover{border-color:var(--pri)}
+button.pri{background:var(--pri);border-color:var(--pri);color:var(--on);font-weight:600}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.del{color:var(--bad)}
+.err{border-color:var(--bad)!important}
+.hide{display:none!important}
+/* 로그인 */
+#login{min-height:100vh;display:grid;place-items:center;padding:16px}
+#login form{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;width:min(380px,100%);display:grid;gap:12px}
+#login h1{margin:0 0 4px;font-size:20px}
+label.f{display:grid;gap:4px;color:var(--sub);font-size:13px}
+/* 상단 */
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+header h1{font-size:17px;margin:0 auto 0 0}
+#state{color:var(--sub);font-size:13px}
+nav{display:flex;gap:4px;padding:8px 16px 0;overflow-x:auto;position:sticky;top:59px;z-index:4;background:var(--bg)}
+nav button{border-radius:8px 8px 0 0;border-bottom:0;white-space:nowrap}
+nav button[aria-selected=true]{background:var(--pri);color:var(--on);border-color:var(--pri)}
+main{padding:16px;max-width:1100px;margin:0 auto;display:grid;gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card h3{margin:0 0 8px;font-size:15px}
+.hint{color:var(--sub);font-size:13px;margin:0 0 8px}
+.row{display:grid;grid-template-columns:1fr 130px 38px;gap:8px;align-items:center;padding:6px 8px;border-radius:8px}
+.row.chg,td.chg{background:var(--chg)}
+.row code,.hint code{color:var(--sub);font-size:12px}
+.tools{display:flex;gap:8px;flex-wrap:wrap}
+.tools>*{flex:1;min-width:140px}.tools>button{flex:0 0 auto}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{position:sticky;top:0;background:var(--card);color:var(--sub);font-weight:600;font-size:12px}
+td input,td select{min-width:64px}td input[type=text]{min-width:110px}
+.empty{color:var(--sub);text-align:center;padding:24px}
+#toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:var(--card);border:1px solid var(--line);border-left:5px solid var(--ok);border-radius:10px;padding:10px 14px;max-width:min(520px,94vw);box-shadow:0 6px 24px #0004;z-index:20}
+#toast.bad{border-left-color:var(--bad)}
+#toast ul{margin:4px 0 0;padding-left:18px}
+textarea{min-height:180px;font:12px/1.5 ui-monospace,Consolas,monospace}
+@media(max-width:560px){.row{grid-template-columns:1fr 100px 38px}nav{top:104px}}
+@media(prefers-reduced-motion:no-preference){button{transition:border-color .15s}}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <form id="loginForm">
+    <h1>🐾 해정펫 관리자</h1>
+    <label class="f">봇 서버 주소 (Vercel)
+      <input id="apiUrl" type="url" placeholder="https://내-봇.vercel.app" required autocomplete="url"></label>
+    <label class="f">비밀번호
+      <input id="pw" type="password" required autocomplete="current-password"></label>
+    <button class="pri" id="loginBtn">열기</button>
+    <small id="loginMsg" style="color:var(--bad)" role="alert"></small>
+  </form>
+</div>
+
+<div id="app" class="hide">
+  <header>
+    <h1>🐾 해정펫 관리자</h1>
+    <span id="state"></span>
+    <button id="themeBtn" title="다크모드 전환" aria-label="다크모드 전환">🌙</button>
+    <button id="revertBtn">되돌리기</button>
+    <button id="saveBtn" class="pri">저장</button>
+    <button id="outBtn">로그아웃</button>
+  </header>
+  <nav id="tabs" role="tablist"></nav>
+  <main id="view"></main>
+</div>
+<div id="toast" class="hide" role="status"></div>
+
+<script>
+'use strict';
+// 👇 봇 서버 주소를 미리 적어두면 로그인 화면에 자동으로 채워져요 (예: 'https://내-봇.vercel.app')
+const DEFAULT_API = '';
+
+const $ = (q) => document.querySelector(q);
+const J = JSON.stringify;
+const clone = (v) => JSON.parse(J(v));
+function h(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (v === true) e.setAttribute(k, '');
+    else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(c));
+  return e;
+}
+
+// ───────── 상태 ─────────
+let api = '', D, META, cur, saved = '', tab = '설정';
+const KINDS = ['pets', 'items', 'locations'];
+const token = () => sessionStorage.hj_token;
+
+function merge(ov) {
+  const m = clone(D);
+  Object.assign(m.scalars, ov.scalars);
+  for (const k in ov.tables) if (k in m.tables) m.tables[k] = clone(ov.tables[k]);
+  for (const kind of KINDS) for (const id in ov[kind] ?? {}) m[kind][id] = { ...clone(ov[kind][id]), id };
+  return m;
+}
+function overrides() {
+  const o = { scalars: {}, tables: {}, pets: {}, items: {}, locations: {} };
+  for (const k in cur.scalars) if (cur.scalars[k] !== D.scalars[k]) o.scalars[k] = cur.scalars[k];
+  for (const k in cur.tables) if (J(cur.tables[k]) !== J(D.tables[k])) o.tables[k] = cur.tables[k];
+  for (const kind of KINDS) for (const id in cur[kind]) if (J(cur[kind][id]) !== J(D[kind][id])) o[kind][id] = cur[kind][id];
+  return o;
+}
+const countOv = (o) => Object.values(o).reduce((n, g) => n + Object.keys(g).length, 0);
+
+// ───────── 통신 ─────────
+async function call(method, body, path = '?action=config') {
+  const r = await fetch(`${api}/api/admin${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(token() ? { Authorization: `Bearer ${token()}` } : {}) },
+    body: body ? J(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401 && token()) logout('로그인이 만료됐어요. 다시 열어주세요');
+  return { ok: r.ok, status: r.status, data };
+}
+
+// ───────── 알림 ─────────
+let toastTimer;
+function toast(msg, bad = false, list = []) {
+  const t = $('#toast');
+  t.className = bad ? 'bad' : '';
+  t.replaceChildren(h('b', {}, msg), list.length ? h('ul', {}, list.map((x) => h('li', {}, x))) : null);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add('hide'), bad ? 9000 : 3500);
+}
+
+// ───────── 입력 도우미 (바꾸면 바로 cur 에 반영) ─────────
+let barTimer;
+const touch = () => { clearTimeout(barTimer); barTimer = setTimeout(updateBar, 100); };
+
+function numInput(obj, key, { step = 'any', onchange } = {}) {
+  const i = h('input', { type: 'number', step, value: obj[key], 'aria-label': key });
+  i.addEventListener('input', () => {
+    const ok = i.value !== '' && Number.isFinite(Number(i.value));
+    i.classList.toggle('err', !ok);
+    if (ok) { obj[key] = Number(i.value); onchange?.(); touch(); }
+  });
+  return i;
+}
+function textInput(obj, key, { nullable = false } = {}) {
+  const i = h('input', { type: 'text', value: obj[key] ?? '', 'aria-label': key });
+  i.addEventListener('input', () => { obj[key] = nullable && i.value === '' ? null : i.value; touch(); });
+  return i;
+}
+function checkInput(obj, key, onchange) {
+  const i = h('input', { type: 'checkbox', checked: !!obj[key], 'aria-label': key });
+  i.addEventListener('change', () => { obj[key] = i.checked; onchange?.(); touch(); });
+  return i;
+}
+function selectInput(obj, key, options, onchange) {
+  const s = h('select', { 'aria-label': key }, options.map(([v, label]) => h('option', { value: v, selected: v === obj[key] }, label)));
+  s.addEventListener('change', () => { obj[key] = s.value; onchange?.(); touch(); });
+  return s;
+}
+const gradeOpts = () => Object.entries(cur.tables.GRADES).sort((a, b) => a[1].order - b[1].order).map(([k, g]) => [k, `${g.emoji} ${g.name}`]);
+const gradeLabel = (k) => (cur.tables.GRADES[k] ? `${cur.tables.GRADES[k].emoji} ${cur.tables.GRADES[k].name}` : k);
+function askId(kind) {
+  const id = (prompt('새 항목의 id (영어 소문자·숫자·_ , 2~40자)') ?? '').trim();
+  if (!id) return null;
+  if (!/^[a-z0-9_]{2,40}$/.test(id)) return void toast('id 는 영어 소문자·숫자·_ 2~40자만 가능해요', true);
+  if (cur[kind][id]) return void toast('이미 있는 id 예요', true);
+  return id;
+}
+
+// ───────── 탭: 설정 ─────────
+function tabSettings() {
+  const q = h('input', { type: 'search', placeholder: '설정 검색 (이름·설명·분류)' });
+  const box = h('div', { style: 'display:grid;gap:14px;margin-top:14px' });
+  const rowFor = (k) => {
+    const m = META[k], isBool = typeof D.scalars[k] === 'boolean';
+    const row = h('div', { class: 'row' });
+    const sync = () => row.classList.toggle('chg', cur.scalars[k] !== D.scalars[k]);
+    const input = isBool ? checkInput(cur.scalars, k, sync) : numInput(cur.scalars, k, { onchange: sync });
+    const reset = h('button', { title: `기본값 ${D.scalars[k]} 로`, 'aria-label': '기본값으로', onclick: () => { cur.scalars[k] = D.scalars[k]; draw(); touch(); } }, '↺');
+    row.append(h('div', {}, m.desc, ' ', h('code', {}, k)), input, reset);
+    sync();
+    return row;
+  };
+  const draw = () => {
+    const f = q.value.trim().toLowerCase(), groups = {};
+    for (const k in cur.scalars) if (!f || `${k} ${META[k].desc} ${META[k].section}`.toLowerCase().includes(f)) (groups[META[k].section] ??= []).push(k);
+    box.replaceChildren(...Object.entries(groups).map(([s, ks]) => h('section', { class: 'card' }, h('h3', {}, s), ks.map(rowFor))));
+    if (!box.children.length) box.append(h('p', { class: 'empty' }, '검색 결과가 없어요'));
+  };
+  q.addEventListener('input', draw);
+  draw();
+  return h('div', {}, q, box);
+}
+
+// ───────── 탭: 펫 ─────────
+function tabPets() {
+  const q = h('input', { type: 'search', placeholder: '이름·id 검색' });
+  const g = h('select', {}, h('option', { value: '' }, '모든 등급'), gradeOpts().map(([v, l]) => h('option', { value: v }, l)));
+  const body = h('tbody');
+  const draw = () => {
+    const f = q.value.trim().toLowerCase();
+    const list = Object.values(cur.pets).filter((p) => (!g.value || p.grade === g.value) && (!f || `${p.id} ${p.name}`.toLowerCase().includes(f)));
+    list.sort((a, b) => (cur.tables.GRADES[a.grade]?.order ?? 0) - (cur.tables.GRADES[b.grade]?.order ?? 0) || a.expYield - b.expYield);
+    body.replaceChildren(...list.map((p) => h('tr', {},
+      h('td', {}, p.id), h('td', {}, textInput(p, 'emoji')), h('td', {}, textInput(p, 'name')),
+      h('td', {}, selectInput(p, 'grade', gradeOpts())),
+      ...['hp', 'atk', 'def', 'spd'].map((s) => h('td', {}, numInput(p.baseStats, s, { step: 1 }))),
+      h('td', {}, numInput(p, 'expYield')), h('td', {}, numInput(p, 'catchRate', { step: 0.01 })),
+      h('td', {}, checkInput(p, 'starter')),
+      h('td', {}, h('button', { title: '복제', onclick: () => dup(p) }, '⧉'),
+        D.pets[p.id] ? null : h('button', { class: 'del', title: '삭제', onclick: () => remove(p) }, '✕')))));
+    if (!list.length) body.append(h('tr', {}, h('td', { colspan: 13, class: 'empty' }, '조건에 맞는 펫이 없어요')));
+  };
+  const dup = (p) => { const id = askId('pets'); if (id) { cur.pets[id] = { ...clone(p), id, name: `${p.name} 복사`, starter: false }; draw(); touch(); } };
+  const remove = (p) => {
+    const used = Object.values(cur.locations).filter((l) => l.spawns.some((s) => s.petId === p.id)).map((l) => l.name);
+    if (used.length) return toast(`${used.join(', ')} 에서 쓰고 있어서 지울 수 없어요`, true);
+    if (confirm(`${p.name} 을(를) 삭제할까요?`)) { delete cur.pets[p.id]; draw(); touch(); }
+  };
+  const add = () => {
+    const id = askId('pets');
+    if (!id) return;
+    cur.pets[id] = { id, name: '새 펫', emoji: '🐾', grade: 'common', baseStats: { hp: 30, atk: 8, def: 6, spd: 8 }, expYield: 10, catchRate: 0.6 };
+    draw(); touch();
+  };
+  q.addEventListener('input', draw); g.addEventListener('change', draw);
+  draw();
+  const heads = ['id', '이모지', '이름', '등급', '체력', '공격', '방어', '속도', '경험치', '잡기쉬움(0~1)', '스타팅', ''];
+  return h('div', {}, h('div', { class: 'tools' }, q, g, h('button', { class: 'pri', onclick: add }, '+ 새 펫')),
+    h('p', { class: 'hint' }, '기본 펫은 삭제할 수 없어요 (유저 데이터 보호). 지역에서 빼려면 지역 탭에서 비중을 0 으로 하세요.'),
+    h('div', { class: 'wrap' }, h('table', {}, h('thead', {}, h('tr', {}, heads.map((x) => h('th', {}, x)))), body)));
+}
+
+// ───────── 탭: 아이템 ─────────
+function tabItems() {
+  const BASIC = new Set(['id', 'name', 'emoji', 'price', 'description']);
+  const body = h('tbody');
+  const extraOf = (it) => J(Object.fromEntries(Object.entries(it).filter(([k]) => !BASIC.has(k))));
+  const draw = () => {
+    body.replaceChildren(...Object.values(cur.items).map((it) => {
+      const ex = h('input', { type: 'text', value: extraOf(it), 'aria-label': '특수 속성' });
+      ex.addEventListener('input', () => {
+        try {
+          const o = JSON.parse(ex.value || '{}');
+          if (!o || typeof o !== 'object' || Array.isArray(o)) throw 0;
+          for (const k of Object.keys(it)) if (!BASIC.has(k)) delete it[k];
+          Object.assign(it, o); ex.classList.remove('err'); touch();
+        } catch { ex.classList.add('err'); }
+      });
+      const price = h('input', { type: 'number', value: it.price ?? '', 'aria-label': '가격', placeholder: '판매안함' });
+      price.addEventListener('input', () => { if (price.value === '') delete it.price; else it.price = Number(price.value); touch(); });
+      return h('tr', {}, h('td', {}, it.id), h('td', {}, textInput(it, 'emoji')), h('td', {}, textInput(it, 'name')), h('td', {}, price),
+        h('td', {}, textInput(it, 'description')), h('td', {}, ex),
+        h('td', {}, D.items[it.id] ? null : h('button', { class: 'del', title: '삭제', onclick: () => { if (confirm('삭제할까요?')) { delete cur.items[it.id]; draw(); touch(); } } }, '✕')));
+    }));
+  };
+  draw();
+  const add = () => { const id = askId('items'); if (id) { cur.items[id] = { id, name: '새 아이템', emoji: '📦', price: 100, description: '' }; draw(); touch(); } };
+  return h('div', {}, h('div', { class: 'tools' }, h('button', { class: 'pri', onclick: add }, '+ 새 아이템')),
+    h('p', { class: 'hint' }, '가격을 비우면 상점에서 팔지 않아요. "특수 속성"은 JSON 이에요: heal(회복량), boost(trainerExp/petExp), speedup, scout, catchItem(scanner/bait/charm/net), catchBonus, short.'),
+    h('div', { class: 'wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['id', '이모지', '이름', '가격', '설명', '특수 속성(JSON)', ''].map((x) => h('th', {}, x)))), body)));
+}
+
+// ───────── 탭: 지역 ─────────
+function tabLocations() {
+  const box = h('div', { style: 'display:grid;gap:14px' });
+  const petOpts = () => Object.values(cur.pets).filter((p) => !p.starter).sort((a, b) => a.name.localeCompare(b.name, 'ko')).map((p) => [p.id, `${p.emoji} ${p.name} (${gradeLabel(p.grade)})`]);
+  const card = (loc) => {
+    const sp = h('tbody');
+    const drawSp = () => {
+      const total = loc.spawns.reduce((n, s) => n + (s.weight > 0 ? s.weight : 0), 0) || 1;
+      sp.replaceChildren(...loc.spawns.map((s, i) => {
+        const pct = h('td', {}, `${((Math.max(0, s.weight) / total) * 100).toFixed(1)}%`);
+        const lv = { a: s.lv[0], b: s.lv[1] };
+        const setLv = () => { s.lv = [lv.a, lv.b]; touch(); };
+        return h('tr', {}, h('td', {}, selectInput(s, 'petId', petOpts())),
+          h('td', {}, numInput(s, 'weight', { onchange: () => { const t = loc.spawns.reduce((n, x) => n + Math.max(0, x.weight), 0) || 1; pct.textContent = `${((Math.max(0, s.weight) / t) * 100).toFixed(1)}%`; } })), pct,
+          h('td', {}, numInput(lv, 'a', { step: 1, onchange: setLv })), h('td', {}, numInput(lv, 'b', { step: 1, onchange: setLv })),
+          h('td', {}, h('button', { class: 'del', title: '이 펫 빼기', onclick: () => { loc.spawns.splice(i, 1); drawSp(); touch(); } }, '✕')));
+      }));
+    };
+    drawSp();
+    const addSpawn = () => { loc.spawns.push({ petId: petOpts()[0][0], weight: 10, lv: [loc.minLevel, loc.minLevel + 4] }); drawSp(); touch(); };
+    return h('section', { class: 'card' },
+      h('h3', {}, `${loc.emoji} ${loc.name} `, h('code', {}, loc.id)),
+      h('div', { class: 'tools' },
+        h('label', { class: 'f' }, '이모지', textInput(loc, 'emoji')), h('label', { class: 'f' }, '이름', textInput(loc, 'name')),
+        h('label', { class: 'f' }, '입장 레벨', numInput(loc, 'minLevel', { step: 1 })), h('label', { class: 'f' }, '경험치 배율', numInput(loc, 'expMultiplier', { step: 0.1 }))),
+      h('label', { class: 'f', style: 'margin:8px 0' }, '설명', textInput(loc, 'description')),
+      h('div', { class: 'wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['나오는 펫', '비중(무게)', '확률', '최소 Lv', '최대 Lv', ''].map((x) => h('th', {}, x)))), sp)),
+      h('div', { class: 'tools', style: 'margin-top:8px' }, h('button', { onclick: addSpawn }, '+ 펫 추가'),
+        D.locations[loc.id] ? null : h('button', { class: 'del', onclick: () => { if (confirm(`${loc.name} 을(를) 삭제할까요?`)) { delete cur.locations[loc.id]; draw(); touch(); } } }, '지역 삭제')));
+  };
+  const draw = () => box.replaceChildren(...Object.values(cur.locations).sort((a, b) => a.minLevel - b.minLevel).map(card));
+  const add = () => {
+    const id = askId('locations');
+    if (!id) return;
+    cur.locations[id] = { id, name: '새 지역', emoji: '🗺️', minLevel: 1, expMultiplier: 1, description: '', spawns: [{ petId: petOpts()[0][0], weight: 10, lv: [1, 5] }] };
+    draw(); touch();
+  };
+  draw();
+  return h('div', { style: 'display:grid;gap:14px' }, h('div', { class: 'tools' }, h('button', { class: 'pri', onclick: add }, '+ 새 지역')),
+    h('p', { class: 'hint' }, '확률은 "비중 ÷ 전체 비중 합" 이에요. 0 으로 두면 안 나와요. 새 지역·이름이 /탐험 선택 목록에 보이려면 봇 명령어를 다시 등록해야 해요 (npm run register).'), box);
+}
+
+// ───────── 탭: 등급·표 ─────────
+const TABLE_INFO = {
+  GRADES: '등급 이름 · 이모지 · 정렬 순서',
+  GRADE_EFFECTS: '등급별 위압감 (빗나감·급소·도망 실패 확률, 안내 문구)',
+  GRADE_WAIT_MULT: '등급별 탐험 대기 시간 배수',
+  RELEASE_BASE_GOLD: '등급별 방생 기본 골드',
+  TRADE_GRADE_MIN_LEVEL: '등급별 거래 최소 트레이너 레벨',
+  CATCH_GRADE_PENALTY: '등급별 포획 확률 깎임값 (0.03 = -3%p)',
+  WAIT_TIERS: '트레이너 레벨 구간별 탐험 대기 시간 (초)',
+  DEX_REWARD: '도감 챕터 보상 (기본값 + 챕터당 추가량)',
+};
+function tabTables() {
+  const card = (name) => {
+    const t = cur.tables[name];
+    let rows;
+    if (Array.isArray(t)) rows = t.map((r, i) => [`#${i + 1}`, r]);
+    else if (Object.values(t).every((v) => v && typeof v === 'object')) rows = Object.entries(t).map(([k, r]) => [k, r]);
+    else rows = [['값', t]];
+    const cols = [...new Set(rows.flatMap(([, r]) => Object.keys(r)))];
+    const cell = (r, c) => {
+      const v = r[c];
+      if (typeof v === 'number') return numInput(r, c);
+      if (typeof v === 'boolean') return checkInput(r, c);
+      return textInput(r, c, { nullable: v === null });
+    };
+    return h('section', { class: 'card' }, h('h3', {}, name), h('p', { class: 'hint' }, TABLE_INFO[name]),
+      h('div', { class: 'wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), cols.map((c) => h('th', {}, c)))),
+        h('tbody', {}, rows.map(([k, r]) => h('tr', {}, h('td', {}, cur.tables.GRADES[k] ? gradeLabel(k) : k), cols.map((c) => h('td', {}, c in r ? cell(r, c) : '')))))))
+    );
+  };
+  return h('div', { style: 'display:grid;gap:14px' }, Object.keys(cur.tables).map(card));
+}
+
+// ───────── 탭: 도구 ─────────
+function tabTools() {
+  const out = h('textarea', { readonly: true, 'aria-label': '내보내기' });
+  const inn = h('textarea', { placeholder: '내보낸 JSON 을 붙여넣으세요', 'aria-label': '가져오기' });
+  const list = h('ul');
+  const refresh = () => {
+    const o = overrides();
+    out.value = J(o, null, 2);
+    list.replaceChildren(...Object.entries(o).flatMap(([g, v]) => Object.keys(v).map((k) => h('li', {}, `${g}: ${k}`))));
+    if (!list.children.length) list.append(h('li', {}, '기본값과 다른 항목이 없어요'));
+  };
+  refresh();
+  const imp = () => {
+    try {
+      const o = JSON.parse(inn.value);
+      const errs = [];
+      for (const k of ['scalars', 'tables', 'pets', 'items', 'locations']) if (o[k] != null && typeof o[k] !== 'object') errs.push(k);
+      if (errs.length) throw new Error('형식 오류');
+      cur = merge(o); touch(); refresh(); toast('가져왔어요. 확인 후 저장을 눌러주세요');
+    } catch { toast('JSON 을 읽을 수 없어요', true); }
+  };
+  return h('div', { style: 'display:grid;gap:14px' },
+    h('section', { class: 'card' }, h('h3', {}, '기본값과 다른 항목'), list),
+    h('section', { class: 'card' }, h('h3', {}, '내보내기 (백업)'), out,
+      h('div', { class: 'tools', style: 'margin-top:8px' }, h('button', { onclick: () => navigator.clipboard.writeText(out.value).then(() => toast('복사했어요')) }, '복사'),
+        h('button', { onclick: () => { const a = h('a', { href: URL.createObjectURL(new Blob([out.value], { type: 'application/json' })), download: 'haejeong-config.json' }); a.click(); } }, '파일로 저장'))),
+    h('section', { class: 'card' }, h('h3', {}, '가져오기'), inn, h('div', { class: 'tools', style: 'margin-top:8px' }, h('button', { onclick: imp }, '가져오기'))),
+    h('section', { class: 'card' }, h('h3', {}, '전체 초기화'), h('p', { class: 'hint' }, '모든 설정을 코드의 기본값으로 되돌려요. (저장을 눌러야 적용돼요)'),
+      h('button', { class: 'del', onclick: () => { if (confirm('모든 설정을 기본값으로 되돌릴까요?')) { cur = merge({}); touch(); show(); } } }, '기본값으로 되돌리기')));
+}
+
+// ───────── 화면 ─────────
+const TABS = { 설정: tabSettings, 펫: tabPets, 아이템: tabItems, 지역: tabLocations, '등급·표': tabTables, 도구: tabTools };
+function show() {
+  $('#tabs').replaceChildren(...Object.keys(TABS).map((n) => h('button', { role: 'tab', 'aria-selected': n === tab, onclick: () => { tab = n; show(); } }, n)));
+  $('#view').replaceChildren(TABS[tab]());
+  updateBar();
+}
+function updateBar() {
+  const o = overrides(), dirty = J(o) !== saved;
+  $('#saveBtn').disabled = !dirty;
+  $('#revertBtn').disabled = !dirty;
+  $('#state').textContent = `${dirty ? '● 저장 안 된 변경 있음 · ' : ''}기본값과 다른 항목 ${countOv(o)}개`;
+}
+
+async function save() {
+  const o = overrides();
+  $('#saveBtn').disabled = true;
+  const r = await call('PUT', { overrides: o });
+  if (r.ok) { saved = J(o); toast('저장했어요 ✔ 봇에는 20초 안에 반영돼요'); }
+  else toast(r.data.error ?? '저장하지 못했어요', true, r.data.errors ?? []);
+  updateBar();
+}
+
+async function load() {
+  const r = await call('GET');
+  if (!r.ok) return toast(r.data.error ?? '불러오지 못했어요', true);
+  D = r.data.defaults; META = r.data.meta.scalars;
+  cur = merge(r.data.overrides ?? {});
+  saved = J(overrides());
+  $('#login').classList.add('hide'); $('#app').classList.remove('hide');
+  show();
+}
+function logout(msg = '') {
+  sessionStorage.removeItem('hj_token');
+  $('#app').classList.add('hide'); $('#login').classList.remove('hide');
+  $('#loginMsg').textContent = msg; $('#pw').value = '';
+}
+
+// ───────── 시작 ─────────
+const normalize = (u) => u.trim().replace(/\/+$/, '').replace(/\/api\/admin$/, '');
+$('#apiUrl').value = localStorage.hj_api || DEFAULT_API;
+$('#loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  api = normalize($('#apiUrl').value);
+  $('#loginBtn').disabled = true; $('#loginMsg').textContent = '';
+  try {
+    const r = await call('POST', { password: $('#pw').value }, '?action=login');
+    if (!r.ok) $('#loginMsg').textContent = r.data.error ?? `오류 (${r.status})`;
+    else { sessionStorage.hj_token = r.data.token; localStorage.hj_api = api; await load(); }
+  } catch { $('#loginMsg').textContent = '서버에 연결할 수 없어요. 주소를 확인해주세요'; }
+  $('#loginBtn').disabled = false; $('#pw').value = '';
+});
+$('#saveBtn').onclick = save;
+$('#revertBtn').onclick = () => { if (confirm('저장하지 않은 변경을 모두 버릴까요?')) { cur = merge(JSON.parse(saved)); show(); } };
+$('#outBtn').onclick = () => logout();
+$('#themeBtn').onclick = () => {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = localStorage.hj_theme = next;
+};
+addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's' && D) { e.preventDefault(); if (!$('#saveBtn').disabled) save(); } });
+addEventListener('beforeunload', (e) => { if (D && J(overrides()) !== saved) e.preventDefault(); });
+if (token() && localStorage.hj_api) { api = localStorage.hj_api; load().catch(() => logout()); } // 새로고침해도 로그인 유지(탭을 닫으면 해제)
+</script>
+</body>
+</html>

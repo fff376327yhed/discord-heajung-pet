@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { createConfigManager } from './admin-config.js';
 
 // ============================================================
 // 설정값 (config.js)
@@ -10,23 +11,23 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 // 게임의 기본 설정값 모음 ⚙️ (숫자만 바꾸면 게임 느낌이 바뀌어요)
 const pct = (v) => Math.round(v * 100);
-const MAX_LEVEL = 100;
-const START_GOLD = 1000;
-const START_BALLS = 5;
+let MAX_LEVEL = 100;
+let START_GOLD = 1000;
+let START_BALLS = 5;
 const EMBED_COLOR = 0x5865f2;
 
 // ───────── 포획 🔴 ─────────
 // 해정볼을 던질 때마다 (한 마리 조우 기준) 포획 확률이 깎이고, 도망 확률이 올라가요
-const CATCH_DROP_PER_TRY = 0.10; // 던질 때마다 포획 확률 -10%p
-const FLEE_BASE = 0.25; // 첫 번째 던졌을 때 실패하면 도망갈 확률 (25%)
-const FLEE_RISE_PER_TRY = 0.35; // 실패할 때마다 도망 확률 +35%p
-const FLEE_MAX = 0.9; // 도망 확률 상한 (90%)
+let CATCH_DROP_PER_TRY = 0.10; // 던질 때마다 포획 확률 -10%p
+let FLEE_BASE = 0.25; // 첫 번째 던졌을 때 실패하면 도망갈 확률 (25%)
+let FLEE_RISE_PER_TRY = 0.35; // 실패할 때마다 도망 확률 +35%p
+let FLEE_MAX = 0.9; // 도망 확률 상한 (90%)
 
 // ───────── 전투 ⚔️ ─────────
-const BATTLE_MAX_ROUNDS = 15; // 이 턴 안에 못 끝내면 야생 펫이 도망가요 (무승부)
-const CRIT_CHANCE = 0.1; // 급소 맞힐 확률 (데미지 1.5배)
-const EVADE_CHANCE = 0.03; // 내 펫이 야생 펫의 공격을 회피할 확률 (공격이 통째로 빗나가요, 데미지 0)
-const WILD_FLEE_CHANCE = 0.01; // 매 턴 끝에 야생 펫이 겁먹고 스스로 도망칠 확률
+let BATTLE_MAX_ROUNDS = 15; // 이 턴 안에 못 끝내면 야생 펫이 도망가요 (무승부)
+let CRIT_CHANCE = 0.1; // 급소 맞힐 확률 (데미지 1.5배)
+let EVADE_CHANCE = 0.03; // 내 펫이 야생 펫의 공격을 회피할 확률 (공격이 통째로 빗나가요, 데미지 0)
+let WILD_FLEE_CHANCE = 0.01; // 매 턴 끝에 야생 펫이 겁먹고 스스로 도망칠 확률
 
 // ───────── 등급별 위압감 😨 ─────────
 // 야생 펫의 등급이 높을수록 위압감이 커져서 전투가 더 어려워져요! (숫자만 바꾸면 세기가 바뀌어요)
@@ -44,26 +45,26 @@ const GRADE_EFFECTS = {
   mythic: { missChance: 0.28, critChance: 0.32, fleeFail: 0.65, aura: '😱 숨이 막힐 만큼 위압감이 든다...' },
   divine: { missChance: 0.35, critChance: 0.4, fleeFail: 0.8, aura: '💀 도저히 이길 수 없을 것 같은 위압감이 든다...' },
 };
-const GOLD_PER_YIELD = 3; // 승리 골드 = 펫 expYield × 이 값 (±20% 랜덤). 해정볼이 100골드라서 이 값으로 균형을 잡아요
-const WIN_TRAINER_EXP_MULT = 1.5; // 승리 시 트레이너 경험치 = expYield × 장소배율 × 이 값
-const WIN_PET_EXP_MULT = 2.0; // 승리 시 대표 펫 경험치 = expYield × 장소배율 × 이 값 (펫이 트레이너보다 빨리 크도록 더 크게)
-const BONUS_TRIPLE_CHANCE = 0.001; // 승리 시 0.1% 확률로 경험치·골드 3배 🎰
-const BONUS_DOUBLE_CHANCE = 0.005; // 승리 시 0.5% 확률로 경험치·골드 2배 (3배와 동시에 나오지 않아요)
+let GOLD_PER_YIELD = 3; // 승리 골드 = 펫 expYield × 이 값 (±20% 랜덤). 해정볼이 100골드라서 이 값으로 균형을 잡아요
+let WIN_TRAINER_EXP_MULT = 1.5; // 승리 시 트레이너 경험치 = expYield × 장소배율 × 이 값
+let WIN_PET_EXP_MULT = 2.0; // 승리 시 대표 펫 경험치 = expYield × 장소배율 × 이 값 (펫이 트레이너보다 빨리 크도록 더 크게)
+let BONUS_TRIPLE_CHANCE = 0.001; // 승리 시 0.1% 확률로 경험치·골드 3배 🎰
+let BONUS_DOUBLE_CHANCE = 0.005; // 승리 시 0.5% 확률로 경험치·골드 2배 (3배와 동시에 나오지 않아요)
 
 // ───────── 편의 기능 ✨ ─────────
-const HEAL_FULL_CAP = 99; // [회복 가득] / /사용 자동 모드에서 한 번에 쓸 수 있는 약 개수 상한
-const MULTI_TURNS = 3; // [공격 ×3] 이 한 번에 진행하는 턴 수
-const MULTI_THROWS = 3; // [잡기 ×3] 이 한 번에 던지는 해정볼 수
-const MULTI_STOP_HP_RATIO = 0.3; // 연속 행동 중 내 펫 체력이 이 비율 이하가 되면 자동으로 멈춰요 (펫이 사라지지 않게!)
-const MAX_BUY_AT_ONCE = 999; // 한 번에 살 수 있는 최대 개수
-const MAX_TRAIN_AT_ONCE = 100; // 한 번에 할 수 있는 최대 훈련 횟수
-const MAX_CUSTOM_COUNT = 99; // 전투 중 [직접 입력] 으로 넣을 수 있는 최대 숫자
+let HEAL_FULL_CAP = 99; // [회복 가득] / /사용 자동 모드에서 한 번에 쓸 수 있는 약 개수 상한
+let MULTI_TURNS = 3; // [공격 ×3] 이 한 번에 진행하는 턴 수
+let MULTI_THROWS = 3; // [잡기 ×3] 이 한 번에 던지는 해정볼 수
+let MULTI_STOP_HP_RATIO = 0.3; // 연속 행동 중 내 펫 체력이 이 비율 이하가 되면 자동으로 멈춰요 (펫이 사라지지 않게!)
+let MAX_BUY_AT_ONCE = 999; // 한 번에 살 수 있는 최대 개수
+let MAX_TRAIN_AT_ONCE = 100; // 한 번에 할 수 있는 최대 훈련 횟수
+let MAX_CUSTOM_COUNT = 99; // 전투 중 [직접 입력] 으로 넣을 수 있는 최대 숫자
 
 // ───────── 부스트 · 탐험 시간 감소 🚀 ─────────
-const BOOST_PCT = 0.3; // 경험치 부스트: 경험치 획득 1회에 +30%
-const SPEEDUP_PCT = 0.3; // 탐험 시간 감소: 남은 대기 시간 -30% (1개당)
-const SPEEDUP_MIN_SEC = 5; // 탐험 시간 감소로는 남은 시간이 이 값(초) 아래로 내려가지 않아요
-const SPEEDUP_BLOCK_SEC = 10; // 남은 시간이 이 값(초) 이하면 탐험 시간 감소를 쓸 수 없어요 (아이템도 안 줄어요)
+let BOOST_PCT = 0.3; // 경험치 부스트: 경험치 획득 1회에 +30%
+let SPEEDUP_PCT = 0.3; // 탐험 시간 감소: 남은 대기 시간 -30% (1개당)
+let SPEEDUP_MIN_SEC = 5; // 탐험 시간 감소로는 남은 시간이 이 값(초) 아래로 내려가지 않아요
+let SPEEDUP_BLOCK_SEC = 10; // 남은 시간이 이 값(초) 이하면 탐험 시간 감소를 쓸 수 없어요 (아이템도 안 줄어요)
 
 // ───────── 탐험 대기 시간 ⏳ ─────────
 // 기본 대기 시간은 "내 트레이너 레벨"로 정해요 (maxLevel 이하일 때 min~max 초 사이에서 랜덤, 61렙부터는 마지막 줄)
@@ -76,27 +77,27 @@ const WAIT_TIERS = [
 ];
 // 나올 펫이 셀수록 기본 시간에 이 배수가 곱해져요 (등급 × 레벨)
 const GRADE_WAIT_MULT = { common: 1.0, uncommon: 1.1, rare: 1.25, epic: 1.5, legendary: 2.0, mythic: 2.5, divine: 3.0 };
-const LEVEL_WAIT_BONUS = 0.4; // 그 장소에서 나올 수 있는 레벨 중 가장 높은 레벨이면 시간이 +40%
-const MAX_WAIT_SEC = 300; // 아무리 길어도 5분까지만
+let LEVEL_WAIT_BONUS = 0.4; // 그 장소에서 나올 수 있는 레벨 중 가장 높은 레벨이면 시간이 +40%
+let MAX_WAIT_SEC = 300; // 아무리 길어도 5분까지만
 // 😏 훼이크: 이 확률로 "센 펫이 나올 때처럼" 오래 기다리게 해놓고, 실제로는 원래 펫이 나와요
-const FAKE_OUT_CHANCE = 0.12;
-const FAKE_OUT_MIN_GAP = 1.2; // 훼이크는 원래 펫보다 이 배수 이상 센 펫의 시간으로만 만들어요
+let FAKE_OUT_CHANCE = 0.12;
+let FAKE_OUT_MIN_GAP = 1.2; // 훼이크는 원래 펫보다 이 배수 이상 센 펫의 시간으로만 만들어요
 
 // ───────── 육성 🌱 ─────────
-const NICKNAME_MAX = 12; // 별명 최대 글자 수
+let NICKNAME_MAX = 12; // 별명 최대 글자 수
 const RELEASE_BASE_GOLD = { common: 20, uncommon: 30, rare: 50, epic: 150, legendary: 500, mythic: 1500, divine: 5000 }; // 방생 골드 = 등급별 기본값 × (1 + 레벨 × RELEASE_LEVEL_BONUS)
-const RELEASE_LEVEL_BONUS = 0.1;
-const TRAIN_BASE_COST = 30; // 훈련 1회 비용 = 이 값 + 펫 레벨 × TRAIN_COST_PER_LEVEL (골드)
-const TRAIN_COST_PER_LEVEL = 10;
-const TRAIN_EXP_RATIO = 0.4; // 훈련 1회 경험치 = "다음 레벨까지 필요한 경험치" × 이 값
-const TRAIN_LEVEL_CAP_OVER_TRAINER = 10; // 훈련으로는 펫이 트레이너 레벨 + 이 값까지만 클 수 있어요
+let RELEASE_LEVEL_BONUS = 0.1;
+let TRAIN_BASE_COST = 30; // 훈련 1회 비용 = 이 값 + 펫 레벨 × TRAIN_COST_PER_LEVEL (골드)
+let TRAIN_COST_PER_LEVEL = 10;
+let TRAIN_EXP_RATIO = 0.4; // 훈련 1회 경험치 = "다음 레벨까지 필요한 경험치" × 이 값
+let TRAIN_LEVEL_CAP_OVER_TRAINER = 10; // 훈련으로는 펫이 트레이너 레벨 + 이 값까지만 클 수 있어요
 
 // ───────── 체력 이어가기 ❤️ ─────────
-const HP_REGEN_PCT_PER_MIN = 0.02; // 시간이 지나면 1분마다 최대 체력의 이 비율만큼 저절로 회복돼요 (0.02 = 2%, 0%에서 가득까지 약 50분)
+let HP_REGEN_PCT_PER_MIN = 0.02; // 시간이 지나면 1분마다 최대 체력의 이 비율만큼 저절로 회복돼요 (0.02 = 2%, 0%에서 가득까지 약 50분)
 
 // ───────── 출석체크 📅 ─────────
-const ATTENDANCE_BALLS = 5; // 출석 1회 보상: 해정볼
-const ATTENDANCE_GOLD = 750; // 출석 1회 보상: 골드
+let ATTENDANCE_BALLS = 5; // 출석 1회 보상: 해정볼
+let ATTENDANCE_GOLD = 750; // 출석 1회 보상: 골드
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000; // 출석은 한국 시간(KST) 자정에 초기화돼요
 
 // ───────── 도감 보상 🎁 ─────────
@@ -109,47 +110,47 @@ const DEX_REWARD = {
   speedups: { base: 3, step: 5 }, // 탐험 시간 감소
   boosts: { base: 5, step: 10 }, // 경험치 부스트 (트레이너용 · 펫용 각각 이만큼)
 };
-const DEX_GOLD_MULT = 5; // 골드 = (챕터에서 가장 강한 펫을 이겼을 때 평균 골드) × 이 값
+let DEX_GOLD_MULT = 5; // 골드 = (챕터에서 가장 강한 펫을 이겼을 때 평균 골드) × 이 값
 
 // ───────── 유저 대결 🥊 ─────────
 // 대표 펫끼리 자동으로 싸워요. 결과는 어디에도 저장되지 않아서, 져도 펫은 사라지지 않고 체력도 그대로예요!
-const DUEL_MAX_ROUNDS = 30; // 이 라운드 안에 안 끝나면 남은 체력 비율로 승부를 가려요
-const DUEL_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 대결 신청은 이 시간(5분) 안에 수락해야 해요
-const DUEL_USE_FULL_HP = false; // true: 항상 최대 체력으로 싸워요 / false: 지금 체력 그대로 싸워요 (끝나면 어차피 그대로 복구)
-const DUEL_LOG_MAX_CHARS = 2800; // 전투 기록이 너무 길면 앞부분을 줄여요 (디스코드 글자 수 제한)
+let DUEL_MAX_ROUNDS = 30; // 이 라운드 안에 안 끝나면 남은 체력 비율로 승부를 가려요
+let DUEL_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 대결 신청은 이 시간(5분) 안에 수락해야 해요
+let DUEL_USE_FULL_HP = false; // true: 항상 최대 체력으로 싸워요 / false: 지금 체력 그대로 싸워요 (끝나면 어차피 그대로 복구)
+let DUEL_LOG_MAX_CHARS = 2800; // 전투 기록이 너무 길면 앞부분을 줄여요 (디스코드 글자 수 제한)
 
 // ───────── 펫 거래 🤝 ─────────
 // 펫 ↔ 펫 1:1 교환만 가능해요 (골드·아이템 직접 전달은 없어요 → 골드 팔이·부계정 몰아주기 방지)
 // 초보가 전설 펫을 덥석 받아서 게임이 망가지지 않도록, 아래 제한들을 "모두" 통과해야 거래돼요.
-const TRADE_DAILY_LIMIT = 3; // 하루(한국 시간 0시 기준) 거래 성사 횟수 — 보내는 쪽·받는 쪽 둘 다 각자 세요
-const TRADE_MIN_TRAINER_LEVEL = 5; // 거래하려면 트레이너 레벨이 최소 이만큼 필요해요
-const TRADE_MIN_ACCOUNT_AGE_MS = 24 * 60 * 60 * 1000; // 모험을 시작한 지 최소 이 시간(24시간)이 지나야 해요 (새 계정 대량 생성 방지)
+let TRADE_DAILY_LIMIT = 3; // 하루(한국 시간 0시 기준) 거래 성사 횟수 — 보내는 쪽·받는 쪽 둘 다 각자 세요
+let TRADE_MIN_TRAINER_LEVEL = 5; // 거래하려면 트레이너 레벨이 최소 이만큼 필요해요
+let TRADE_MIN_ACCOUNT_AGE_MS = 24 * 60 * 60 * 1000; // 모험을 시작한 지 최소 이 시간(24시간)이 지나야 해요 (새 계정 대량 생성 방지)
 // 받는 펫의 등급별로 "받는 사람"의 트레이너 레벨이 이만큼은 돼야 해요
 const TRADE_GRADE_MIN_LEVEL = { common: 5, uncommon: 10, rare: 15, epic: 25, legendary: 40, mythic: 55, divine: 70 };
-const TRADE_MAX_GRADE_GAP = 1; // 서로 바꾸는 펫의 등급 차이는 이 단계까지만 (예: 희귀 ↔ 영웅 OK, 희귀 ↔ 전설 불가)
-const TRADE_MAX_LEVEL_GAP = 10; // 서로 바꾸는 펫의 레벨 차이는 이만큼까지만
+let TRADE_MAX_GRADE_GAP = 1; // 서로 바꾸는 펫의 등급 차이는 이 단계까지만 (예: 희귀 ↔ 영웅 OK, 희귀 ↔ 전설 불가)
+let TRADE_MAX_LEVEL_GAP = 10; // 서로 바꾸는 펫의 레벨 차이는 이만큼까지만
 // 받은 펫 레벨은 (받는 사람 트레이너 레벨 + TRAIN_LEVEL_CAP_OVER_TRAINER) 이하만 가능 (훈련 상한과 같은 기준)
-const TRADE_PET_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 거래로 받은 펫은 이 시간(24시간) 동안 다시 거래할 수 없어요 (돌려 막기 방지)
-const TRADE_FEE_RATE = 0.5; // 수수료 = 내가 보내는 펫의 방생 골드 × 이 값 (골드가 사라지는 곳이에요)
-const TRADE_FEE_MIN = 50; // 수수료 최소 금액
-const TRADE_TTL_MS = 5 * 60 * 1000; // 거래 신청은 이 시간(5분) 안에 수락해야 해요
+let TRADE_PET_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 거래로 받은 펫은 이 시간(24시간) 동안 다시 거래할 수 없어요 (돌려 막기 방지)
+let TRADE_FEE_RATE = 0.5; // 수수료 = 내가 보내는 펫의 방생 골드 × 이 값 (골드가 사라지는 곳이에요)
+let TRADE_FEE_MIN = 50; // 수수료 최소 금액
+let TRADE_TTL_MS = 5 * 60 * 1000; // 거래 신청은 이 시간(5분) 안에 수락해야 해요
 
 // ───────── 포획 아이템 🍖 ─────────
 // 야생 펫을 만난 뒤(싸우는 중에도) 써서 이번 만남의 포획 확률을 올려요. 다음 펫을 만나면 효과가 사라져요.
 // 포획 확률은 "곱셈"으로 올라서, 원래 잘 안 잡히는 펫(전설·신화·초월)은 아이템을 써도 여전히 어려워요!
-const CATCH_MAX_CHANCE = 0.95; // 아이템 없이 가능한 포획 확률 상한 (95%)
-const CATCH_MAX_WITH_ITEMS = 0.98; // 포획 아이템을 써도 이 값을 넘지 않아요 → 100% 확정 포획은 절대 없어요 (98%)
-const CATCH_BAIT_BONUS_CAP = 1.0; // 간식·꿀 효과는 이번 만남에서 합쳐서 최대 +100% (= 최대 ×2.0)
-const CATCH_NET_FLEE_REDUCE = 0.3; // 끈끈이 그물: 도망 확률 -30%p
-const CATCH_NET_FLEE_MIN = 0.05; // 그물을 써도 도망 확률은 이 값 아래로 안 내려가요
-const CATCH_ITEM_COSTS_TURN = true; // 전투 중에 간식·꿀·부적·그물을 쓰면 한 턴을 써요 (야생 펫이 반격!) / 분석기는 공짜
+let CATCH_MAX_CHANCE = 0.95; // 아이템 없이 가능한 포획 확률 상한 (95%)
+let CATCH_MAX_WITH_ITEMS = 0.98; // 포획 아이템을 써도 이 값을 넘지 않아요 → 100% 확정 포획은 절대 없어요 (98%)
+let CATCH_BAIT_BONUS_CAP = 1.0; // 간식·꿀 효과는 이번 만남에서 합쳐서 최대 +100% (= 최대 ×2.0)
+let CATCH_NET_FLEE_REDUCE = 0.3; // 끈끈이 그물: 도망 확률 -30%p
+let CATCH_NET_FLEE_MIN = 0.05; // 그물을 써도 도망 확률은 이 값 아래로 안 내려가요
+let CATCH_ITEM_COSTS_TURN = true; // 전투 중에 간식·꿀·부적·그물을 쓰면 한 턴을 써요 (야생 펫이 반격!) / 분석기는 공짜
 
 // 🎯 높은 등급일수록 포획 확률에서 "깎이는 값"(%p)이 있어요. 계산 결과가 0% 아래(음수)로 내려가면 그 던지기는 확률 0%예요!
 // 음수 쪽은 -30% 까지만 내려가요 (CATCH_NEG_FLOOR). 낮은 등급은 이 값이 0이라서 예전처럼 최소 2%는 남아요.
 // (고등급은 원래 포획률이 아주 낮아서, 값을 너무 크게 하면 아이템을 다 써도 영원히 못 잡아요 → 아래 값은 "풀 세팅하면 아주 낮지만 가능한" 수준이에요)
 const CATCH_GRADE_PENALTY = { common: 0, uncommon: 0, rare: 0, epic: 0.03, legendary: 0.06, mythic: 0.05, divine: 0.03 };
-const CATCH_NEG_FLOOR = -0.3; // 고등급 포획 확률 계산값의 하한 (-30%)
-const CATCH_MIN_CHANCE = 0.02; // 낮은 등급(깎이는 값이 0인 등급)의 최소 포획 확률
+let CATCH_NEG_FLOOR = -0.3; // 고등급 포획 확률 계산값의 하한 (-30%)
+let CATCH_MIN_CHANCE = 0.02; // 낮은 등급(깎이는 값이 0인 등급)의 최소 포획 확률
 
 // ============================================================
 // 데이터: 해정펫 도감 (data/pets.js)
@@ -1741,7 +1742,7 @@ function buyItem(player, itemId, qty) {
 
 // 도감 규칙 📖 — 스타팅 펫은 셋 중 하나만 고를 수 있어서, 전체 칸 수는 "야생 펫 + 1" 이에요.
 
-const WILD_COUNT = Object.values(PETS).filter((p) => !p.starter).length;
+let WILD_COUNT = Object.values(PETS).filter((p) => !p.starter).length;
 
 function dexProgress(player) {
   const found = Object.keys(player.dex ?? {}).filter((id) => PETS[id]).length;
@@ -4274,6 +4275,106 @@ const trade = {
 const commandModules = [start, profile, places, explore, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, trade, help];
 
 // ============================================================
+// 관리자 설정 (admin-config.js) [ADMIN-CONFIG]
+// ============================================================
+
+// 펫·아이템·지역이 바뀌면 이 목록들을 다시 만들어요 (배열은 그 자리에서 갈아끼워서 다른 곳의 참조가 유지돼요)
+function refreshDerived() {
+  const fill = (arr, items) => arr.splice(0, arr.length, ...items);
+  const items = Object.values(ITEMS);
+  fill(STARTER_IDS, Object.values(PETS).filter((p) => p.starter).map((p) => p.id));
+  fill(LOCATION_LIST, Object.values(LOCATIONS).sort((a, b) => a.minLevel - b.minLevel));
+  fill(POTIONS, items.filter((i) => i.heal).sort((a, b) => a.heal - b.heal));
+  fill(CATCH_ITEMS, items.filter((i) => i.catchItem));
+  fill(USABLE_ITEMS, [...POTIONS, ...items.filter((i) => i.boost || i.speedup || i.scout || i.catchItem)]);
+  fill(SHOP_ITEMS, items.filter((i) => i.price));
+  WILD_COUNT = Object.values(PETS).filter((p) => !p.starter).length;
+}
+
+const CONFIG_DOC = ['config', 'game'];
+const admin = createConfigManager({
+  scalars: {
+    MAX_LEVEL: { get: () => MAX_LEVEL, set: (v) => { MAX_LEVEL = v; }, section: "기타", desc: "MAX_LEVEL" },
+    START_GOLD: { get: () => START_GOLD, set: (v) => { START_GOLD = v; }, section: "기타", desc: "START_GOLD" },
+    START_BALLS: { get: () => START_BALLS, set: (v) => { START_BALLS = v; }, section: "기타", desc: "START_BALLS" },
+    CATCH_DROP_PER_TRY: { get: () => CATCH_DROP_PER_TRY, set: (v) => { CATCH_DROP_PER_TRY = v; }, section: "포획 🔴", desc: "던질 때마다 포획 확률 -10%p" },
+    FLEE_BASE: { get: () => FLEE_BASE, set: (v) => { FLEE_BASE = v; }, section: "포획 🔴", desc: "첫 번째 던졌을 때 실패하면 도망갈 확률 (25%)" },
+    FLEE_RISE_PER_TRY: { get: () => FLEE_RISE_PER_TRY, set: (v) => { FLEE_RISE_PER_TRY = v; }, section: "포획 🔴", desc: "실패할 때마다 도망 확률 +35%p" },
+    FLEE_MAX: { get: () => FLEE_MAX, set: (v) => { FLEE_MAX = v; }, section: "포획 🔴", desc: "도망 확률 상한 (90%)" },
+    BATTLE_MAX_ROUNDS: { get: () => BATTLE_MAX_ROUNDS, set: (v) => { BATTLE_MAX_ROUNDS = v; }, section: "전투 ⚔️", desc: "이 턴 안에 못 끝내면 야생 펫이 도망가요 (무승부)" },
+    CRIT_CHANCE: { get: () => CRIT_CHANCE, set: (v) => { CRIT_CHANCE = v; }, section: "전투 ⚔️", desc: "급소 맞힐 확률 (데미지 1.5배)" },
+    EVADE_CHANCE: { get: () => EVADE_CHANCE, set: (v) => { EVADE_CHANCE = v; }, section: "전투 ⚔️", desc: "내 펫이 야생 펫의 공격을 회피할 확률 (공격이 통째로 빗나가요, 데미지 0)" },
+    WILD_FLEE_CHANCE: { get: () => WILD_FLEE_CHANCE, set: (v) => { WILD_FLEE_CHANCE = v; }, section: "전투 ⚔️", desc: "매 턴 끝에 야생 펫이 겁먹고 스스로 도망칠 확률" },
+    GOLD_PER_YIELD: { get: () => GOLD_PER_YIELD, set: (v) => { GOLD_PER_YIELD = v; }, section: "등급별 위압감 😨", desc: "승리 골드 = 펫 expYield × 이 값 (±20% 랜덤). 해정볼이 100골드라서 이 값으로 균형을 잡아요" },
+    WIN_TRAINER_EXP_MULT: { get: () => WIN_TRAINER_EXP_MULT, set: (v) => { WIN_TRAINER_EXP_MULT = v; }, section: "등급별 위압감 😨", desc: "승리 시 트레이너 경험치 = expYield × 장소배율 × 이 값" },
+    WIN_PET_EXP_MULT: { get: () => WIN_PET_EXP_MULT, set: (v) => { WIN_PET_EXP_MULT = v; }, section: "등급별 위압감 😨", desc: "승리 시 대표 펫 경험치 = expYield × 장소배율 × 이 값 (펫이 트레이너보다 빨리 크도록 더 크게)" },
+    BONUS_TRIPLE_CHANCE: { get: () => BONUS_TRIPLE_CHANCE, set: (v) => { BONUS_TRIPLE_CHANCE = v; }, section: "등급별 위압감 😨", desc: "승리 시 0.1% 확률로 경험치·골드 3배 🎰" },
+    BONUS_DOUBLE_CHANCE: { get: () => BONUS_DOUBLE_CHANCE, set: (v) => { BONUS_DOUBLE_CHANCE = v; }, section: "등급별 위압감 😨", desc: "승리 시 0.5% 확률로 경험치·골드 2배 (3배와 동시에 나오지 않아요)" },
+    HEAL_FULL_CAP: { get: () => HEAL_FULL_CAP, set: (v) => { HEAL_FULL_CAP = v; }, section: "편의 기능 ✨", desc: "[회복 가득] / /사용 자동 모드에서 한 번에 쓸 수 있는 약 개수 상한" },
+    MULTI_TURNS: { get: () => MULTI_TURNS, set: (v) => { MULTI_TURNS = v; }, section: "편의 기능 ✨", desc: "[공격 ×3] 이 한 번에 진행하는 턴 수" },
+    MULTI_THROWS: { get: () => MULTI_THROWS, set: (v) => { MULTI_THROWS = v; }, section: "편의 기능 ✨", desc: "[잡기 ×3] 이 한 번에 던지는 해정볼 수" },
+    MULTI_STOP_HP_RATIO: { get: () => MULTI_STOP_HP_RATIO, set: (v) => { MULTI_STOP_HP_RATIO = v; }, section: "편의 기능 ✨", desc: "연속 행동 중 내 펫 체력이 이 비율 이하가 되면 자동으로 멈춰요 (펫이 사라지지 않게!)" },
+    MAX_BUY_AT_ONCE: { get: () => MAX_BUY_AT_ONCE, set: (v) => { MAX_BUY_AT_ONCE = v; }, section: "편의 기능 ✨", desc: "한 번에 살 수 있는 최대 개수" },
+    MAX_TRAIN_AT_ONCE: { get: () => MAX_TRAIN_AT_ONCE, set: (v) => { MAX_TRAIN_AT_ONCE = v; }, section: "편의 기능 ✨", desc: "한 번에 할 수 있는 최대 훈련 횟수" },
+    MAX_CUSTOM_COUNT: { get: () => MAX_CUSTOM_COUNT, set: (v) => { MAX_CUSTOM_COUNT = v; }, section: "편의 기능 ✨", desc: "전투 중 [직접 입력] 으로 넣을 수 있는 최대 숫자" },
+    BOOST_PCT: { get: () => BOOST_PCT, set: (v) => { BOOST_PCT = v; }, section: "부스트 · 탐험 시간 감소 🚀", desc: "경험치 부스트: 경험치 획득 1회에 +30%" },
+    SPEEDUP_PCT: { get: () => SPEEDUP_PCT, set: (v) => { SPEEDUP_PCT = v; }, section: "부스트 · 탐험 시간 감소 🚀", desc: "탐험 시간 감소: 남은 대기 시간 -30% (1개당)" },
+    SPEEDUP_MIN_SEC: { get: () => SPEEDUP_MIN_SEC, set: (v) => { SPEEDUP_MIN_SEC = v; }, section: "부스트 · 탐험 시간 감소 🚀", desc: "탐험 시간 감소로는 남은 시간이 이 값(초) 아래로 내려가지 않아요" },
+    SPEEDUP_BLOCK_SEC: { get: () => SPEEDUP_BLOCK_SEC, set: (v) => { SPEEDUP_BLOCK_SEC = v; }, section: "부스트 · 탐험 시간 감소 🚀", desc: "남은 시간이 이 값(초) 이하면 탐험 시간 감소를 쓸 수 없어요 (아이템도 안 줄어요)" },
+    LEVEL_WAIT_BONUS: { get: () => LEVEL_WAIT_BONUS, set: (v) => { LEVEL_WAIT_BONUS = v; }, section: "탐험 대기 시간 ⏳", desc: "그 장소에서 나올 수 있는 레벨 중 가장 높은 레벨이면 시간이 +40%" },
+    MAX_WAIT_SEC: { get: () => MAX_WAIT_SEC, set: (v) => { MAX_WAIT_SEC = v; }, section: "탐험 대기 시간 ⏳", desc: "아무리 길어도 5분까지만" },
+    FAKE_OUT_CHANCE: { get: () => FAKE_OUT_CHANCE, set: (v) => { FAKE_OUT_CHANCE = v; }, section: "탐험 대기 시간 ⏳", desc: "😏 훼이크: 이 확률로 \"센 펫이 나올 때처럼\" 오래 기다리게 해놓고, 실제로는 원래 펫이 나와요" },
+    FAKE_OUT_MIN_GAP: { get: () => FAKE_OUT_MIN_GAP, set: (v) => { FAKE_OUT_MIN_GAP = v; }, section: "탐험 대기 시간 ⏳", desc: "훼이크는 원래 펫보다 이 배수 이상 센 펫의 시간으로만 만들어요" },
+    NICKNAME_MAX: { get: () => NICKNAME_MAX, set: (v) => { NICKNAME_MAX = v; }, section: "육성 🌱", desc: "별명 최대 글자 수" },
+    RELEASE_LEVEL_BONUS: { get: () => RELEASE_LEVEL_BONUS, set: (v) => { RELEASE_LEVEL_BONUS = v; }, section: "육성 🌱", desc: "RELEASE_LEVEL_BONUS" },
+    TRAIN_BASE_COST: { get: () => TRAIN_BASE_COST, set: (v) => { TRAIN_BASE_COST = v; }, section: "육성 🌱", desc: "훈련 1회 비용 = 이 값 + 펫 레벨 × TRAIN_COST_PER_LEVEL (골드)" },
+    TRAIN_COST_PER_LEVEL: { get: () => TRAIN_COST_PER_LEVEL, set: (v) => { TRAIN_COST_PER_LEVEL = v; }, section: "육성 🌱", desc: "TRAIN_COST_PER_LEVEL" },
+    TRAIN_EXP_RATIO: { get: () => TRAIN_EXP_RATIO, set: (v) => { TRAIN_EXP_RATIO = v; }, section: "육성 🌱", desc: "훈련 1회 경험치 = \"다음 레벨까지 필요한 경험치\" × 이 값" },
+    TRAIN_LEVEL_CAP_OVER_TRAINER: { get: () => TRAIN_LEVEL_CAP_OVER_TRAINER, set: (v) => { TRAIN_LEVEL_CAP_OVER_TRAINER = v; }, section: "육성 🌱", desc: "훈련으로는 펫이 트레이너 레벨 + 이 값까지만 클 수 있어요" },
+    HP_REGEN_PCT_PER_MIN: { get: () => HP_REGEN_PCT_PER_MIN, set: (v) => { HP_REGEN_PCT_PER_MIN = v; }, section: "체력 이어가기 ❤️", desc: "시간이 지나면 1분마다 최대 체력의 이 비율만큼 저절로 회복돼요 (0.02 = 2%, 0%에서 가득까지 약 50분)" },
+    ATTENDANCE_BALLS: { get: () => ATTENDANCE_BALLS, set: (v) => { ATTENDANCE_BALLS = v; }, section: "출석체크 📅", desc: "출석 1회 보상: 해정볼" },
+    ATTENDANCE_GOLD: { get: () => ATTENDANCE_GOLD, set: (v) => { ATTENDANCE_GOLD = v; }, section: "출석체크 📅", desc: "출석 1회 보상: 골드" },
+    DEX_GOLD_MULT: { get: () => DEX_GOLD_MULT, set: (v) => { DEX_GOLD_MULT = v; }, section: "도감 보상 🎁", desc: "골드 = (챕터에서 가장 강한 펫을 이겼을 때 평균 골드) × 이 값" },
+    DUEL_MAX_ROUNDS: { get: () => DUEL_MAX_ROUNDS, set: (v) => { DUEL_MAX_ROUNDS = v; }, section: "유저 대결 🥊", desc: "이 라운드 안에 안 끝나면 남은 체력 비율로 승부를 가려요" },
+    DUEL_CHALLENGE_TTL_MS: { get: () => DUEL_CHALLENGE_TTL_MS, set: (v) => { DUEL_CHALLENGE_TTL_MS = v; }, section: "유저 대결 🥊", desc: "대결 신청은 이 시간(5분) 안에 수락해야 해요" },
+    DUEL_USE_FULL_HP: { get: () => DUEL_USE_FULL_HP, set: (v) => { DUEL_USE_FULL_HP = v; }, section: "유저 대결 🥊", desc: "true: 항상 최대 체력으로 싸워요 / false: 지금 체력 그대로 싸워요 (끝나면 어차피 그대로 복구)" },
+    DUEL_LOG_MAX_CHARS: { get: () => DUEL_LOG_MAX_CHARS, set: (v) => { DUEL_LOG_MAX_CHARS = v; }, section: "유저 대결 🥊", desc: "전투 기록이 너무 길면 앞부분을 줄여요 (디스코드 글자 수 제한)" },
+    TRADE_DAILY_LIMIT: { get: () => TRADE_DAILY_LIMIT, set: (v) => { TRADE_DAILY_LIMIT = v; }, section: "펫 거래 🤝", desc: "하루(한국 시간 0시 기준) 거래 성사 횟수 — 보내는 쪽·받는 쪽 둘 다 각자 세요" },
+    TRADE_MIN_TRAINER_LEVEL: { get: () => TRADE_MIN_TRAINER_LEVEL, set: (v) => { TRADE_MIN_TRAINER_LEVEL = v; }, section: "펫 거래 🤝", desc: "거래하려면 트레이너 레벨이 최소 이만큼 필요해요" },
+    TRADE_MIN_ACCOUNT_AGE_MS: { get: () => TRADE_MIN_ACCOUNT_AGE_MS, set: (v) => { TRADE_MIN_ACCOUNT_AGE_MS = v; }, section: "펫 거래 🤝", desc: "모험을 시작한 지 최소 이 시간(24시간)이 지나야 해요 (새 계정 대량 생성 방지)" },
+    TRADE_MAX_GRADE_GAP: { get: () => TRADE_MAX_GRADE_GAP, set: (v) => { TRADE_MAX_GRADE_GAP = v; }, section: "펫 거래 🤝", desc: "서로 바꾸는 펫의 등급 차이는 이 단계까지만 (예: 희귀 ↔ 영웅 OK, 희귀 ↔ 전설 불가)" },
+    TRADE_MAX_LEVEL_GAP: { get: () => TRADE_MAX_LEVEL_GAP, set: (v) => { TRADE_MAX_LEVEL_GAP = v; }, section: "펫 거래 🤝", desc: "서로 바꾸는 펫의 레벨 차이는 이만큼까지만" },
+    TRADE_PET_COOLDOWN_MS: { get: () => TRADE_PET_COOLDOWN_MS, set: (v) => { TRADE_PET_COOLDOWN_MS = v; }, section: "펫 거래 🤝", desc: "거래로 받은 펫은 이 시간(24시간) 동안 다시 거래할 수 없어요 (돌려 막기 방지)" },
+    TRADE_FEE_RATE: { get: () => TRADE_FEE_RATE, set: (v) => { TRADE_FEE_RATE = v; }, section: "펫 거래 🤝", desc: "수수료 = 내가 보내는 펫의 방생 골드 × 이 값 (골드가 사라지는 곳이에요)" },
+    TRADE_FEE_MIN: { get: () => TRADE_FEE_MIN, set: (v) => { TRADE_FEE_MIN = v; }, section: "펫 거래 🤝", desc: "수수료 최소 금액" },
+    TRADE_TTL_MS: { get: () => TRADE_TTL_MS, set: (v) => { TRADE_TTL_MS = v; }, section: "펫 거래 🤝", desc: "거래 신청은 이 시간(5분) 안에 수락해야 해요" },
+    CATCH_MAX_CHANCE: { get: () => CATCH_MAX_CHANCE, set: (v) => { CATCH_MAX_CHANCE = v; }, section: "포획 아이템 🍖", desc: "아이템 없이 가능한 포획 확률 상한 (95%)" },
+    CATCH_MAX_WITH_ITEMS: { get: () => CATCH_MAX_WITH_ITEMS, set: (v) => { CATCH_MAX_WITH_ITEMS = v; }, section: "포획 아이템 🍖", desc: "포획 아이템을 써도 이 값을 넘지 않아요 → 100% 확정 포획은 절대 없어요 (98%)" },
+    CATCH_BAIT_BONUS_CAP: { get: () => CATCH_BAIT_BONUS_CAP, set: (v) => { CATCH_BAIT_BONUS_CAP = v; }, section: "포획 아이템 🍖", desc: "간식·꿀 효과는 이번 만남에서 합쳐서 최대 +100% (= 최대 ×2.0)" },
+    CATCH_NET_FLEE_REDUCE: { get: () => CATCH_NET_FLEE_REDUCE, set: (v) => { CATCH_NET_FLEE_REDUCE = v; }, section: "포획 아이템 🍖", desc: "끈끈이 그물: 도망 확률 -30%p" },
+    CATCH_NET_FLEE_MIN: { get: () => CATCH_NET_FLEE_MIN, set: (v) => { CATCH_NET_FLEE_MIN = v; }, section: "포획 아이템 🍖", desc: "그물을 써도 도망 확률은 이 값 아래로 안 내려가요" },
+    CATCH_ITEM_COSTS_TURN: { get: () => CATCH_ITEM_COSTS_TURN, set: (v) => { CATCH_ITEM_COSTS_TURN = v; }, section: "포획 아이템 🍖", desc: "전투 중에 간식·꿀·부적·그물을 쓰면 한 턴을 써요 (야생 펫이 반격!) / 분석기는 공짜" },
+    CATCH_NEG_FLOOR: { get: () => CATCH_NEG_FLOOR, set: (v) => { CATCH_NEG_FLOOR = v; }, section: "포획 아이템 🍖", desc: "고등급 포획 확률 계산값의 하한 (-30%)" },
+    CATCH_MIN_CHANCE: { get: () => CATCH_MIN_CHANCE, set: (v) => { CATCH_MIN_CHANCE = v; }, section: "포획 아이템 🍖", desc: "낮은 등급(깎이는 값이 0인 등급)의 최소 포획 확률" },
+  },
+  tables: { GRADES, GRADE_EFFECTS, GRADE_WAIT_MULT, RELEASE_BASE_GOLD, TRADE_GRADE_MIN_LEVEL, CATCH_GRADE_PENALTY, WAIT_TIERS, DEX_REWARD },
+  entities: { pets: PETS, items: ITEMS, locations: LOCATIONS },
+  refresh: refreshDerived,
+  store: {
+    async load() {
+      if (useMemory()) return memoryStore.get('__config') ?? null;
+      const snap = await getDb().collection(CONFIG_DOC[0]).doc(CONFIG_DOC[1]).get();
+      return snap.exists ? snap.data() : null;
+    },
+    async save(doc) {
+      if (useMemory()) return void memoryStore.set('__config', structuredClone(doc));
+      await getDb().collection(CONFIG_DOC[0]).doc(CONFIG_DOC[1]).set(doc);
+    },
+  },
+});
+export { admin };
+
+// ============================================================
 // 라우터 (router.js)
 // ============================================================
 
@@ -4295,6 +4396,7 @@ for (const m of modules) {
 export const commandDefinitions = modules.map((m) => m.data);
 
 export async function handleInteraction(interaction) {
+  if (interaction.type !== InteractionType.PING) await admin.ensure(); // 관리자 설정 (20초마다 한 번만 읽어요)
   switch (interaction.type) {
     case InteractionType.PING:
       return { type: 1 };
