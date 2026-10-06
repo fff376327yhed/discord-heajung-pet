@@ -258,6 +258,15 @@ const ITEMS = {
     speedup: true,
     description: '탐험 대기 시간 -30% (남은 10초 이하면 못 써요, 5초 아래로는 안 내려가요).',
   },
+  // 🔭 이미 가 본 장소를 탐험하는 중에 쓰면, 어떤 펫이 나올지 미리 알려줘요
+  pet_telescope: {
+    id: 'pet_telescope',
+    name: '해정 망원경',
+    emoji: '🔭',
+    price: 555,
+    scout: true,
+    description: '/사용 으로 쓰면, 이미 가 본 장소에서 탐험할 때 어떤 펫이 나올지 미리 알려줘요 (1개 = 1번).',
+  },
 };
 
 // ============================================================
@@ -738,7 +747,7 @@ function setMainPet(player, uid) {
 const POTIONS = Object.values(ITEMS).filter((i) => i.heal).sort((a, b) => a.heal - b.heal);
 
 // /사용 으로 쓸 수 있는 것: 회복약 + 경험치 부스트 + 탐험 시간 감소
-const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup)];
+const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.scout)];
 
 // 전투 중 쓸 약 고르기: 모자란 체력을 채울 수 있는 "가장 약한" 약, 없으면 가진 것 중 제일 센 약
 function pickPotion(player, missing) {
@@ -816,7 +825,7 @@ function takeBoost(player, key) {
 // 경험치 부스트 켜기 / 탐험 시간 감소 쓰기. qty 개수만큼 (가진 만큼까지)
 function useBoostItem(player, itemId, qty = 1, now = Date.now()) {
   const item = ITEMS[itemId];
-  if (!item || !(item.boost || item.speedup)) return { kind: 'unknown' };
+  if (!item || !(item.boost || item.speedup || item.scout)) return { kind: 'unknown' };
   const owned = player.inventory?.[itemId] ?? 0;
   if (owned <= 0) return { kind: 'none', item };
   const want = Math.max(1, Math.floor(Number(qty)) || 1);
@@ -828,6 +837,19 @@ function useBoostItem(player, itemId, qty = 1, now = Date.now()) {
     player.boosts[item.boost] = (player.boosts[item.boost] ?? 0) + n;
     player.inventory[itemId] = owned - n;
     return { kind: 'boosted', commit: true, item, used: n, charges: player.boosts[item.boost], left: owned - n };
+  }
+
+  // 🔭 해정 망원경: 이미 가 본 장소를 탐험하는 중일 때만, 곧 나올 펫을 미리 알려줘요 (1번에 1개)
+  if (item.scout) {
+    const sx = player.exploration;
+    if (!sx) return { kind: 'no_explore', item };
+    if (sx.encounter) return { kind: 'already_appeared', item };
+    if (!hasVisited(player, sx.locationId)) return { kind: 'not_visited', item, locationId: sx.locationId };
+    if (!sx.nextEncounter) sx.nextEncounter = rollEncounter(LOCATIONS[sx.locationId], Math.random);
+    if (sx.scouted) return { kind: 'already_scouted', item, locationId: sx.locationId, encounter: { ...sx.nextEncounter } };
+    sx.scouted = true;
+    player.inventory[itemId] = owned - 1;
+    return { kind: 'scouted', commit: true, item, locationId: sx.locationId, encounter: { ...sx.nextEncounter }, left: owned - 1 };
   }
 
   // 탐험 시간 감소: 야생 펫을 기다리는 중에만, 남은 시간이 SPEEDUP_BLOCK_SEC 초보다 길 때만
@@ -894,6 +916,19 @@ function autoHeal(player, selector, now = Date.now()) {
 
 const BALL_ID = 'haejeong_ball';
 
+// 이 장소에서 나올 야생 펫을 하나 뽑아요 (펫 종류 + 레벨)
+function rollEncounter(loc, rng = Math.random) {
+  const spawn = weightedPick(loc.spawns, (s) => s.weight, rng);
+  return { petId: spawn.petId, level: randInt(spawn.lv[0], spawn.lv[1], rng) };
+}
+
+// 이미 가 본 장소인지: 야생 펫을 만난 적이 있거나, 그 장소의 펫이 도감에 있으면 "가 본 곳"이에요
+function hasVisited(player, locationId) {
+  if (player.visited?.[locationId]) return true;
+  const loc = LOCATIONS[locationId];
+  return !!loc && loc.spawns.some((s) => player.dex?.[s.petId]);
+}
+
 // 잡을 확률: 펫마다 정해진 값 × (내 대표 펫보다 야생 펫이 너무 높으면 조금 어려워져요)
 //            × (전투로 야생 펫 체력을 깎을수록 쉬워져요: 체력이 거의 0이면 최대 2배!)
 function catchChance(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0) {
@@ -935,7 +970,12 @@ function snapshot(player, now = Date.now()) {
     }
     return snap;
   }
-  return { ...base, state: 'exploring', remainingSec: Math.max(0, Math.ceil((ex.appearAt - now) / 1000)) };
+  return {
+    ...base,
+    state: 'exploring',
+    remainingSec: Math.max(0, Math.ceil((ex.appearAt - now) / 1000)),
+    scout: ex.scouted && ex.nextEncounter ? { ...ex.nextEncounter } : null,
+  };
 }
 
 // 탐험 시작
@@ -962,6 +1002,7 @@ function startExploration(player, locationId, now = Date.now(), rng = Math.rando
     startedAt: now,
     appearAt: now + waitSec * 1000,
     encounter: null,
+    nextEncounter: rollEncounter(loc, rng), // 곧 나올 펫을 미리 정해둬요 (🔭 망원경이 이걸 알려줘요)
   };
   player.lastLocationId = locationId; // /탐험 을 장소 없이 쓰면 여기로 가요
   return { ok: true, resumed: false, snap: snapshot(player, now), commit: true };
@@ -975,8 +1016,10 @@ function lookAround(player, id, now = Date.now(), rng = Math.random) {
   if (now < ex.appearAt) return { kind: 'waiting', snap: snapshot(player, now) };
 
   const loc = LOCATIONS[ex.locationId];
-  const spawn = weightedPick(loc.spawns, (s) => s.weight, rng);
-  ex.encounter = { petId: spawn.petId, level: randInt(spawn.lv[0], spawn.lv[1], rng) };
+  ex.encounter = ex.nextEncounter ?? rollEncounter(loc, rng);
+  delete ex.nextEncounter;
+  delete ex.scouted;
+  player.visited = { ...(player.visited ?? {}), [ex.locationId]: true }; // 이 장소는 이제 "가 본 곳"이에요
   ex.catchTries = 0; // 새 야생 펫이라서 던진 횟수를 0으로 되돌려요
   return { kind: 'appeared', snap: snapshot(player, now), commit: true };
 }
@@ -1744,6 +1787,14 @@ function bumpButton(userId, snapId) {
   return button({ label: '아래로', emoji: '🔽', customId: `explore:bump:${userId}:${snapId}`, style: 2 });
 }
 
+// 🔭 망원경으로 미리 본 펫 안내 글자
+function scoutText(snap) {
+  if (!snap.scout) return '';
+  const pet = PETS[snap.scout.petId];
+  const aura = GRADE_EFFECTS[pet.grade].aura;
+  return `\n\n🔭 **예고!** ${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}** (Lv.${snap.scout.level}) 이(가) 나올 것 같아요!${aura ? `\n${aura}` : ''}`;
+}
+
 function exploreViewExploring(snap, userId, note) {
   const loc = LOCATIONS[snap.locationId];
   const wait =
@@ -1751,7 +1802,7 @@ function exploreViewExploring(snap, userId, note) {
       ? `주변을 살피는 중이에요... 🔍\n무언가 나타날 때까지 약 **${snap.remainingSec}초** 남았어요.\n시간이 지나면 **[살펴보기]** 를 눌러요!`
       : `수풀이 부스럭거려요... 👀\n**[살펴보기]** 를 눌러보세요!`;
   return {
-    embeds: [{ title: `${loc.emoji} ${loc.name} 탐험 중`, description: `${note ? note + '\n\n' : ''}${wait}`, color: EMBED_COLOR }],
+    embeds: [{ title: `${loc.emoji} ${loc.name} 탐험 중`, description: `${note ? note + '\n\n' : ''}${wait}${scoutText(snap)}`, color: EMBED_COLOR }],
     components: [
       row(
         button({ label: '살펴보기', emoji: '👀', customId: `explore:look:${userId}:${snap.id}`, style: 1 }),
@@ -1898,7 +1949,22 @@ function boostResultText(out) {
   if (out.kind === 'unknown') return '그런 건 쓸 수 없어요 🤔';
   if (out.kind === 'none') return `${out.item.emoji} ${out.item.name}이(가) 없어요 😭 \`/구매\` 나 \`/상점\` 에서 사올 수 있어요!`;
   if (out.kind === 'no_explore') return '🌿 탐험 중일 때만 쓸 수 있어요! `/탐험` 으로 먼저 떠나요.';
-  if (out.kind === 'already_appeared') return '이미 야생 펫이 나타났어요! 탐험 시간 감소는 펫을 기다리는 동안에만 쓸 수 있어요.';
+  if (out.kind === 'already_appeared') return '이미 야생 펫이 나타났어요! 이 아이템은 펫을 기다리는 동안에만 쓸 수 있어요.';
+  if (out.kind === 'not_visited') {
+    const l = LOCATIONS[out.locationId];
+    return `🔭 아직 한 번도 만나보지 못한 곳이라서 미리 볼 수 없어요!\n${l.emoji} **${l.name}** 에서 야생 펫을 한 번 만나고 나면 다음부터 쓸 수 있어요. (아이템은 안 줄었어요)`;
+  }
+  if (out.kind === 'scouted' || out.kind === 'already_scouted') {
+    const pet = PETS[out.encounter.petId];
+    const aura = GRADE_EFFECTS[pet.grade].aura;
+    return (
+      `${out.item.emoji} **${out.item.name}** 으로 멀리 살펴봤어요!\n` +
+      `${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}** (Lv.${out.encounter.level}) 이(가) 나올 거예요!` +
+      (aura ? `\n${aura}` : '') +
+      (out.kind === 'scouted' ? `\n(남은 ${out.item.name} ${out.left}개)` : '\n(이미 본 예고예요. 아이템은 안 줄었어요)') +
+      '\n**[살펴보기]** 를 눌러서 만나봐요!'
+    );
+  }
   if (out.kind === 'too_short') {
     return `⏳ 남은 시간이 약 ${out.remaining}초라서 쓸 수 없어요! (${SPEEDUP_BLOCK_SEC}초 이하일 땐 아껴둬요 😊)`;
   }
@@ -2974,13 +3040,13 @@ const use = {
 
     // 🚀 경험치 부스트 / ⏩ 탐험 시간 감소
     const picked = ITEMS[itemId];
-    if (picked && (picked.boost || picked.speedup)) {
+    if (picked && (picked.boost || picked.speedup || picked.scout)) {
       const res = await updatePlayer(user.id, (p) => {
         const r = useBoostItem(p, itemId, qty, Date.now());
         return { commit: r.commit === true, value: r };
       });
       if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
-      return reply({ content: boostResultText(res) }, { ephemeral: res.commit !== true });
+      return reply({ content: boostResultText(res) }, { ephemeral: res.commit !== true || res.kind === 'scouted' });
     }
 
     // 약을 안 골랐으면: 가진 약을 알아서 섞어서 가득 찰 때까지 써요
@@ -3102,6 +3168,7 @@ const help = {
                 value:
                   `\`/사용\` 으로 🌟 **트레이너 경험치 부스트** / 💫 **펫 경험치 부스트** 를 켜면, 경험치를 얻을 때마다 1회씩 쓰이면서 **+${pct(BOOST_PCT)}%** 가 붙어요. (트레이너는 승리·포획, 펫은 승리 때)\n` +
                   `⏩ **탐험 시간 감소** 는 탐험 중 펫을 기다릴 때 쓰면 남은 시간이 **-${pct(SPEEDUP_PCT)}%** 돼요. 남은 시간이 ${SPEEDUP_BLOCK_SEC}초 이하면 못 쓰고, ${SPEEDUP_MIN_SEC}초 아래로는 안 내려가요.\n` +
+                  '🔭 **해정 망원경** 은 이미 가 본 장소를 탐험하는 중에 쓰면, 곧 나올 펫을 미리 알려줘요.\n' +
                   '수량은 `/사용` 의 **수량** 칸에 숫자로, 가진 만큼 다 쓰려면 **최대** 를 켜요.',
               },
               {
