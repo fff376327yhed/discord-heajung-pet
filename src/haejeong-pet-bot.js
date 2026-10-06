@@ -25,9 +25,22 @@ const FLEE_MAX = 0.9; // 도망 확률 상한 (90%)
 // ───────── 전투 ⚔️ ─────────
 const BATTLE_MAX_ROUNDS = 15; // 이 턴 안에 못 끝내면 야생 펫이 도망가요 (무승부)
 const CRIT_CHANCE = 0.1; // 급소 맞힐 확률 (데미지 1.5배)
-const EVADE_CHANCE = 0.03; // 회피 확률: 공격이 통째로 빗나가요 (데미지 0)
+const EVADE_CHANCE = 0.03; // 내 펫이 야생 펫의 공격을 회피할 확률 (공격이 통째로 빗나가요, 데미지 0)
 const WILD_FLEE_CHANCE = 0.01; // 매 턴 끝에 야생 펫이 겁먹고 스스로 도망칠 확률
-const FLEE_FAIL_CHANCE = 0.1; // [도망] 버튼을 눌러도 이 확률로 실패해서 턴을 날려요
+
+// ───────── 등급별 위압감 😨 ─────────
+// 야생 펫의 등급이 높을수록 위압감이 커져서 전투가 더 어려워져요! (숫자만 바꾸면 세기가 바뀌어요)
+//   missChance: 내 공격이 빗나갈 확률 (야생 펫이 피해요)
+//   critChance: 야생 펫이 나를 급소로 세게 때릴 확률 (데미지 1.5배)
+//   fleeFail:   [도망] 을 눌러도 실패해서 턴을 날릴 확률
+//   aura:       야생 펫이 나타났을 때 보이는 위압감 문구 (null 이면 안 보여요)
+// (일반 등급은 예전 값과 똑같아요: 빗나감 3%, 급소 10%, 도망 실패 10%)
+const GRADE_EFFECTS = {
+  common: { missChance: 0.03, critChance: 0.1, fleeFail: 0.1, aura: null },
+  rare: { missChance: 0.07, critChance: 0.13, fleeFail: 0.2, aura: null },
+  epic: { missChance: 0.12, critChance: 0.18, fleeFail: 0.35, aura: '😨 뭔가 위압감이 든다...' },
+  legendary: { missChance: 0.2, critChance: 0.25, fleeFail: 0.5, aura: '😱 뭔가 엄청난 위압감이 든다...' },
+};
 const GOLD_PER_YIELD = 3; // 승리 골드 = 펫 expYield × 이 값 (±20% 랜덤). 해정볼이 100골드라서 이 값으로 균형을 잡아요
 const WIN_TRAINER_EXP_MULT = 1.5; // 승리 시 트레이너 경험치 = expYield × 장소배율 × 이 값
 const WIN_PET_EXP_MULT = 2.0; // 승리 시 대표 펫 경험치 = expYield × 장소배율 × 이 값 (펫이 트레이너보다 빨리 크도록 더 크게)
@@ -874,14 +887,15 @@ function leave(player, id) {
   return { kind: petId ? 'ignored' : 'quit', petId, locationId, commit: true };
 }
 
-// [도망] — 전투 중 전용 버튼. FLEE_FAIL_CHANCE 확률로 실패해서 턴을 날려요 (야생 펫이 반격!)
+// [도망] — 전투 중 전용 버튼. 등급별 도망 실패 확률(GRADE_EFFECTS.fleeFail)로 실패해서 턴을 날려요 (야생 펫이 반격!)
 function attemptFlee(player, id, now = Date.now(), rng = Math.random) {
   const ex = player.exploration;
   if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
 
-  if (ex.battle && rng() < FLEE_FAIL_CHANCE) {
+  const fleeFx = GRADE_EFFECTS[PETS[ex.encounter.petId].grade];
+  if (ex.battle && rng() < fleeFx.fleeFail) {
     const c = context(player, ex);
-    const log = ['🏃 도망치려 했지만 **실패했어요!**'];
+    const log = [fleeFx.aura ? '🏃 도망치려 했지만 위압감에 다리가 풀려서 **실패했어요!**' : '🏃 도망치려 했지만 **실패했어요!**'];
     wildAttack(c, ex.battle, log, rng);
     return finishTurn(player, ex, c, log, now, rng);
   }
@@ -939,10 +953,10 @@ function attemptCatchMulti(player, id, now = Date.now(), rng = Math.random, time
 
 
 // 데미지 = 공격력 - 방어력의 절반 (최소 공격력의 25%) × 랜덤(0.85~1.15), 가끔 급소(×1.5)
-function calcDamage(atk, def, rng = Math.random) {
+function calcDamage(atk, def, rng = Math.random, critChance = CRIT_CHANCE) {
   const base = Math.max(atk * 0.25, atk - def * 0.5);
   const variance = 0.85 + rng() * 0.3;
-  const crit = rng() < CRIT_CHANCE;
+  const crit = rng() < critChance;
   return { dmg: Math.max(1, Math.round(base * variance * (crit ? 1.5 : 1))), crit };
 }
 
@@ -963,8 +977,13 @@ function context(player, ex) {
 }
 
 function myAttack(c, b, log, rng) {
-  if (rng() < EVADE_CHANCE) {
-    log.push(`${c.wildPet.emoji} ${c.wildPet.name}(이)가 **회피했다!** 공격이 빗나갔어요.`);
+  const fx = GRADE_EFFECTS[c.wildPet.grade];
+  if (rng() < fx.missChance) {
+    log.push(
+      fx.aura
+        ? `😰 위압감에 손이 떨려서 공격이 **빗나갔어요!** (${c.wildPet.emoji} ${c.wildPet.name}에게 데미지 0)`
+        : `${c.wildPet.emoji} ${c.wildPet.name}(이)가 **회피했다!** 공격이 빗나갔어요.`,
+    );
     return;
   }
   const { dmg, crit } = calcDamage(c.mine.atk, c.wild.def, rng);
@@ -977,7 +996,7 @@ function wildAttack(c, b, log, rng) {
     log.push(`${c.myPet.emoji} ${c.myName}(이)가 **회피했다!** 공격을 피했어요.`);
     return;
   }
-  const { dmg, crit } = calcDamage(c.wild.atk, c.mine.def, rng);
+  const { dmg, crit } = calcDamage(c.wild.atk, c.mine.def, rng, GRADE_EFFECTS[c.wildPet.grade].critChance);
   b.myHp = Math.max(0, b.myHp - dmg);
   log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${dmg}** 데미지`);
 }
@@ -1564,7 +1583,9 @@ function exploreViewEncounter(snap, userId, note) {
     embeds: [
       {
         title: `❗ 야생의 ${pet.emoji} ${pet.name}(이)가 나타났다!`,
-        description: `${note ? note + '\n\n' : ''}${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}**`,
+        description:
+          `${note ? note + '\n\n' : ''}${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}**` +
+          (GRADE_EFFECTS[pet.grade].aura ? `\n\n**${GRADE_EFFECTS[pet.grade].aura}**\n(내 공격이 빗나가기 쉽고, 도망치기도 어려워요!)` : ''),
         color: 0xfee75c,
         fields: [
           { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개`, inline: true },
@@ -1598,7 +1619,9 @@ function exploreViewBattle(snap, userId, note) {
     embeds: [
       {
         title: `⚔️ ${mine.emoji} ${b.myName} VS ${wild.emoji} ${wild.name}`,
-        description: `${note ? note + '\n\n' : ''}${b.round}턴째 · 약해질수록 **[잡기]** 가 쉬워져요!`,
+        description:
+          `${note ? note + '\n\n' : ''}${b.round}턴째 · 약해질수록 **[잡기]** 가 쉬워져요!` +
+          (GRADE_EFFECTS[wild.grade].aura ? `\n${GRADE_EFFECTS[wild.grade].aura}` : ''),
         color: 0xed4245,
         fields: [
           { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}`, inline: true },
@@ -2791,7 +2814,10 @@ const help = {
                   `🎰 이기면 0.1% 확률로 경험치·골드 **3배**, 0.5% 확률로 **2배**!\n` +
                   `치명타 확률 ${pct(CRIT_CHANCE)}%, 회피 확률 ${pct(EVADE_CHANCE)}%(공격이 통째로 빗나가요), ` +
                   `매 턴 ${pct(WILD_FLEE_CHANCE)}% 확률로 야생 펫이 겁먹고 도망가요.\n` +
-                  `**[도망]** 은 ${pct(FLEE_FAIL_CHANCE)}% 확률로 실패해서 턴을 날릴 수 있어요. ` +
+                  `**[도망]** 은 실패하면 턴을 날려요.\n` +
+                  `😨 **등급이 높을수록 위압감이 커져요!** 일반 → 전설로 갈수록 내 공격이 빗나갈 확률(${pct(GRADE_EFFECTS.common.missChance)}% → ${pct(GRADE_EFFECTS.legendary.missChance)}%), ` +
+                  `상대가 급소로 때릴 확률(${pct(GRADE_EFFECTS.common.critChance)}% → ${pct(GRADE_EFFECTS.legendary.critChance)}%), ` +
+                  `도망 실패 확률(${pct(GRADE_EFFECTS.common.fleeFail)}% → ${pct(GRADE_EFFECTS.legendary.fleeFail)}%)이 올라가요.\n` +
                   `${BATTLE_MAX_ROUNDS}턴 안에 끝나지 않아도 야생 펫이 떠나요.\n` +
                   `⚠️ **체력이 0이 되면 그 펫은 영영 사라져요!** 전투 전에 체력을 꼭 확인해요.`,
               },
