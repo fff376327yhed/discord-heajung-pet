@@ -9,6 +9,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 // ============================================================
 
 // 게임의 기본 설정값 모음 ⚙️ (숫자만 바꾸면 게임 느낌이 바뀌어요)
+const pct = (v) => Math.round(v * 100);
 const MAX_LEVEL = 100;
 const START_GOLD = 1000;
 const START_BALLS = 5;
@@ -41,6 +42,12 @@ const MULTI_STOP_HP_RATIO = 0.3; // 연속 행동 중 내 펫 체력이 이 비�
 const MAX_BUY_AT_ONCE = 999; // 한 번에 살 수 있는 최대 개수
 const MAX_TRAIN_AT_ONCE = 100; // 한 번에 할 수 있는 최대 훈련 횟수
 const MAX_CUSTOM_COUNT = 99; // 전투 중 [직접 입력] 으로 넣을 수 있는 최대 숫자
+
+// ───────── 부스트 · 탐험 시간 감소 🚀 ─────────
+const BOOST_PCT = 0.3; // 경험치 부스트: 경험치 획득 1회에 +30%
+const SPEEDUP_PCT = 0.3; // 탐험 시간 감소: 남은 대기 시간 -30% (1개당)
+const SPEEDUP_MIN_SEC = 5; // 탐험 시간 감소로는 남은 시간이 이 값(초) 아래로 내려가지 않아요
+const SPEEDUP_BLOCK_SEC = 10; // 남은 시간이 이 값(초) 이하면 탐험 시간 감소를 쓸 수 없어요 (아이템도 안 줄어요)
 
 // ───────── 육성 🌱 ─────────
 const NICKNAME_MAX = 12; // 별명 최대 글자 수
@@ -139,6 +146,32 @@ const ITEMS = {
     price: 300,
     heal: 9999,
     description: '펫 체력을 전부 회복해요.',
+  },
+  // 🚀 1회용 부스트: /사용 으로 켜두면, 경험치를 얻을 때마다 1회씩 소모되며 +30% 가 붙어요
+  exp_boost_trainer: {
+    id: 'exp_boost_trainer',
+    name: '트레이너 경험치 부스트',
+    emoji: '🌟',
+    price: 1500,
+    boost: 'trainerExp',
+    description: '/사용 으로 켜면 전투 승리·포획 시 트레이너 경험치 +30% (1개 = 1회).',
+  },
+  exp_boost_pet: {
+    id: 'exp_boost_pet',
+    name: '펫 경험치 부스트',
+    emoji: '💫',
+    price: 1500,
+    boost: 'petExp',
+    description: '/사용 으로 켜면 전투 승리 시 대표 펫 경험치 +30% (1개 = 1회).',
+  },
+  // ⏩ 탐험 중 야생 펫을 기다리는 시간을 줄여요
+  explore_speedup: {
+    id: 'explore_speedup',
+    name: '탐험 시간 감소',
+    emoji: '⏩',
+    price: 750,
+    speedup: true,
+    description: '탐험 대기 시간 -30% (남은 10초 이하면 못 써요, 5초 아래로는 안 내려가요).',
   },
 };
 
@@ -258,14 +291,14 @@ async function postChannelMessage(channelId, data) {
 }
 
 // 숫자 한 칸짜리 입력창을 띄워요 (버튼을 누르면 뜨고, 제출하면 customId 로 다시 들어와요)
-function numberModal({ customId, title, label, placeholder }) {
+function numberModal({ customId, title, label, placeholder, maxLength = 3 }) {
   return {
     type: ResponseType.MODAL,
     data: {
       custom_id: customId,
       title,
       components: [
-        { type: 1, components: [{ type: 4, custom_id: 'n', label, style: 1, min_length: 1, max_length: 3, required: true, placeholder }] },
+        { type: 1, components: [{ type: 4, custom_id: 'n', label, style: 1, min_length: 1, max_length: maxLength, required: true, placeholder }] },
       ],
     },
   };
@@ -534,6 +567,9 @@ function setMainPet(player, uid) {
 // 회복약 목록 (약한 것 → 센 것 순서)
 const POTIONS = Object.values(ITEMS).filter((i) => i.heal).sort((a, b) => a.heal - b.heal);
 
+// /사용 으로 쓸 수 있는 것: 회복약 + 경험치 부스트 + 탐험 시간 감소
+const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup)];
+
 // 전투 중 쓸 약 고르기: 모자란 체력을 채울 수 있는 "가장 약한" 약, 없으면 가진 것 중 제일 센 약
 function pickPotion(player, missing) {
   const owned = POTIONS.filter((p) => (player.inventory?.[p.id] ?? 0) > 0);
@@ -598,6 +634,50 @@ function useItem(player, itemId, selector, qty = 1, now = Date.now()) {
     used,
     left: owned - used,
   };
+}
+
+// 부스트 1회분을 꺼내 써요 (경험치를 얻을 때 호출). 켜둔 게 있으면 true
+function takeBoost(player, key) {
+  if ((player.boosts?.[key] ?? 0) <= 0) return false;
+  player.boosts[key] -= 1;
+  return true;
+}
+
+// 경험치 부스트 켜기 / 탐험 시간 감소 쓰기. qty 개수만큼 (가진 만큼까지)
+function useBoostItem(player, itemId, qty = 1, now = Date.now()) {
+  const item = ITEMS[itemId];
+  if (!item || !(item.boost || item.speedup)) return { kind: 'unknown' };
+  const owned = player.inventory?.[itemId] ?? 0;
+  if (owned <= 0) return { kind: 'none', item };
+  const want = Math.max(1, Math.floor(Number(qty)) || 1);
+
+  // 경험치 부스트: 켜둔 횟수만 늘려요
+  if (item.boost) {
+    const n = Math.min(want, owned);
+    player.boosts ??= { trainerExp: 0, petExp: 0 };
+    player.boosts[item.boost] = (player.boosts[item.boost] ?? 0) + n;
+    player.inventory[itemId] = owned - n;
+    return { kind: 'boosted', commit: true, item, used: n, charges: player.boosts[item.boost], left: owned - n };
+  }
+
+  // 탐험 시간 감소: 야생 펫을 기다리는 중에만, 남은 시간이 SPEEDUP_BLOCK_SEC 초보다 길 때만
+  const ex = player.exploration;
+  if (!ex) return { kind: 'no_explore', item };
+  if (ex.encounter) return { kind: 'already_appeared', item };
+
+  const startSec = Math.max(0, (ex.appearAt - now) / 1000);
+  const limit = Math.min(want, owned);
+  let sec = startSec;
+  let used = 0;
+  while (used < limit && sec > SPEEDUP_BLOCK_SEC) {
+    sec = Math.max(SPEEDUP_MIN_SEC, sec * (1 - SPEEDUP_PCT));
+    used += 1;
+  }
+  if (used === 0) return { kind: 'too_short', item, remaining: Math.ceil(startSec) };
+
+  ex.appearAt = now + Math.round(sec * 1000);
+  player.inventory[itemId] = owned - used;
+  return { kind: 'sped', commit: true, item, used, before: Math.ceil(startSec), after: Math.ceil(sec), left: owned - used, cutShort: used < limit };
 }
 
 // 쓴 약 요약 글자: "🧪 회복약 ×2 · 🍶 고급 회복약 ×1"
@@ -752,14 +832,16 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
     player.dex = { ...(player.dex ?? {}), [petId]: true };
 
     const loc = LOCATIONS[ex.locationId];
-    const expGain = Math.round(PETS[petId].expYield * loc.expMultiplier * 1.5) + (isNew ? 25 : 0);
+    let expGain = Math.round(PETS[petId].expYield * loc.expMultiplier * 1.5) + (isNew ? 25 : 0);
+    const trainerBoost = takeBoost(player, 'trainerExp'); // 🚀 포획 경험치에도 트레이너 부스트가 붙어요
+    if (trainerBoost) expGain = Math.round(expGain * (1 + BOOST_PCT));
     const before = player.level;
     const result = addExp(player, expGain);
     const unlocked = LOCATION_LIST.filter((l) => l.minLevel > before && l.minLevel <= player.level);
 
     player.exploration = null;
     return {
-      kind: 'caught', commit: true, petId, level, isNew, expGain, locationId,
+      kind: 'caught', commit: true, petId, level, isNew, expGain, locationId, trainerBoost, boostsLeft: { ...(player.boosts ?? {}) },
       levelsGained: result.levelsGained, newLevel: player.level, unlocked, ballsLeft: balls - 1,
     };
   }
@@ -916,8 +998,14 @@ function finishTurn(player, ex, c, log, now, rng) {
     const bonusMult = bonusRoll < BONUS_TRIPLE_CHANCE ? 3 : bonusRoll < BONUS_TRIPLE_CHANCE + BONUS_DOUBLE_CHANCE ? 2 : 1;
 
     const gold = Math.max(1, Math.round(wildPet.expYield * GOLD_PER_YIELD * (0.8 + rng() * 0.4))) * bonusMult;
-    const trainerExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_TRAINER_EXP_MULT) * bonusMult;
-    const petExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_PET_EXP_MULT) * bonusMult;
+    let trainerExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_TRAINER_EXP_MULT) * bonusMult;
+    let petExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_PET_EXP_MULT) * bonusMult;
+
+    // 🚀 켜둔 경험치 부스트가 있으면 1회씩 쓰고 +30%
+    const trainerBoost = takeBoost(player, 'trainerExp');
+    const petBoost = takeBoost(player, 'petExp');
+    if (trainerBoost) trainerExp = Math.round(trainerExp * (1 + BOOST_PCT));
+    if (petBoost) petExp = Math.round(petExp * (1 + BOOST_PCT));
 
     player.gold += gold;
     const before = player.level;
@@ -931,7 +1019,7 @@ function finishTurn(player, ex, c, log, now, rng) {
       kind: 'won', commit: true, log, locationId,
       wildPetId: wildInfo.petId, wildLevel: wildInfo.level,
       myPetId: main.petId, myName,
-      gold, trainerExp, petExp, bonusMult,
+      gold, trainerExp, petExp, bonusMult, trainerBoost, petBoost, boostsLeft: { ...(player.boosts ?? {}) },
       levelsGained: t.levelsGained, newLevel: player.level,
       petLevelsGained: p.levelsGained, petNewLevel: main.level,
       petHp: currentHp(main, now), petMaxHp: maxHp(main),
@@ -1548,6 +1636,26 @@ function exploreViewSnap(snap, userId, note) {
   return exploreViewExploring(snap, userId, note);
 }
 
+// 부스트 / 탐험 시간 감소 사용 결과 안내
+function boostResultText(out) {
+  if (out.kind === 'unknown') return '그런 건 쓸 수 없어요 🤔';
+  if (out.kind === 'none') return `${out.item.emoji} ${out.item.name}이(가) 없어요 😭 \`/구매\` 나 \`/상점\` 에서 사올 수 있어요!`;
+  if (out.kind === 'no_explore') return '🌿 탐험 중일 때만 쓸 수 있어요! `/탐험` 으로 먼저 떠나요.';
+  if (out.kind === 'already_appeared') return '이미 야생 펫이 나타났어요! 탐험 시간 감소는 펫을 기다리는 동안에만 쓸 수 있어요.';
+  if (out.kind === 'too_short') {
+    return `⏳ 남은 시간이 약 ${out.remaining}초라서 쓸 수 없어요! (${SPEEDUP_BLOCK_SEC}초 이하일 땐 아껴둬요 😊)`;
+  }
+  if (out.kind === 'boosted') {
+    const where = out.item.boost === 'trainerExp' ? '전투 승리·포획 때 트레이너 경험치' : '전투 승리 때 대표 펫 경험치';
+    return `${out.item.emoji} **${out.item.name}** ${out.used}개를 켰어요!\n앞으로 **${out.charges}번** ${where}에 +${pct(BOOST_PCT)}%가 붙어요. (남은 ${out.item.name} ${out.left}개)`;
+  }
+  return (
+    `${out.item.emoji} **${out.item.name}** ${out.used}개를 썼어요! 남은 대기 시간 약 ${out.before}초 → **${out.after}초**` +
+    (out.cutShort ? `\n(남은 시간이 ${SPEEDUP_BLOCK_SEC}초 이하가 돼서 여기까지만 썼어요)` : '') +
+    `\n(남은 ${out.item.name} ${out.left}개) **[살펴보기]** 를 눌러봐요!`
+  );
+}
+
 // 자동 회복(autoHeal) 결과를 한 줄 안내로 바꿔요
 function healResultText(out) {
   if (out.kind === 'not_found') return '그 펫을 찾을 수 없어요 🤔 번호나 이름을 다시 확인해주세요! (`/펫` 에서 확인 가능)';
@@ -1594,8 +1702,10 @@ function battleOutcomeView(out, userId) {
       out.bonusMult === 2 ? '✨ **럭키! 경험치·골드 2배 보너스!** ✨' : null,
       `💰 골드 +${out.gold}`,
       `⭐ 트레이너 경험치 +${out.trainerExp}`,
+      out.trainerBoost ? `🌟 트레이너 경험치 부스트 +${pct(BOOST_PCT)}% 적용! (남은 ${out.boostsLeft.trainerExp ?? 0}회)` : null,
       out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
       `${mine.emoji} ${out.myName} 경험치 +${out.petExp}`,
+      out.petBoost ? `💫 펫 경험치 부스트 +${pct(BOOST_PCT)}% 적용! (남은 ${out.boostsLeft.petExp ?? 0}회)` : null,
       out.petLevelsGained > 0 ? `🎊 **${out.myName} 레벨 업!** → Lv.${out.petNewLevel} (체력 가득!)` : null,
       `❤️ ${out.myName} 체력 ${out.petHp}/${out.petMaxHp}`,
       ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
@@ -1786,6 +1896,7 @@ async function exploreHandleButton(interaction, args) {
       `${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}** (Lv.${out.level}) 을(를) 잡았어요!`,
       out.isNew ? '✨ **새로운 도감 등록!**' : null,
       `⭐ 경험치 +${out.expGain}`,
+      out.trainerBoost ? `🌟 트레이너 경험치 부스트 +${pct(BOOST_PCT)}% 적용! (남은 ${out.boostsLeft.trainerExp ?? 0}회)` : null,
       out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
       ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
       `\n남은 ${BALL.name} ${out.ballsLeft}개 · \`/탐험\` 으로 계속 모험해요!`,
@@ -1887,26 +1998,21 @@ function shopView(player, userId, note) {
         footer: { text: `내 골드: ${player.gold.toLocaleString('ko-KR')}` },
       },
     ],
-    components: SHOP_ITEMS.map((i) =>
+    components: [
       row(
-        ...BUY_AMOUNTS.map((q) =>
-          button({
-            label: `${i.name} ${q}개`,
+        select({
+          customId: `shop:pick:${userId}`,
+          placeholder: '🛒 살 물건을 골라요 (고르면 개수 입력창이 떠요)',
+          options: SHOP_ITEMS.map((i) => ({
+            label: `${i.name} — ${i.price.toLocaleString('ko-KR')}골드`,
+            value: i.id,
+            description: i.description.slice(0, 100),
             emoji: i.emoji,
-            customId: `shop:buy:${userId}:${i.id}:${q}`,
-            style: 3,
-            disabled: player.gold < i.price * q,
-          }),
-        ),
-        button({
-          label: `${i.name} 최대`,
-          emoji: i.emoji,
-          customId: `shop:buy:${userId}:${i.id}:max`,
-          style: 1,
-          disabled: player.gold < i.price,
+          })),
         }),
       ),
-    ),
+    ],
+    // (개수는 입력창에 숫자 또는 "최대" 로 적어요. `/구매` 명령어로도 바로 살 수 있어요)
   };
 }
 
@@ -1926,12 +2032,37 @@ const shop = {
 
   components: {
     shop: async function shopHandleButton(interaction, args) {
-      const [action, ownerId, itemId, qtyStr] = args;
+      let [action, ownerId, itemId, qtyStr] = args;
       const user = getUser(interaction);
 
       if (user.id !== ownerId) {
         return reply({ content: '이 상점은 연 사람만 쓸 수 있어요 🙅 `/상점` 으로 직접 열어보세요!' }, { ephemeral: true });
       }
+
+      // 선택 메뉴에서 물건을 고르면 → 개수 입력창
+      if (action === 'pick') {
+        const picked = interaction.data.values?.[0];
+        const it = ITEMS[picked];
+        if (!it?.price) return reply({ content: '그런 물건은 없어요 🤔' }, { ephemeral: true });
+        return numberModal({
+          customId: `shop:buyN:${ownerId}:${picked}`,
+          title: `${it.name} 몇 개 살까요?`.slice(0, 45),
+          label: '개수 (숫자 또는 최대)',
+          placeholder: `예: 5  또는  최대  (1 ~ ${MAX_BUY_AT_ONCE})`,
+          maxLength: 6,
+        });
+      }
+
+      // 입력창 제출 → 숫자 또는 "최대" 로 사요
+      if (action === 'buyN') {
+        const text = String(getModalValue(interaction, 'n') ?? '').trim().toLowerCase();
+        const n = Number(text);
+        if (['최대', 'max', '전부'].includes(text)) qtyStr = 'max';
+        else if (Number.isInteger(n) && n >= 1 && n <= MAX_BUY_AT_ONCE) qtyStr = String(n);
+        else return reply({ content: `1 ~ ${MAX_BUY_AT_ONCE} 사이의 숫자나 **최대** 를 적어주세요 🔢` }, { ephemeral: true });
+        action = 'buy';
+      }
+
       if (action !== 'buy') return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
 
       let latest = null;
@@ -2025,7 +2156,11 @@ const bag = {
       embeds: [
         {
           title: `🎒 ${player.name}님의 가방`,
-          description: lines.length ? lines.join('\n\n') : '텅 비었어요... `/상점` 에서 사보세요!',
+          description:
+            (lines.length ? lines.join('\n\n') : '텅 비었어요... `/상점` 에서 사보세요!') +
+            ((player.boosts?.trainerExp ?? 0) + (player.boosts?.petExp ?? 0) > 0
+              ? `\n\n🚀 **켜둔 부스트** — 🌟 트레이너 ${player.boosts?.trainerExp ?? 0}회 · 💫 펫 ${player.boosts?.petExp ?? 0}회`
+              : ''),
           color: EMBED_COLOR,
           footer: { text: `💰 ${player.gold.toLocaleString('ko-KR')} 골드` },
         },
@@ -2523,17 +2658,18 @@ const train = {
 const use = {
   data: {
     name: '사용',
-    description: '회복약을 써서 해정펫의 체력을 채워요. 약을 안 고르면 가득 찰 때까지 알아서 써요!',
+    description: '회복약·경험치 부스트·탐험 시간 감소를 써요. 아무것도 안 고르면 체력을 알아서 채워요!',
     type: 1,
     options: [
       {
         type: 3,
         name: '아이템',
-        description: '어떤 약을 쓸까요? (비우면 가득 찰 때까지 알아서 골라 써요)',
+        description: '무엇을 쓸까요? (비우면 가득 찰 때까지 회복약을 알아서 골라 써요)',
         required: false,
-        choices: POTIONS.map((i) => ({ name: `${i.emoji} ${i.name}`, value: i.id })),
+        choices: USABLE_ITEMS.map((i) => ({ name: `${i.emoji} ${i.name}`, value: i.id })),
       },
-      { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? (비우면 1개, 많이 적어도 가득 찰 때까지만 써요)', required: false, min_value: 1 },
+      { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? (비우면 1개, 회복약은 가득 찰 때까지만 써요)', required: false, min_value: 1 },
+      { type: 5, name: '최대', description: '켜면 가진 만큼 최대로 써요', required: false },
       {
         type: 3,
         name: '대상',
@@ -2547,8 +2683,20 @@ const use = {
   async execute(interaction) {
     const user = getUser(interaction);
     const itemId = getOption(interaction, '아이템');
-    const qty = getOption(interaction, '수량') ?? 1;
+    const wantMax = getOption(interaction, '최대') === true;
+    const qty = wantMax ? 999 : (getOption(interaction, '수량') ?? 1);
     const target = getOption(interaction, '대상');
+
+    // 🚀 경험치 부스트 / ⏩ 탐험 시간 감소
+    const picked = ITEMS[itemId];
+    if (picked && (picked.boost || picked.speedup)) {
+      const res = await updatePlayer(user.id, (p) => {
+        const r = useBoostItem(p, itemId, qty, Date.now());
+        return { commit: r.commit === true, value: r };
+      });
+      if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+      return reply({ content: boostResultText(res) }, { ephemeral: res.commit !== true });
+    }
 
     // 약을 안 골랐으면: 가진 약을 알아서 섞어서 가득 찰 때까지 써요
     if (!itemId) {
@@ -2599,8 +2747,6 @@ const use = {
 // ═════════════════════════════════════════════
 // /도움말
 // ═════════════════════════════════════════════
-
-const pct = (v) => Math.round(v * 100);
 
 const help = {
   data: {
@@ -2656,6 +2802,13 @@ const help = {
                   '전투 중에는 **[회복]** 버튼으로 한 턴에 한 개씩 써요.',
               },
               {
+                name: '🚀 부스트 · 탐험 시간 감소',
+                value:
+                  `\`/사용\` 으로 🌟 **트레이너 경험치 부스트** / 💫 **펫 경험치 부스트** 를 켜면, 경험치를 얻을 때마다 1회씩 쓰이면서 **+${pct(BOOST_PCT)}%** 가 붙어요. (트레이너는 승리·포획, 펫은 승리 때)\n` +
+                  `⏩ **탐험 시간 감소** 는 탐험 중 펫을 기다릴 때 쓰면 남은 시간이 **-${pct(SPEEDUP_PCT)}%** 돼요. 남은 시간이 ${SPEEDUP_BLOCK_SEC}초 이하면 못 쓰고, ${SPEEDUP_MIN_SEC}초 아래로는 안 내려가요.\n` +
+                  '수량은 `/사용` 의 **수량** 칸에 숫자로, 가진 만큼 다 쓰려면 **최대** 를 켜요.',
+              },
+              {
                 name: '🐾 펫 관리',
                 value:
                   '`/펫` 으로 목록과 대표 펫(👑)을 확인해요. `/별명`, `/훈련`, `/방생` 은 번호 대신 **이름으로 골라도** 돼요 (입력하면 목록이 떠요).\n' +
@@ -2663,7 +2816,7 @@ const help = {
               },
               {
                 name: '🛒 상점 · 도감 · 가방',
-                value: '`/상점` 에서 골드로 아이템을 사요 (1·5·10개, **최대** 버튼). `/구매` 는 상점을 안 열고 원하는 개수를 바로 사요. `/가방` 에서 가진 물건을 봐요. `/도감` 은 만난 펫을 기록해요.',
+                value: '`/상점` 에서 물건을 고르면 개수 입력창이 떠요 (숫자 또는 **최대**). `/구매` 는 상점을 안 열고 개수를 바로 적어서 사요. `/가방` 에서 가진 물건과 켜둔 부스트를 봐요. `/도감` 은 만난 펫을 기록해요.',
               },
             ],
             footer: { text: '잡기 규칙 숫자는 설정값에 따라 자동으로 바뀌어요.' },
@@ -2730,4 +2883,4 @@ export async function handleInteraction(interaction) {
     default:
       return reply({ content: '아직 모르는 종류의 요청이에요 🤔' }, { ephemeral: true });
   }
-}19
+}
