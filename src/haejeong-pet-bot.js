@@ -955,9 +955,20 @@ const POTIONS = Object.values(ITEMS).filter((i) => i.heal).sort((a, b) => a.heal
 const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.catchItem || i.skillSlot || i.skillReroll)];
 const CATCH_ITEMS = Object.values(ITEMS).filter((i) => i.catchItem); // 🍖 포획 아이템 목록
 
-// 전투 중 쓸 약 고르기: 모자란 체력을 채울 수 있는 "가장 약한" 약, 없으면 가진 것 중 제일 센 약
-function pickPotion(player, missing) {
-  const owned = POTIONS.filter((p) => (player.inventory?.[p.id] ?? 0) > 0);
+// 가진 회복약 목록 (약한 것 → 센 것 순서)
+function ownedPotions(player) {
+  return POTIONS.filter((p) => (player.inventory?.[p.id] ?? 0) > 0);
+}
+
+// 약 하나 고르기
+//  - preferred(유저가 직접 고른 약 id)가 있으면 → 그 약만 써요 (없으면 null)
+//  - 없으면 자동: 모자란 체력을 채울 수 있는 "가장 약한" 약, 없으면 가진 것 중 제일 센 약
+function pickPotion(player, missing, preferred = null) {
+  if (preferred) {
+    const chosen = POTIONS.find((p) => p.id === preferred);
+    return chosen && (player.inventory?.[chosen.id] ?? 0) > 0 ? chosen : null;
+  }
+  const owned = ownedPotions(player);
   if (owned.length === 0) return null;
   return owned.find((p) => p.heal >= missing) ?? owned[owned.length - 1];
 }
@@ -1105,7 +1116,8 @@ function potionSummary(used) {
 }
 
 // 가득 찰 때까지 가진 약을 알아서 골라 써요 (전투 밖 전용). selector 가 비어 있으면 대표 펫
-function autoHeal(player, selector, now = Date.now()) {
+// potionId 를 주면 그 약만 써요 (여러 종류를 가졌을 때 골라 쓰기). 비우면 알맞은 약을 알아서 골라요
+function autoHeal(player, selector, now = Date.now(), potionId = null) {
   const inst = resolvePetSelector(player, selector);
   if (!inst) return { kind: 'not_found' };
   if (player.exploration?.battle && inst.uid === player.mainPetUid) return { kind: 'in_battle' };
@@ -1118,7 +1130,7 @@ function autoHeal(player, selector, now = Date.now()) {
   let guard = 0;
   while (currentHp(inst, now) < max && guard++ < HEAL_FULL_CAP) {
     const missing = max - currentHp(inst, now);
-    const potion = pickPotion(player, missing);
+    const potion = pickPotion(player, missing, potionId);
     if (!potion) break;
     const r = useItem(player, potion.id, inst.uid, Math.ceil(missing / potion.heal), now);
     if (r.kind !== 'used') break;
@@ -1728,14 +1740,15 @@ function battleTurns(player, id, now = Date.now(), rng = Math.random, times = MU
 
 // [회복] — 가방의 회복약을 써요. 약을 몇 개 쓰든 야생 펫은 딱 한 번만 공격해요 (한 턴을 써요!)
 // qty: 개수(기본 1) 또는 'full'(가득 찰 때까지)
-function battleHeal(player, id, now = Date.now(), rng = Math.random, qty = 1) {
+// potionId: 직접 고른 약 id (비우면 알맞은 약을 알아서 골라요)
+function battleHeal(player, id, now = Date.now(), rng = Math.random, qty = 1, potionId = null) {
   const ex = player.exploration;
   if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
   if (!ex.battle) return { kind: 'no_battle' };
 
   const b = ex.battle;
   if (b.myHp >= b.myMax) return { kind: 'full_hp' };
-  if (!pickPotion(player, b.myMax - b.myHp)) return { kind: 'no_potion' };
+  if (!pickPotion(player, b.myMax - b.myHp, potionId)) return { kind: 'no_potion' };
 
   const want = qty === 'full' ? HEAL_FULL_CAP : Math.max(1, Math.floor(Number(qty)) || 1);
   const c = context(player, ex);
@@ -1743,7 +1756,7 @@ function battleHeal(player, id, now = Date.now(), rng = Math.random, qty = 1) {
   const used = {};
   let total = 0;
   while (total < want && b.myHp < b.myMax) {
-    const potion = pickPotion(player, b.myMax - b.myHp);
+    const potion = pickPotion(player, b.myMax - b.myHp, potionId);
     if (!potion) break;
     player.inventory[potion.id] -= 1;
     b.myHp = Math.min(b.myMax, b.myHp + potion.heal);
@@ -2707,6 +2720,58 @@ function exploreViewSwap(player, snap, userId, note) {
   };
 }
 
+// 🧪 회복약 고르기 — 약을 2종류 이상 가졌을 때 [회복] 을 누르면 떠요 (아직 턴은 안 써요)
+// 고른 값 모양: "약id:개수" (약id 가 auto 면 알맞은 약을 알아서, 개수가 full 이면 가득 찰 때까지)
+function potionPickOptions(player, missing, withCounts = true) {
+  const owned = ownedPotions(player);
+  const options = [
+    { label: withCounts ? '🤖 알아서 (알맞은 약 1개)' : '🤖 알아서 (알맞은 약으로)', value: 'auto:1', description: '모자란 체력에 딱 맞는 약을 골라요' },
+  ];
+  if (withCounts) options.push({ label: '🤖 알아서 (가득 찰 때까지)', value: 'auto:full', description: `한 번에 최대 ${HEAL_FULL_CAP}개까지` });
+  for (const p of owned) {
+    const have = player.inventory[p.id];
+    const heal = p.heal >= 9999 ? '체력 전부' : `체력 +${p.heal}`;
+    options.push({ label: withCounts ? `${p.name} ×1 (가진 ${have}개)` : `${p.name} (가진 ${have}개)`, value: `${p.id}:1`, description: heal, emoji: p.emoji });
+    if (withCounts && have >= 3 && p.heal < missing) {
+      options.push({ label: `${p.name} ×3 (가진 ${have}개)`, value: `${p.id}:3`, description: `${heal} × 3`, emoji: p.emoji });
+    }
+  }
+  return options.slice(0, 25);
+}
+
+function potionListText(player) {
+  return ownedPotions(player)
+    .map((p) => `${p.emoji} **${p.name}** ×${player.inventory[p.id]} — ${p.heal >= 9999 ? '체력 전부 회복' : `체력 +${p.heal}`}`)
+    .join('\n');
+}
+
+function exploreViewHealPick(player, snap, userId, note) {
+  const b = snap.battle;
+  const missing = b.myMax - b.myHp;
+  const wild = PETS[snap.encounter.petId];
+  return {
+    embeds: [
+      {
+        title: '🧪 어떤 약을 쓸까요?',
+        description:
+          `${note ? note + '\n\n' : ''}❤️ **${b.myHp}/${b.myMax}** (모자란 체력 ${missing})\n\n${potionListText(player)}\n\n` +
+          `⚠️ 약을 먹는 것도 **한 턴**을 써요! ${wild.emoji} ${wild.name}이(가) 한 번 공격해요.`,
+        color: 0x57f287,
+      },
+    ],
+    components: [
+      row(
+        select({
+          customId: `explore:healpick:${userId}:${snap.id}`,
+          placeholder: '🧪 쓸 약을 골라요',
+          options: potionPickOptions(player, missing),
+        }),
+      ),
+      row(button({ label: '취소', emoji: '↩️', customId: `explore:healno:${userId}:${snap.id}`, style: 2 })),
+    ],
+  };
+}
+
 function exploreViewSnap(snap, userId, note) {
   if (snap.state === 'battle') return exploreViewBattle(snap, userId, note);
   if (snap.state === 'encounter') return exploreViewEncounter(snap, userId, note);
@@ -2777,6 +2842,26 @@ function healResultText(out) {
     `${name} ❤️ ${out.before} → **${out.after}/${out.max}**` +
     (out.after < out.max ? '\n(약이 모자라서 여기까지 채웠어요)' : '')
   );
+}
+
+// 🧪 [체력 회복] 에서 약을 고르는 화면 (전투 밖, 나한테만 보여요)
+function restPickView(player, userId, pet) {
+  const pd = PETS[pet.petId];
+  const name = `${GRADES[pd.grade].emoji} ${pd.emoji} **${pet.nickname ?? pd.name}**`;
+  return {
+    content:
+      `🧪 ${name} 에게 어떤 약을 먹일까요? (❤️ ${currentHp(pet, Date.now())}/${maxHp(pet)})\n\n${potionListText(player)}\n\n` +
+      '고른 약으로 **가득 찰 때까지** 먹여요.',
+    components: [
+      row(
+        select({
+          customId: `explore:restgo:${userId}:-`,
+          placeholder: '🧪 쓸 약을 골라요',
+          options: potionPickOptions(player, 0, false).map((o) => ({ ...o, value: o.value.replace(/:1$/, '') })),
+        }),
+      ),
+    ],
+  };
 }
 
 const exploreViewExpired = () =>
@@ -2968,6 +3053,36 @@ async function exploreHandleButton(interaction, args) {
     return battleOutcomeView(out, user.id); // won / lost / draw / wild_flee
   }
 
+  // 🧪 [회복] — 약을 2종류 이상 가졌으면 고르는 화면으로 바꿔요 (아직 턴은 안 써요)
+  if (action === 'heal' || action === 'healno') {
+    const player = await getPlayer(user.id);
+    const ex = player?.exploration;
+    if (!ex || ex.id !== id || !ex.encounter) return exploreViewExpired();
+    if (!ex.battle) {
+      return reply({ content: '아직 전투가 시작되지 않았어요! **[싸우기]** 를 먼저 눌러요 ⚔️' }, { ephemeral: true });
+    }
+    const snap = snapshot(player, Date.now());
+    if (action === 'healno') return update(exploreViewBattle(snap, user.id));
+    if (ex.battle.myHp >= ex.battle.myMax) return reply({ content: '체력이 이미 가득해요! 약을 아껴뒀어요 😊' }, { ephemeral: true });
+    const kinds = ownedPotions(player).length;
+    if (kinds === 0) return reply({ content: '🧪 회복약이 없어요 😭 `/상점` 에서 사올 수 있어요!' }, { ephemeral: true });
+    if (kinds >= 2) return update(exploreViewHealPick(player, snap, user.id));
+    // 한 종류뿐이면 고를 게 없으니 바로 써요 (아래로 계속)
+  }
+
+  // 🧪 드롭다운에서 고른 약으로 회복! (한 턴을 써요)
+  let healPotionId = null;
+  if (action === 'healpick') {
+    const [potionKey, amount] = String(interaction.data.values?.[0] ?? '').split(':');
+    const okKey = potionKey === 'auto' || POTIONS.some((p) => p.id === potionKey);
+    if (!okKey || !(amount === 'full' || /^\d+$/.test(amount))) {
+      return reply({ content: '그 약은 고를 수 없어요 🤔 [회복] 을 다시 눌러주세요!' }, { ephemeral: true });
+    }
+    healPotionId = potionKey === 'auto' ? null : potionKey;
+    count = amount === 'full' ? 'full' : Number(amount);
+    action = 'healN';
+  }
+
   const BATTLE_ACTIONS = {
     attack: (p) => battleSys.battleTurn(p, id, Date.now()),
     attack3: (p) => battleSys.battleTurns(p, id, Date.now(), Math.random, MULTI_TURNS),
@@ -2975,7 +3090,7 @@ async function exploreHandleButton(interaction, args) {
     heal3: (p) => battleSys.battleHeal(p, id, Date.now(), Math.random, 3),
     healfull: (p) => battleSys.battleHeal(p, id, Date.now(), Math.random, 'full'),
     attackN: (p) => battleSys.battleTurns(p, id, Date.now(), Math.random, count),
-    healN: (p) => battleSys.battleHeal(p, id, Date.now(), Math.random, count),
+    healN: (p) => battleSys.battleHeal(p, id, Date.now(), Math.random, count, healPotionId),
   };
   if (Object.hasOwn(BATTLE_ACTIONS, action)) {
     const out = await updatePlayer(user.id, (p) => {
@@ -2987,7 +3102,7 @@ async function exploreHandleButton(interaction, args) {
       return reply({ content: '아직 전투가 시작되지 않았어요! **[싸우기]** 를 먼저 눌러요 ⚔️' }, { ephemeral: true });
     }
     if (out.kind === 'no_potion') {
-      return reply({ content: '🧪 회복약이 없어요 😭 `/상점` 에서 사올 수 있어요!' }, { ephemeral: true });
+      return reply({ content: '🧪 그 회복약이 없어요 😭 `/상점` 에서 사올 수 있어요!' }, { ephemeral: true });
     }
     if (out.kind === 'full_hp') {
       return reply({ content: '체력이 이미 가득해요! 약을 아껴뒀어요 😊' }, { ephemeral: true });
@@ -3086,13 +3201,35 @@ async function exploreHandleButton(interaction, args) {
   }
 
   // [체력 회복] — 대표 펫이 가득 찰 때까지 가진 약을 알아서 써요 (나한테만 보이는 답장이라 패널은 그대로예요)
+  // 약이 2종류 이상이면 먼저 어떤 약을 쓸지 물어봐요
   if (action === 'rest') {
+    const player = await getPlayer(user.id);
+    if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    const pet = getMainPet(player);
+    const fighting = player.exploration?.battle && pet?.uid === player.mainPetUid;
+    if (pet && !fighting && currentHp(pet, Date.now()) < maxHp(pet) && ownedPotions(player).length >= 2) {
+      return reply(restPickView(player, user.id, pet), { ephemeral: true });
+    }
     const out = await updatePlayer(user.id, (p) => {
       const r = autoHeal(p, null, Date.now());
       return { commit: r.commit === true, value: r };
     });
     if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
     return reply({ content: healResultText(out) }, { ephemeral: true });
+  }
+
+  // 🧪 [체력 회복] 에서 고른 약으로 가득 찰 때까지 먹이기
+  if (action === 'restgo') {
+    const key = String(interaction.data.values?.[0] ?? '');
+    if (key !== 'auto' && !POTIONS.some((p) => p.id === key)) {
+      return reply({ content: '그 약은 고를 수 없어요 🤔 [체력 회복] 을 다시 눌러주세요!' }, { ephemeral: true });
+    }
+    const out = await updatePlayer(user.id, (p) => {
+      const r = autoHeal(p, null, Date.now(), key === 'auto' ? null : key);
+      return { commit: r.commit === true, value: r };
+    });
+    if (out === null) return update({ content: NOT_STARTED, components: [] });
+    return update({ content: healResultText(out), components: [] });
   }
 
   if (action === 'bump') {
