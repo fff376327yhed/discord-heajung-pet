@@ -72,7 +72,7 @@ function refreshDerived() {
   fill(LOCATION_LIST, Object.values(LOCATIONS).sort((a, b) => a.minLevel - b.minLevel));
   fill(POTIONS, items.filter((i) => i.heal).sort((a, b) => a.heal - b.heal));
   fill(CATCH_ITEMS, items.filter((i) => i.catchItem));
-  fill(USABLE_ITEMS, [...POTIONS, ...items.filter((i) => i.boost || i.speedup || i.scout || i.catchItem)]);
+  fill(USABLE_ITEMS, [...POTIONS, ...items.filter((i) => i.boost || i.speedup || i.catchItem)]);
   fill(SHOP_ITEMS, items.filter((i) => i.price));
   WILD_COUNT = Object.values(PETS).filter((p) => !p.starter).length;
 }

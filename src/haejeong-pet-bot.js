@@ -120,7 +120,6 @@ const KST_OFFSET_MS = 9 * 60 * 60 * 1000; // 출석은 한국 시간(KST) 자정
 const DEX_REWARD = {
   balls: { base: 20, step: 5 }, // 해정볼
   potions: { base: 20, step: 5 }, // 회복약
-  telescopes: { base: 5, step: 5 }, // 해정 망원경
   speedups: { base: 3, step: 5 }, // 탐험 시간 감소
   boosts: { base: 5, step: 10 }, // 경험치 부스트 (트레이너용 · 펫용 각각 이만큼)
 };
@@ -345,17 +344,9 @@ const ITEMS = {
     emoji: '⏩',
     price: 750,
     speedup: true,
-    description: '탐험 대기 시간 -30% (남은 10초 이하면 못 써요, 5초 아래로는 안 내려가요).',
+    description: '탐험 대기 시간을 즉시 0으로 만들어 바로 야생 펫이 나타나게 해요 (1개 = 1번).',
   },
-  // 🔭 이미 가 본 장소를 탐험하는 중에 쓰면, 어떤 펫이 나올지 미리 알려줘요
-  pet_telescope: {
-    id: 'pet_telescope',
-    name: '해정 망원경',
-    emoji: '🔭',
-    price: 555,
-    scout: true,
-    description: '/사용 으로 쓰면, 이미 가 본 장소에서 탐험할 때 어떤 펫이 나올지 미리 알려줘요 (1개 = 1번).',
-  },
+
   // 🍖 포획 아이템: 야생 펫을 만난 뒤 써요 (전투 중엔 전투 화면 아이템 버튼). 포획 확률은 곱셈으로 올라가고, 최대 98%예요.
   catch_scanner: {
     id: 'catch_scanner',
@@ -932,7 +923,7 @@ function setMainPet(player, uid) {
 const POTIONS = Object.values(ITEMS).filter((i) => i.heal).sort((a, b) => a.heal - b.heal);
 
 // /사용 으로 쓸 수 있는 것: 회복약 + 경험치 부스트 + 탐험 시간 감소
-const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.scout || i.catchItem)];
+const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.catchItem)];
 const CATCH_ITEMS = Object.values(ITEMS).filter((i) => i.catchItem); // 🍖 포획 아이템 목록
 
 // 전투 중 쓸 약 고르기: 모자란 체력을 채울 수 있는 "가장 약한" 약, 없으면 가진 것 중 제일 센 약
@@ -1014,7 +1005,7 @@ function takeBoost(player, key) {
 // 경험치 부스트 켜기 / 탐험 시간 감소 쓰기. qty 개수만큼 (가진 만큼까지)
 function useBoostItem(player, itemId, qty = 1, now = Date.now()) {
   const item = ITEMS[itemId];
-  if (!item || !(item.boost || item.speedup || item.scout)) return { kind: 'unknown' };
+  if (!item || !(item.boost || item.speedup)) return { kind: 'unknown' };
   const owned = player.inventory?.[itemId] ?? 0;
   if (owned <= 0) return { kind: 'none', item };
   const want = Math.max(1, Math.floor(Number(qty)) || 1);
@@ -1028,37 +1019,17 @@ function useBoostItem(player, itemId, qty = 1, now = Date.now()) {
     return { kind: 'boosted', commit: true, item, used: n, charges: player.boosts[item.boost], left: owned - n };
   }
 
-  // 🔭 해정 망원경: 이미 가 본 장소를 탐험하는 중일 때만, 곧 나올 펫을 미리 알려줘요 (1번에 1개)
-  if (item.scout) {
-    const sx = player.exploration;
-    if (!sx) return { kind: 'no_explore', item };
-    if (sx.encounter) return { kind: 'already_appeared', item };
-    if (!hasVisited(player, sx.locationId)) return { kind: 'not_visited', item, locationId: sx.locationId };
-    if (!sx.nextEncounter) sx.nextEncounter = rollEncounter(LOCATIONS[sx.locationId], Math.random);
-    if (sx.scouted) return { kind: 'already_scouted', item, locationId: sx.locationId, encounter: { ...sx.nextEncounter } };
-    sx.scouted = true;
-    player.inventory[itemId] = owned - 1;
-    return { kind: 'scouted', commit: true, item, locationId: sx.locationId, encounter: { ...sx.nextEncounter }, left: owned - 1 };
-  }
-
-  // 탐험 시간 감소: 야생 펫을 기다리는 중에만, 남은 시간이 SPEEDUP_BLOCK_SEC 초보다 길 때만
+  // 탐험 시간 감소: 야생 펫을 기다리는 중에, 1개를 쓰면 남은 시간이 전부 사라져서 바로 나타나요
   const ex = player.exploration;
   if (!ex) return { kind: 'no_explore', item };
   if (ex.encounter) return { kind: 'already_appeared', item };
 
-  const startSec = Math.max(0, (ex.appearAt - now) / 1000);
-  const limit = Math.min(want, owned);
-  let sec = startSec;
-  let used = 0;
-  while (used < limit && sec > SPEEDUP_BLOCK_SEC) {
-    sec = Math.max(SPEEDUP_MIN_SEC, sec * (1 - SPEEDUP_PCT));
-    used += 1;
-  }
-  if (used === 0) return { kind: 'too_short', item, remaining: Math.ceil(startSec) };
+  const startSec = Math.max(0, Math.ceil((ex.appearAt - now) / 1000));
+  if (startSec <= 0) return { kind: 'too_short', item, remaining: 0 };
 
-  ex.appearAt = now + Math.round(sec * 1000);
-  player.inventory[itemId] = owned - used;
-  return { kind: 'sped', commit: true, item, used, before: Math.ceil(startSec), after: Math.ceil(sec), left: owned - used, cutShort: used < limit };
+  ex.appearAt = now;
+  player.inventory[itemId] = owned - 1;
+  return { kind: 'sped', commit: true, item, used: 1, before: startSec, after: 0, left: owned - 1, cutShort: false };
 }
 
 // 쓴 약 요약 글자: "🧪 회복약 ×2 · 🍶 고급 회복약 ×1"
@@ -1119,21 +1090,9 @@ function waitMultiplier(loc, enc) {
   return GRADE_WAIT_MULT[PETS[enc.petId].grade] * (1 + LEVEL_WAIT_BONUS * Math.max(0, Math.min(1, t)));
 }
 
-// 기다릴 시간(초) 정하기: 트레이너 레벨로 기본 시간 → 나올 펫이 셀수록 더 오래 → 가끔 훼이크
+// 기다릴 시간(초) 정하기: 장소·레벨·펫 세기와 상관없이 5초 ~ 30초 사이에서 고정으로 뽑아요
 function calcWaitSec(loc, trainerLevel, enc, rng = Math.random) {
-  const tier = WAIT_TIERS.find((x) => trainerLevel <= x.maxLevel) ?? WAIT_TIERS[WAIT_TIERS.length - 1];
-  const base = randInt(tier.min, tier.max, rng);
-  let mult = waitMultiplier(loc, enc);
-  let fake = false;
-  if (rng() < FAKE_OUT_CHANCE) {
-    const decoys = loc.spawns.filter((s) => waitMultiplier(loc, { petId: s.petId, level: s.lv[1] }) >= mult * FAKE_OUT_MIN_GAP);
-    if (decoys.length > 0) {
-      const d = decoys[Math.floor(rng() * decoys.length)];
-      mult = waitMultiplier(loc, { petId: d.petId, level: d.lv[1] });
-      fake = true;
-    }
-  }
-  return { sec: Math.min(MAX_WAIT_SEC, Math.max(1, Math.round(base * mult))), fake };
+  return { sec: randInt(5, 30, rng), fake: false };
 }
 
 // 이미 가 본 장소인지: 야생 펫을 만난 적이 있거나, 그 장소의 펫이 도감에 있으면 "가 본 곳"이에요
@@ -1877,7 +1836,6 @@ function chapterReward(index, loc) {
   return {
     balls: grow(DEX_REWARD.balls),
     potions: grow(DEX_REWARD.potions),
-    telescopes: grow(DEX_REWARD.telescopes),
     speedups: grow(DEX_REWARD.speedups),
     boosts: grow(DEX_REWARD.boosts),
     gold: Math.round(avgGold * DEX_GOLD_MULT),
@@ -1892,14 +1850,14 @@ function chapterProgress(player, loc) {
 }
 
 const rewardText = (r) =>
-  `🔴 해정볼 ${r.balls}개 · 🧪 회복약 ${r.potions}개 · 🔭 해정 망원경 ${r.telescopes}개 · ⏩ 탐험 시간 감소 ${r.speedups}개\n` +
+  `🔴 해정볼 ${r.balls}개 · 🧪 회복약 ${r.potions}개 · ⏩ 탐험 시간 감소 ${r.speedups}개\n` +
   `🌟 트레이너 경험치 부스트 ${r.boosts}개 · 💫 펫 경험치 부스트 ${r.boosts}개 · 💰 ${r.gold.toLocaleString('ko-KR')} 골드`;
 
 // 다 채웠는데 아직 안 받은 챕터의 보상을 한꺼번에 받아요
 function claimDexRewards(player) {
   const claimed = player.dexClaimed ?? {};
   const got = [];
-  const total = { balls: 0, potions: 0, telescopes: 0, speedups: 0, boosts: 0, gold: 0 };
+  const total = { balls: 0, potions: 0, speedups: 0, boosts: 0, gold: 0 };
 
   LOCATION_LIST.forEach((loc, index) => {
     if (claimed[loc.id] || !chapterProgress(player, loc).complete) return;
@@ -1918,7 +1876,6 @@ function claimDexRewards(player) {
   };
   give(BALL_ID, total.balls);
   give('potion_small', total.potions);
-  give('pet_telescope', total.telescopes);
   give('explore_speedup', total.speedups);
   give('exp_boost_trainer', total.boosts);
   give('exp_boost_pet', total.boosts);
@@ -2716,15 +2673,14 @@ function boostResultText(out) {
     );
   }
   if (out.kind === 'too_short') {
-    return `⏳ 남은 시간이 약 ${out.remaining}초라서 쓸 수 없어요! (${SPEEDUP_BLOCK_SEC}초 이하일 땐 아껴둬요 😊)`;
+    return '⏳ 이미 다 기다렸어요! **[살펴보기]** 를 눌러서 만나봐요 😊';
   }
   if (out.kind === 'boosted') {
     const where = out.item.boost === 'trainerExp' ? '전투 승리·포획 때 트레이너 경험치' : '전투 승리 때 대표 펫 경험치';
     return `${out.item.emoji} **${out.item.name}** ${out.used}개를 켰어요!\n앞으로 **${out.charges}번** ${where}에 +${pct(BOOST_PCT)}%가 붙어요. (남은 ${out.item.name} ${out.left}개)`;
   }
   return (
-    `${out.item.emoji} **${out.item.name}** ${out.used}개를 썼어요! 남은 대기 시간 약 ${out.before}초 → **${out.after}초**` +
-    (out.cutShort ? `\n(남은 시간이 ${SPEEDUP_BLOCK_SEC}초 이하가 돼서 여기까지만 썼어요)` : '') +
+    `${out.item.emoji} **${out.item.name}** 을(를) 썼어요! 남은 대기 시간 약 ${out.before}초 → **바로 나타나요!**` +
     `\n(남은 ${out.item.name} ${out.left}개) **[살펴보기]** 를 눌러봐요!`
   );
 }
@@ -3916,7 +3872,7 @@ const help = {
                 name: '🌿 탐험',
                 value:
                   '`/탐험` 으로 장소를 골라 떠나요 (장소를 비우면 지난번 장소로 가요). **[살펴보기]** 를 누르면 야생 펫이 나타나요.\n' +
-                  '기다리는 시간은 트레이너 레벨이 높을수록 길어지고, 센 펫(높은 등급·높은 레벨)이 나올수록 더 오래 걸려요. 가끔은 훼이크도 있어요 😏\n' +
+                  '기다리는 시간은 장소·레벨과 상관없이 **5초 ~ 30초** 사이예요.\n' +
                   '탐험이 끝나면 **[다시 탐험]** · **[체력 회복]** 버튼이 떠서 명령어를 다시 안 쳐도 돼요.\n' +
                   '`/장소` 에서 갈 수 있는 곳과 만나는 펫을 볼 수 있어요.',
               },
@@ -3982,9 +3938,8 @@ const help = {
                 name: '🚀 부스트 · 탐험 시간 감소',
                 value:
                   `\`/사용\` 으로 🌟 **트레이너 경험치 부스트** / 💫 **펫 경험치 부스트** 를 켜면, 경험치를 얻을 때마다 1회씩 쓰이면서 **+${pct(BOOST_PCT)}%** 가 붙어요. (트레이너는 승리·포획, 펫은 승리 때)\n` +
-                  `⏩ **탐험 시간 감소** 는 탐험 중 펫을 기다릴 때 쓰면 남은 시간이 **-${pct(SPEEDUP_PCT)}%** 돼요. 남은 시간이 ${SPEEDUP_BLOCK_SEC}초 이하면 못 쓰고, ${SPEEDUP_MIN_SEC}초 아래로는 안 내려가요.\n` +
-                  '🔭 **해정 망원경** 은 이미 가 본 장소를 탐험하는 중에 쓰면, 곧 나올 펫을 미리 알려줘요.\n' +
-                  '수량은 `/사용` 의 **수량** 칸에 숫자로, 가진 만큼 다 쓰려면 **최대** 를 켜요.',
+                  `⏩ **탐험 시간 감소** 는 탐험 중 펫을 기다릴 때 쓰면 남은 시간이 **전부 사라져서** 바로 야생 펫이 나타나요 (1개 = 1번).\n` +
+                  '수량은 `/사용` 의 **수량** 칸에 적어도, 한 번에 1개만 쓰여요.',
               },
               {
                 name: '🐾 펫 관리',
@@ -4436,7 +4391,7 @@ function refreshDerived() {
   fill(LOCATION_LIST, Object.values(LOCATIONS).sort((a, b) => a.minLevel - b.minLevel));
   fill(POTIONS, items.filter((i) => i.heal).sort((a, b) => a.heal - b.heal));
   fill(CATCH_ITEMS, items.filter((i) => i.catchItem));
-  fill(USABLE_ITEMS, [...POTIONS, ...items.filter((i) => i.boost || i.speedup || i.scout || i.catchItem)]);
+  fill(USABLE_ITEMS, [...POTIONS, ...items.filter((i) => i.boost || i.speedup || i.catchItem)]);
   fill(SHOP_ITEMS, items.filter((i) => i.price));
   WILD_COUNT = Object.values(PETS).filter((p) => !p.starter).length;
 }
