@@ -70,6 +70,7 @@ let WIN_TRAINER_EXP_MULT = 1.5; // 승리 시 트레이너 경험치 = expYield 
 let WIN_PET_EXP_MULT = 2.0; // 승리 시 대표 펫 경험치 = expYield × 장소배율 × 이 값 (펫이 트레이너보다 빨리 크도록 더 크게)
 let BONUS_TRIPLE_CHANCE = 0.001; // 승리 시 0.1% 확률로 경험치·골드 3배 🎰
 let BONUS_DOUBLE_CHANCE = 0.005; // 승리 시 0.5% 확률로 경험치·골드 2배 (3배와 동시에 나오지 않아요)
+let AUTO_HUNT_REWARD_MULT = 0.35; // 🏃 자동사냥 중에는 골드·경험치가 이 배율로 줄어요 (-65%)
 
 // ───────── 편의 기능 ✨ ─────────
 let HEAL_FULL_CAP = 99; // [회복 가득] / /사용 자동 모드에서 한 번에 쓸 수 있는 약 개수 상한
@@ -928,6 +929,8 @@ function buildNewPlayer(userId, username, starterPetId) {
     mainPetUid: starter.uid,
     dex: { [starterPetId]: true }, // 도감: 만난/잡은 펫 기록
     exploration: null, // 지금 하고 있는 탐험 (없으면 null)
+    autoHunt: false, // 🏃 자동사냥 모드 (켜져 있으면 대기 시간 없이 바로 사냥, 대신 보상 -65%)
+     createdAt: Date.now(),
     createdAt: Date.now(),
   };
 }
@@ -945,6 +948,12 @@ function setMainPet(player, uid) {
   if (player.mainPetUid === uid) return { kind: 'already' };
   player.mainPetUid = uid;
   return { kind: 'changed', commit: true };
+}
+
+// 🏃 자동사냥 켜기/끄기 — 켜져 있는 동안은 탐험 대기 시간이 사라지는 대신 보상이 -65%예요
+function toggleAutoHunt(player) {
+  player.autoHunt = !player.autoHunt;
+  return { kind: player.autoHunt ? 'on' : 'off', commit: true };
 }
 
 // ============================================================
@@ -1380,7 +1389,8 @@ function startExploration(player, locationId, now = Date.now(), rng = Math.rando
   }
 
   const enc = rollEncounter(loc, rng); // 나올 펫을 먼저 정하고
-  const { sec: waitSec } = calcWaitSec(loc, player.level, enc, rng); // 그 펫이 셀수록 오래 기다려요
+    const { sec: rawWaitSec } = calcWaitSec(loc, player.level, enc, rng); // 그 펫이 셀수록 오래 기다려요
+  const waitSec = player.autoHunt ? 0 : rawWaitSec; // 🏃 자동사냥 중엔 기다림 없이 바로 등장해요
   player.exploration = {
     id: randomUUID().slice(0, 8),
     locationId,
@@ -1434,6 +1444,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
     let expGain = Math.round(PETS[petId].expYield * loc.expMultiplier * 1.5) + (isNew ? 25 : 0);
     const trainerBoost = takeBoost(player, 'trainerExp'); // 🚀 포획 경험치에도 트레이너 부스트가 붙어요
     if (trainerBoost) expGain = Math.round(expGain * (1 + BOOST_PCT));
+    if (player.autoHunt) expGain = Math.max(1, Math.round(expGain * AUTO_HUNT_REWARD_MULT)); // 🏃 자동사냥 패널티 -65%
     const before = player.level;
     const result = addExp(player, expGain);
     const unlocked = LOCATION_LIST.filter((l) => l.minLevel > before && l.minLevel <= player.level);
@@ -1610,9 +1621,16 @@ function finishTurn(player, ex, c, log, now, rng) {
     const bonusRoll = rng();
     const bonusMult = bonusRoll < BONUS_TRIPLE_CHANCE ? 3 : bonusRoll < BONUS_TRIPLE_CHANCE + BONUS_DOUBLE_CHANCE ? 2 : 1;
 
-    const gold = Math.max(1, Math.round(wildPet.expYield * GOLD_PER_YIELD * (0.8 + rng() * 0.4))) * bonusMult;
-    let trainerExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_TRAINER_EXP_MULT) * bonusMult;
-    let petExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_PET_EXP_MULT) * bonusMult;
+    let gold = Math.max(1, Math.round(wildPet.expYield * GOLD_PER_YIELD * (0.8 + rng() * 0.4))) * bonusMult;
+     let trainerExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_TRAINER_EXP_MULT) * bonusMult;
+     let petExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_PET_EXP_MULT) * bonusMult;
+
+     // 🏃 자동사냥 중이면 보상이 -65%로 줄어요
+    if (player.autoHunt) {
+      gold = Math.max(1, Math.round(gold * AUTO_HUNT_REWARD_MULT));
+      trainerExp = Math.max(1, Math.round(trainerExp * AUTO_HUNT_REWARD_MULT));
+     petExp = Math.max(1, Math.round(petExp * AUTO_HUNT_REWARD_MULT));
+         }
 
     // 🚀 켜둔 경험치 부스트가 있으면 1회씩 쓰고 +30%
     const trainerBoost = takeBoost(player, 'trainerExp');
@@ -2604,12 +2622,53 @@ const explore = {
     return reply(exploreViewExploring(out.snap, user.id, note));
   },
 
-  components: {
-    explore: exploreHandleButton,
-  },
-};
+    components: {
+     explore: exploreHandleButton,
+   },
+ };
+ 
+// ═════════════════════════════════════════════
+// /자동사냥
+// ═════════════════════════════════════════════
 
-// ───────── 탐험 화면 그리기 ─────────
+const autoHuntCmd = {
+  data: {
+    name: '자동사냥',
+    description: '자동사냥 모드를 켜고 꺼요. 켜져 있으면 탐험 대기 시간 없이 바로 사냥할 수 있지만 보상이 -65%예요.',
+    type: 1,
+  },
+
+  async execute(interaction) {
+    const user = getUser(interaction);
+    const out = await updatePlayer(user.id, (player) => {
+      const r = toggleAutoHunt(player);
+      return { commit: true, value: r };
+    });
+
+    if (!out) return reply({ content: NOT_STARTED }, { ephemeral: true });
+
+    return reply({
+      embeds: [
+        out.kind === 'on'
+          ? {
+             title: '🏃 자동사냥 시작!',
+              description:
+               '`/탐험` 을 쓰면 대기 시간 없이 바로바로 야생 펫을 마주쳐요.\n' +
+                `대신 전투 승리·포획으로 얻는 골드·경험치가 **-${pct(1 - AUTO_HUNT_REWARD_MULT)}%** 로 줄어들어요.\n\n` +
+               '다시 `/자동사냥` 을 누르면 꺼져요!',
+             color: 0xf1c40f,
+                        }
+          : {
+              title: '🛑 자동사냥 종료',
+              description: '보상이 원래대로 돌아왔어요. `/탐험` 으로 다시 평소처럼 모험해요!',
+              color: 0x99aab5,
+            },
+      ],
+    });
+  },
+  };
+
+ // ───────── 탐험 화면 그리기 ─────────
 
 // 채팅이 쌓여서 패널이 안 보일 때, 채널 맨 아래로 다시 올려주는 버튼이에요
 function bumpButton(userId, snapId) {
@@ -4915,7 +4974,7 @@ const trade = {
 // 내보내기: router.js 가 이 목록을 그대로 써요
 // ═════════════════════════════════════════════
 
-const commandModules = [start, profile, places, explore, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, trade, help];
+const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, trade, help];
 
 // ============================================================
 // 관리자 설정 (admin-config.js) [ADMIN-CONFIG]
