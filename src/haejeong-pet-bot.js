@@ -10,6 +10,7 @@ import {
   SLOT_HINT,
   grantSkills,
   slotsOpen,
+  rollSkill,
   maxMana,
   castSkill,
   tickSide,
@@ -345,6 +346,24 @@ const ITEMS = {
     price: 750,
     speedup: true,
     description: '탐험 대기 시간을 즉시 0으로 만들어 바로 야생 펫이 나타나게 해요 (1개 = 1번).',
+  },
+
+  // 🎫 스킬 아이템: /사용 의 "대상" 칸에 펫을 골라서 써요
+  skill_slot_ticket: {
+    id: 'skill_slot_ticket',
+    name: '스킬 슬롯 개방권',
+    emoji: '🎫',
+    price: 2500,
+    skillSlot: true,
+    description: '고른 펫의 3번째 스킬 슬롯을 열고, 랜덤 스킬 하나를 바로 배워요 (1개 = 펫 1마리).',
+  },
+  skill_reroll_ticket: {
+    id: 'skill_reroll_ticket',
+    name: '스킬 변경권',
+    emoji: '🔄',
+    price: 600,
+    skillReroll: true,
+    description: '고른 펫의 스킬 슬롯 하나(1~3번, `/사용` 의 "슬롯" 칸)를 다른 랜덤 스킬로 다시 뽑아요. 전용기도 다시 나올 수 있어요.',
   },
 
   // 🍖 포획 아이템: 야생 펫을 만난 뒤 써요 (전투 중엔 전투 화면 아이템 버튼). 포획 확률은 곱셈으로 올라가고, 최대 98%예요.
@@ -933,7 +952,7 @@ function setMainPet(player, uid) {
 const POTIONS = Object.values(ITEMS).filter((i) => i.heal).sort((a, b) => a.heal - b.heal);
 
 // /사용 으로 쓸 수 있는 것: 회복약 + 경험치 부스트 + 탐험 시간 감소
-const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.catchItem)];
+const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.catchItem || i.skillSlot || i.skillReroll)];
 const CATCH_ITEMS = Object.values(ITEMS).filter((i) => i.catchItem); // 🍖 포획 아이템 목록
 
 // 전투 중 쓸 약 고르기: 모자란 체력을 채울 수 있는 "가장 약한" 약, 없으면 가진 것 중 제일 센 약
@@ -1040,6 +1059,42 @@ function useBoostItem(player, itemId, qty = 1, now = Date.now()) {
   ex.appearAt = now;
   player.inventory[itemId] = owned - 1;
   return { kind: 'sped', commit: true, item, used: 1, before: startSec, after: 0, left: owned - 1, cutShort: false };
+}
+
+// 🎫 스킬 슬롯 개방권 / 🔄 스킬 변경권 — 펫 한 마리를 골라서 써요
+// slot: 스킬 변경권일 때만 써요 (1~3, 이미 열려 있는 슬롯이어야 해요)
+function useSkillItem(player, itemId, selector, slot, now = Date.now()) {
+  const item = ITEMS[itemId];
+  if (!item || !(item.skillSlot || item.skillReroll)) return { kind: 'unknown' };
+
+  const inst = resolvePetSelector(player, selector);
+  if (!inst) return { kind: 'not_found' };
+
+  const owned = player.inventory?.[itemId] ?? 0;
+  if (owned <= 0) return { kind: 'none', item };
+
+  // 🎫 3번 슬롯 열기
+  if (item.skillSlot) {
+    if (inst.slot3) return { kind: 'already_open', inst };
+    inst.slot3 = true;
+    const got = grantSkills(inst);
+    if (!got.length) { inst.slot3 = false; return { kind: 'no_skill_left' }; }
+    player.inventory[itemId] = owned - 1;
+    return { kind: 'slot_opened', commit: true, item, inst: { ...inst }, skill: SKILLS[got[0][1]] };
+  }
+
+  // 🔄 지정한 슬롯(1~3)의 스킬을 다른 걸로 다시 뽑기
+  const open = slotsOpen(inst);
+  const idx = (Number(slot) || 0) - 1;
+  if (idx < 0 || idx > 2 || !open[idx]) return { kind: 'bad_slot' };
+  if (!SKILLS[inst.skills?.[idx]]) return { kind: 'empty_slot' };
+
+  const before = SKILLS[inst.skills[idx]];
+  const id = rollSkill(inst, Math.random, [inst.skills[idx]]);
+  if (!id) return { kind: 'no_skill_left' };
+  inst.skills[idx] = id;
+  player.inventory[itemId] = owned - 1;
+  return { kind: 'rerolled', commit: true, item, inst: { ...inst }, before, skill: SKILLS[id] };
 }
 
 // 쓴 약 요약 글자: "🧪 회복약 ×2 · 🍶 고급 회복약 ×1"
@@ -1513,10 +1568,18 @@ function wildAttack(c, b, log, rng) {
   log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${dmg}** 데미지`);
 }
 
+// 🆕 기절 상태면 이번 행동을 건너뛰고(한 번만) 상태를 풀어줘요. true 를 돌려주면 행동을 못 한 거예요.
+function stunned(st, name, log) {
+  if (!st.stun) return false;
+  delete st.stun;
+  log.push(`💫 ${name}(이)가 기절해서 움직이지 못했어요!`);
+  return true;
+}
+
 // 한 턴이 끝났을 때: 체력 저장 → 승리/패배/무승부/계속 판정
 function finishTurn(player, ex, c, log, now, rng) {
   const b = ex.battle;
-  const { main, wildPet, wildInfo, myName } = c;
+  const { main, myPet, wildPet, wildInfo, myName } = c;
   const locationId = ex.locationId;
   b.round += 1;
   setHp(main, b.myHp, now); // ❤️ 전투가 끝나도 체력이 이어져요
@@ -1590,6 +1653,14 @@ function finishTurn(player, ex, c, log, now, rng) {
     return { kind: 'draw', commit: true, log, locationId, wildPetId: wildInfo.petId };
   }
 
+  // 🆕 턴 끝: 마나 회복 · 지속 피해 · 재생 · 상태이상 턴 감소 — [공격]/[회복]/[교체]/[스킬] 뭘 써도 항상 적용돼요!
+  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp, mana: b.myMana, manaMax: maxMana(main), st: b.mySt };
+  const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt };
+  tickSide(tMe, log);
+  tickSide(tWild, log);
+  b.myHp = tMe.hp; b.myMana = tMe.mana;
+  b.wildHp = tWild.hp; b.wildMana = tWild.mana;
+
   return { kind: 'continue', commit: true, log, snap: snapshot(player, now) };
 }
 
@@ -1630,8 +1701,8 @@ function battleTurn(player, id, now = Date.now(), rng = Math.random) {
   const order = c.mine.spd >= c.wild.spd ? ['me', 'wild'] : ['wild', 'me'];
   for (const who of order) {
     if (b.myHp <= 0 || b.wildHp <= 0) break; // 이미 쓰러졌으면 반격 못 해요
-    if (who === 'me') myAttack(c, b, log, rng);
-    else wildAttack(c, b, log, rng);
+    if (who === 'me') { if (!stunned(b.mySt, c.myName, log)) myAttack(c, b, log, rng); }
+    else { if (!stunned(b.wildSt, c.wildPet.name, log)) wildAttack(c, b, log, rng); }
   }
   return finishTurn(player, ex, c, log, now, rng);
 }
@@ -1686,7 +1757,7 @@ function battleHeal(player, id, now = Date.now(), rng = Math.random, qty = 1) {
       : `🧪 ${potionSummary(used)} 를 썼어요! ${c.myName} 체력 +${b.myHp - before}`,
   ];
   if (qty !== 'full' && total < want && b.myHp < b.myMax) log.push(`(회복약이 모자라서 ${total}개만 썼어요)`);
-  wildAttack(c, b, log, rng);
+  if (!stunned(b.wildSt, c.wildPet.name, log)) wildAttack(c, b, log, rng);
   return finishTurn(player, ex, c, log, now, rng);
 }
 
@@ -1717,7 +1788,7 @@ function battleSwap(player, id, uid, now = Date.now(), rng = Math.random) {
     `🔄 ${oldName}(이)가 물러나고 ${c.myPet.emoji} ${c.myName}(이)가 나왔어요! (한 턴을 써요)`,
     `교체하는 틈을 노려 ${c.wildPet.emoji} ${c.wildPet.name}(이)가 공격해요!`,
   ];
-  wildAttack(c, b, log, rng);
+  if (!stunned(b.wildSt, c.wildPet.name, log)) wildAttack(c, b, log, rng);
   return finishTurn(player, ex, c, log, now, rng);
 }
 
@@ -1741,13 +1812,15 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
   const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, crit: CRIT_CHANCE, mana: b.myMana, manaMax: maxMana(main), st: b.mySt };
   const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, crit: GRADE_EFFECTS[c.wildPet.grade].critChance, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt };
 
-  // 1) 내가 스킬을 써요
-  castSkill(sk, me, wild, rng, log);
-  b.myHp = me.hp; b.myMana = me.mana;
-  b.wildHp = wild.hp; b.wildMana = wild.mana;
+  // 1) 내가 스킬을 써요 (기절 중이면 못 써요 — 마나는 그대로예요)
+  if (!stunned(b.mySt, c.myName, log)) {
+    castSkill(sk, me, wild, rng, log);
+    b.myHp = me.hp; b.myMana = me.mana;
+    b.wildHp = wild.hp; b.wildMana = wild.mana;
+  }
 
-  // 2) 야생 펫이 기본 공격 또는 전용기로 반격해요
-  if (b.wildHp > 0 && b.myHp > 0) {
+  // 2) 야생 펫이 기본 공격 또는 전용기로 반격해요 (기절 중이면 못 해요)
+  if (b.wildHp > 0 && b.myHp > 0 && !stunned(b.wildSt, c.wildPet.name, log)) {
     const wsk = pickWildSkill(c.wildInfo.petId, b.wildMana, rng);
     if (wsk) {
       castSkill(wsk, wild, me, rng, log);
@@ -1756,16 +1829,6 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
     } else {
       wildAttack(c, b, log, rng);
     }
-  }
-
-  // 3) 턴 끝: 지속 피해 · 재생 · 마나 +5
-  if (b.myHp > 0 && b.wildHp > 0) {
-    const tMe = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, mana: b.myMana, manaMax: maxMana(main), st: b.mySt };
-    const tWild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt };
-    tickSide(tMe, log);
-    tickSide(tWild, log);
-    b.myHp = tMe.hp; b.myMana = tMe.mana;
-    b.wildHp = tWild.hp; b.wildMana = tWild.mana;
   }
 
   return finishTurn(player, ex, c, log, now, rng);
@@ -2682,6 +2745,23 @@ function boostResultText(out) {
     `${out.item.emoji} **${out.item.name}** 을(를) 썼어요! 남은 대기 시간 약 ${out.before}초 → **바로 나타나요!**` +
     `\n(남은 ${out.item.name} ${out.left}개) **[살펴보기]** 를 눌러봐요!`
   );
+}
+
+// 🎫 스킬 슬롯 개방권 / 🔄 스킬 변경권 사용 결과 안내
+function skillItemResultText(out) {
+  if (out.kind === 'unknown') return '그런 아이템은 없어요 🤔';
+  if (out.kind === 'not_found') return '그 펫을 찾을 수 없어요 🤔 번호나 이름을 다시 확인해주세요! (`/펫` 에서 확인 가능)';
+  if (out.kind === 'none') return `${out.item.emoji} ${out.item.name}이(가) 없어요 😭 \`/상점\` 에서 사올 수 있어요!`;
+  if (out.kind === 'already_open') return '이미 3번 슬롯이 열려 있어요! 스킬을 바꾸고 싶으면 🔄 **스킬 변경권**을 써보세요.';
+  if (out.kind === 'bad_slot') return '그 슬롯은 아직 안 열려 있어요! `/사용` 의 **슬롯** 칸에 이미 열린 번호(1~3)를 적어주세요. (`/펫` 에서 확인 가능)';
+  if (out.kind === 'empty_slot') return '그 슬롯은 아직 비어 있어요! (스킬이 있어야 바꿀 수 있어요)';
+  if (out.kind === 'no_skill_left') return '더 뽑을 수 있는 스킬이 없어요 🤔';
+  const pet = PETS[out.inst.petId];
+  const name = out.inst.nickname ?? pet.name;
+  if (out.kind === 'slot_opened') {
+    return `🎫 ${GRADES[pet.grade].emoji} ${pet.emoji} **${name}**의 **3번 스킬 슬롯**이 열렸어요!\n✨ ${out.skill.emoji} **${out.skill.name}** (마나 ${out.skill.cost}) ${tierStars(out.skill.tier)} 를 배웠어요!`;
+  }
+  return `🔄 ${GRADES[pet.grade].emoji} ${pet.emoji} **${name}**의 ${out.before.emoji} **${out.before.name}** 이(가) ${out.skill.emoji} **${out.skill.name}** (마나 ${out.skill.cost}) ${tierStars(out.skill.tier)} 로 바뀌었어요!`;
 }
 
 // 자동 회복(autoHeal) 결과를 한 줄 안내로 바꿔요
@@ -3803,6 +3883,7 @@ const use = {
       },
       { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? (비우면 1개, 회복약은 가득 찰 때까지만 써요)', required: false, min_value: 1 },
       { type: 5, name: '최대', description: '켜면 가진 만큼 최대로 써요', required: false },
+      { type: 4, name: '슬롯', description: '🔄 스킬 변경권 전용: 다시 뽑을 스킬 슬롯 번호 (1~3)', required: false, min_value: 1, max_value: 3 },
       {
         type: 3,
         name: '대상',
@@ -3819,9 +3900,20 @@ const use = {
     const wantMax = getOption(interaction, '최대') === true;
     const qty = wantMax ? 999 : (getOption(interaction, '수량') ?? 1);
     const target = getOption(interaction, '대상');
+    const slot = getOption(interaction, '슬롯');
+    const picked = ITEMS[itemId];
+
+    // 🎫 스킬 슬롯 개방권 / 🔄 스킬 변경권 (펫 한 마리를 골라서 써요)
+    if (picked?.skillSlot || picked?.skillReroll) {
+      const res = await updatePlayer(user.id, (p) => {
+        const r = useSkillItem(p, itemId, target, slot, Date.now());
+        return { commit: r.commit === true, value: r };
+      });
+      if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+      return reply({ content: skillItemResultText(res) }, { ephemeral: true });
+    }
 
     // 🍖 포획 아이템 (야생 펫을 만난 뒤에 써요. 전투 중에는 전투 화면의 아이템 버튼으로 써요)
-    const picked = ITEMS[itemId];
     if (picked?.catchItem) {
       const res = await updatePlayer(user.id, (p) => {
         const r = useCatchItem(p, itemId, Date.now(), Math.random, { viaPanel: false });
