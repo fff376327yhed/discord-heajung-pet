@@ -3119,7 +3119,7 @@ const shop = {
     const user = getUser(interaction);
     const player = await getPlayer(user.id);
     if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
-    return reply(shopView(player, user.id));
+    return reply(shopView(player, user.id), { ephemeral: true });
   },
 
   components: {
@@ -3386,6 +3386,62 @@ const pets = {
 // /도감
 // ═════════════════════════════════════════════
 
+// 도감 챕터 목록: 0번은 스타팅 펫, 그 뒤로는 /탐험 장소 순서 그대로예요
+function dexChapters() {
+  return [
+    { id: 'starter', emoji: '🐣', name: '스타팅 펫', ids: [...STARTER_IDS] },
+    ...LOCATION_LIST.map((loc) => ({
+      id: loc.id,
+      emoji: loc.emoji,
+      name: loc.name,
+      ids: [...new Set(loc.spawns.map((s) => s.petId))],
+    })),
+  ];
+}
+
+// 한 챕터만 보여주고, 나머지 챕터는 상점처럼 드롭다운으로 골라서 봐요
+function dexView(player, userId, chapterId, note) {
+  const found = player.dex ?? {};
+  const entry = (id) => {
+    const pet = PETS[id];
+    return found[id] ? `${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}**` : '❔ ???';
+  };
+
+  const chapters = dexChapters();
+  const chapter = chapters.find((c) => c.id === chapterId) ?? chapters[0];
+  const have = chapter.ids.filter((id) => found[id]).length;
+  const { found: count, total } = dexProgress(player);
+
+  return {
+    embeds: [
+      {
+        title: `📖 ${player.name}님의 도감`,
+        description:
+          `${note ? note + '\n\n' : ''}${expBar(count, total)}  전체 **${count} / ${total}**\n\n` +
+          `${chapter.emoji} **${chapter.name}** (${have}/${chapter.ids.length})\n` +
+          chapter.ids.map(entry).join('\n'),
+        color: EMBED_COLOR,
+        footer: { text: '해정볼로 잡으면 도감에 등록돼요! 챕터를 다 채우면 /도감보상' },
+      },
+    ],
+    components: [
+      row(
+        select({
+          customId: `dex:pick:${userId}`,
+          placeholder: '📖 볼 챕터를 골라요',
+          options: chapters.map((c) => ({
+            label: c.name,
+            value: c.id,
+            emoji: c.emoji,
+            description: `${c.ids.filter((id) => found[id]).length}/${c.ids.length} 등록됨`,
+            default: c.id === chapter.id,
+          })),
+        }),
+      ),
+    ],
+  };
+}
+
 const dexCmd = {
   data: {
     name: '도감',
@@ -3399,40 +3455,25 @@ const dexCmd = {
     if (!player) {
       return reply({ content: NOT_STARTED }, { ephemeral: true });
     }
+    return reply(dexView(player, user.id, 'starter'));
+  },
 
-    const found = player.dex ?? {};
-    const { found: count, total } = dexProgress(player);
-    const entry = (id) => {
-      const pet = PETS[id];
-      return found[id] ? `${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}**` : '❔ ???';
-    };
+  components: {
+    dex: async function dexHandleButton(interaction, args) {
+      const [action, ownerId] = args;
+      const user = getUser(interaction);
 
-    const fields = [];
-    const myStarters = STARTER_IDS.filter((id) => found[id]);
-    if (myStarters.length) {
-      fields.push({ name: '🐣 스타팅 펫', value: myStarters.map(entry).join('\n'), inline: true });
-    }
-    for (const loc of LOCATION_LIST) {
-      const ids = [...new Set(loc.spawns.map((s) => s.petId))];
-      const have = ids.filter((id) => found[id]).length;
-      fields.push({
-        name: `${loc.emoji} ${loc.name} (${have}/${ids.length})`,
-        value: ids.map(entry).join('\n'),
-        inline: true,
-      });
-    }
+      if (user.id !== ownerId) {
+        return reply({ content: '이 도감은 연 사람만 쓸 수 있어요 🙅 `/도감` 으로 직접 열어보세요!' }, { ephemeral: true });
+      }
+      if (action !== 'pick') return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
 
-    return reply({
-      embeds: [
-        {
-          title: `📖 ${player.name}님의 도감`,
-          description: `${expBar(count, total)}  **${count} / ${total}**`,
-          color: EMBED_COLOR,
-          fields,
-          footer: { text: '해정볼로 잡으면 도감에 등록돼요! 챕터를 다 채우면 /도감보상' },
-        },
-      ],
-    });
+      const player = await getPlayer(user.id);
+      if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
+
+      const picked = interaction.data.values?.[0];
+      return update(dexView(player, user.id, picked));
+    },
   },
 };
 
