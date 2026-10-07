@@ -1,7 +1,7 @@
 // 해정펫 스킬 ✨ — 스킬 데이터 + 전투 규칙 (디스코드와 상관없는 순수한 규칙)
 //
-// 마나: 최대 SKILL_CFG.manaMax(100), 매 턴 +manaPerTurn(5). 스킬은 마나를 써요. 좋은 스킬일수록 마나가 많이 들어요.
-// 슬롯: 1번 Lv.40 · 2번 Lv.100 · 3번 상점의 [스킬 슬롯 개방권]. 열릴 때 랜덤 스킬이 하나 들어와요 ([스킬 변경권] 으로 다시 뽑기).
+// 마나: 최대 SKILL_CFG.manaMax(100), 매 턴 +manaPerTurn(15). 스킬은 마나를 써요. 좋은 스킬일수록 마나가 많이 들어요.
+// 슬롯(총 5칸): 1번 Lv.20 · 2번 Lv.40 · 3번 Lv.100 · 4번 Lv.200 · 5번 상점의 [스킬 슬롯 개방권]. 열릴 때 랜덤 스킬이 하나 들어와요 ([스킬 변경권] 으로 다시 뽑기).
 // 전용기: 펫마다 1~2개. 그 펫만 배울 수 있고, 같은 마나의 일반 스킬보다 더 세요.
 //
 // 효과 칸 (fx) — 아래 이름만 쓰면 설명 글자는 자동으로 만들어져요:
@@ -12,9 +12,11 @@
 export const SKILL_CFG = {
   manaMax: 100, // 마나 최대치 (마나 수정으로 펫마다 더 늘릴 수 있어요)
   manaStart: 30, // 전투 시작 마나
-  manaPerTurn: 5, // 한 턴마다 차는 마나
-  slot1Level: 40, // 첫 스킬 슬롯이 열리는 펫 레벨
-  slot2Level: 100, // 두 번째 스킬 슬롯이 열리는 펫 레벨
+  manaPerTurn: 15, // 한 턴마다 차는 마나
+  slot1Level: 20, // 1번 스킬 슬롯이 열리는 펫 레벨
+  slot2Level: 40, // 2번 스킬 슬롯이 열리는 펫 레벨
+  slot3Level: 100, // 3번 스킬 슬롯이 열리는 펫 레벨
+  slot4Level: 200, // 4번 스킬 슬롯이 열리는 펫 레벨 (MAX_LEVEL 이 200 이상이어야 닿을 수 있어요)
   sigChance: 0.25, // 슬롯이 열리거나 변경될 때 "전용기"가 나올 확률 (펫에게 전용기가 있을 때)
   wildSkillChance: 0.35, // 야생 펫이 매 턴 전용기를 쓸 확률 (마나가 될 때)
   crystalMana: 10, // 마나 수정 1개당 늘어나는 최대 마나
@@ -335,7 +337,8 @@ P('creator', 'sig_creator2', '태초의 숨결', '✨', 5, { heal: 0.8, cleanse:
 const P100 = (x) => `${Math.round(x * 100)}%`;
 const DOT = { burn: '🔥 화상', poison: '☠️ 독', bleed: '🩸 출혈' };
 
-export function describeSkill(sk) {
+// 효과를 한 줄씩 나눠서 돌려줘요 (확인창에서 자세히 보여줄 때 써요)
+export function skillEffectLines(sk) {
   const t = [];
   if (sk.pow) t.push(sk.hits > 1 ? `적을 **${sk.hits}번** 공격 (1번에 공격력의 ${P100(sk.pow)})` : `적에게 공격력의 **${P100(sk.pow)}** 데미지`);
   if (sk.pierce) t.push(`적 방어력 ${P100(sk.pierce)} 무시`);
@@ -357,7 +360,11 @@ export function describeSkill(sk) {
   if (sk.mana) t.push(`마나 +${sk.mana}`);
   if (sk.drainMana) t.push(`적 마나 -${sk.drainMana}`);
   if (sk.cleanse) t.push('내 상태이상(화상·독·출혈·약화) 제거');
-  return (sk.flavor ? `*${sk.flavor}*\n` : '') + (t.join(' · ') || '효과 없음');
+  return t;
+}
+
+export function describeSkill(sk) {
+  return (sk.flavor ? `*${sk.flavor}*\n` : '') + (skillEffectLines(sk).join(' · ') || '효과 없음');
 }
 
 export const tierStars = (t) => '★'.repeat(Math.max(1, Math.min(5, t)));
@@ -371,8 +378,34 @@ export function skillCategory(sk) {
 
 // ───────── 슬롯 · 배우기 ─────────
 export const maxMana = (inst) => SKILL_CFG.manaMax + (inst?.manaBonus ?? 0);
-export const slotsOpen = (inst) => [inst.level >= SKILL_CFG.slot1Level, inst.level >= SKILL_CFG.slot2Level, !!inst.slot3];
-export const SLOT_HINT = () => [`Lv.${SKILL_CFG.slot1Level} 에 열려요`, `Lv.${SKILL_CFG.slot2Level} 에 열려요`, '상점의 🎫 스킬 슬롯 개방권으로 열어요'];
+export const SLOT_COUNT = 5; // 스킬 슬롯 개수
+// 5번 슬롯은 상점 개방권으로 열어요 (저장 데이터 호환을 위해 표시 이름은 예전 그대로 inst.slot3 이에요)
+export const slotsOpen = (inst) => [
+  inst.level >= SKILL_CFG.slot1Level,
+  inst.level >= SKILL_CFG.slot2Level,
+  inst.level >= SKILL_CFG.slot3Level,
+  inst.level >= SKILL_CFG.slot4Level,
+  !!inst.slot3,
+];
+export const SLOT_HINT = () => [
+  `Lv.${SKILL_CFG.slot1Level} 에 열려요`,
+  `Lv.${SKILL_CFG.slot2Level} 에 열려요`,
+  `Lv.${SKILL_CFG.slot3Level} 에 열려요`,
+  `Lv.${SKILL_CFG.slot4Level} 에 열려요`,
+  '상점의 🎫 스킬 슬롯 개방권으로 열어요',
+];
+
+// 예전 3칸 펫([Lv40, Lv100, 상점])을 새 5칸([Lv20, Lv40, Lv100, Lv200, 상점])으로 옮겨줘요 (이미 배운 스킬은 그대로 유지돼요)
+export function normalizeSkills(inst) {
+  if (!Array.isArray(inst.skills)) inst.skills = Array(SLOT_COUNT).fill(null);
+  else if (inst.skills.length < SLOT_COUNT) {
+    const old = inst.skills;
+    inst.skills = old.length === 3
+      ? [null, old[0] ?? null, old[1] ?? null, null, old[2] ?? null]
+      : [...old, ...Array(SLOT_COUNT - old.length).fill(null)];
+  }
+  return inst.skills;
+}
 
 export function rollSkill(inst, rng = Math.random, exclude = []) {
   const all = Object.values(SKILLS).filter((s) => !exclude.includes(s.id));
@@ -387,7 +420,7 @@ export function rollSkill(inst, rng = Math.random, exclude = []) {
 
 // 열려 있는데 비어 있는 슬롯에 랜덤 스킬을 채워요. 새로 생긴 [슬롯번호, 스킬id] 목록을 돌려줘요.
 export function grantSkills(inst, rng = Math.random) {
-  inst.skills = Array.isArray(inst.skills) ? inst.skills : [null, null, null];
+  normalizeSkills(inst);
   const got = [];
   slotsOpen(inst).forEach((open, i) => {
     if (open && !SKILLS[inst.skills[i]]) {
@@ -469,7 +502,7 @@ export function castSkill(sk, A, B, rng, log) {
   A.mana = Math.min(A.mana, A.manaMax);
 }
 
-// 턴이 끝날 때 한쪽에게 일어나는 일: 지속 피해 · 회복 · 남은 턴 줄이기 · 마나 +5
+// 턴이 끝날 때 한쪽에게 일어나는 일: 지속 피해 · 회복 · 남은 턴 줄이기 · 마나 +manaPerTurn
 export function tickSide(X, log) {
   const st = X.st;
   for (const d of st.dots ?? []) {

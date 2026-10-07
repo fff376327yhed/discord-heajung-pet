@@ -17,8 +17,13 @@ import {
   pickWildSkill,
   statusText,
   describeSkill,
+  skillEffectLines,
+  skillCategory,
   tierStars,
+  SLOT_COUNT,
 } from './skill.js';
+
+const SLOT_IDX = Array.from({ length: SLOT_COUNT }, (_, i) => i); // 스킬 슬롯 번호들 (0~4)
 
 // ============================================================
 // 설정값 (config.js)
@@ -355,7 +360,7 @@ const ITEMS = {
     emoji: '🎫',
     price: 2500,
     skillSlot: true,
-    description: '고른 펫의 3번째 스킬 슬롯을 열고, 랜덤 스킬 하나를 바로 배워요 (1개 = 펫 1마리).',
+    description: '고른 펫의 5번째(마지막) 스킬 슬롯을 열고, 랜덤 스킬 하나를 바로 배워요 (1개 = 펫 1마리). `/사용` · `/펫` · `/내정보` 에서 쓸 수 있어요.',
   },
   skill_reroll_ticket: {
     id: 'skill_reroll_ticket',
@@ -363,7 +368,7 @@ const ITEMS = {
     emoji: '🔄',
     price: 600,
     skillReroll: true,
-    description: '고른 펫의 스킬 슬롯 하나(1~3번, `/사용` 의 "슬롯" 칸)를 다른 랜덤 스킬로 다시 뽑아요. 전용기도 다시 나올 수 있어요.',
+    description: '고른 펫의 스킬 슬롯 하나(1~5번, `/사용` 의 "슬롯" 칸)를 다른 랜덤 스킬로 다시 뽑아요. 전용기도 다시 나올 수 있어요.',
   },
 
   // 🍖 포획 아이템: 야생 펫을 만난 뒤 써요 (전투 중엔 전투 화면 아이템 버튼). 포획 확률은 곱셈으로 올라가고, 최대 98%예요.
@@ -868,7 +873,7 @@ function createPetInstance(petId, level = 1) {
     exp: 0,
     nickname: null,
     caughtAt: Date.now(),
-    skills: [null, null, null], // 스킬 슬롯 3칸 (1·2번은 레벨, 3번은 상점 개방권)
+    skills: Array(SLOT_COUNT).fill(null), // 스킬 슬롯 5칸 (1~4번은 레벨 Lv.20/40/100/200, 5번은 상점 개방권)
   };
   grantSkills(inst); // 이미 열려 있는 슬롯이 있으면 바로 채워요
   return inst;
@@ -876,8 +881,7 @@ function createPetInstance(petId, level = 1) {
 
 // 예전에 만들어진 펫에 스킬 슬롯이 없으면 붙여줘요 (호환용)
 function ensureSkills(inst) {
-  if (!Array.isArray(inst.skills)) inst.skills = [null, null, null];
-  grantSkills(inst);
+  grantSkills(inst); // 옛 3칸 펫은 여기서 5칸으로 옮겨져요
   return inst;
 }
 
@@ -1073,7 +1077,7 @@ function useBoostItem(player, itemId, qty = 1, now = Date.now()) {
 }
 
 // 🎫 스킬 슬롯 개방권 / 🔄 스킬 변경권 — 펫 한 마리를 골라서 써요
-// slot: 스킬 변경권일 때만 써요 (1~3, 이미 열려 있는 슬롯이어야 해요)
+// slot: 스킬 변경권일 때만 써요 (1~5, 이미 열려 있는 슬롯이어야 해요)
 function useSkillItem(player, itemId, selector, slot, now = Date.now()) {
   const item = ITEMS[itemId];
   if (!item || !(item.skillSlot || item.skillReroll)) return { kind: 'unknown' };
@@ -1084,20 +1088,21 @@ function useSkillItem(player, itemId, selector, slot, now = Date.now()) {
   const owned = player.inventory?.[itemId] ?? 0;
   if (owned <= 0) return { kind: 'none', item };
 
-  // 🎫 3번 슬롯 열기
+  // 🎫 5번 슬롯 열기
   if (item.skillSlot) {
     if (inst.slot3) return { kind: 'already_open', inst };
     inst.slot3 = true;
     const got = grantSkills(inst);
-    if (!got.length) { inst.slot3 = false; return { kind: 'no_skill_left' }; }
+    const mine = got.find(([i]) => i === SLOT_COUNT - 1); // 방금 열린 5번 슬롯에 들어온 스킬
+    if (!mine) { inst.slot3 = false; return { kind: 'no_skill_left' }; }
     player.inventory[itemId] = owned - 1;
-    return { kind: 'slot_opened', commit: true, item, inst: { ...inst }, skill: SKILLS[got[0][1]] };
+    return { kind: 'slot_opened', commit: true, item, inst: { ...inst }, skill: SKILLS[mine[1]] };
   }
 
-  // 🔄 지정한 슬롯(1~3)의 스킬을 다른 걸로 다시 뽑기
+  // 🔄 지정한 슬롯(1~5)의 스킬을 다른 걸로 다시 뽑기
   const open = slotsOpen(inst);
   const idx = (Number(slot) || 0) - 1;
-  if (idx < 0 || idx > 2 || !open[idx]) return { kind: 'bad_slot' };
+  if (idx < 0 || idx >= SLOT_COUNT || !open[idx]) return { kind: 'bad_slot' };
   if (!SKILLS[inst.skills?.[idx]]) return { kind: 'empty_slot' };
 
   const before = SKILLS[inst.skills[idx]];
@@ -1342,7 +1347,8 @@ function snapshot(player, now = Date.now()) {
         myPetId: main.petId,
         myLevel: main.level,
         myName: main.nickname ?? PETS[main.petId].name,
-        skills: main.skills ?? [null, null, null], // 🆕 스킬 슬롯 (전투 버튼에 쓰여요)
+        skills: main.skills ?? Array(SLOT_COUNT).fill(null), // 🆕 스킬 슬롯 (전투 버튼에 쓰여요)
+        mainRef: { manaBonus: main.manaBonus ?? 0 }, // 화면에 최대 마나를 보여줄 때 써요
       };
     }
     return snap;
@@ -1805,7 +1811,7 @@ function battleSwap(player, id, uid, now = Date.now(), rng = Math.random) {
   return finishTurn(player, ex, c, log, now, rng);
 }
 
-// [스킬] — 슬롯 번호(0~2)의 스킬을 써요. 한 턴을 쓰고, 야생 펫이 반격해요.
+// [스킬] — 슬롯 번호(0~4)의 스킬을 써요. 한 턴을 쓰고, 야생 펫이 반격해요.
 // 마나가 모자라면 못 써요. 야생 펫도 가끔 전용기를 써요.
 function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
   const ex = player.exploration;
@@ -2327,6 +2333,106 @@ const start = {
 // /내정보
 // ═════════════════════════════════════════════
 
+// ═════════════════════════════════════════════
+// 🎫 스킬 슬롯 개방권 — /내정보 · /펫 에서 쓰는 공용 도우미
+// ═════════════════════════════════════════════
+
+const TICKET_ID = 'skill_slot_ticket';
+const ticketCount = (player) => player.inventory?.[TICKET_ID] ?? 0;
+
+// 펫 한 마리의 스킬 칸 5개를 글자로 보여줘요
+function skillSlotLines(inst) {
+  return SLOT_IDX.map((i) => {
+    const sk = SKILLS[inst.skills?.[i]];
+    if (sk) return `　${i + 1}번 ${sk.emoji} **${sk.name}** (마나 ${sk.cost}) ${tierStars(sk.tier)}`;
+    return `　${i + 1}번 🔒 ${SLOT_HINT()[i]}`;
+  }).join('\n');
+}
+
+// "정말 개방권을 쓸까요?" 확인 화면 (goId = 쓰기, backId = 취소)
+function ticketConfirmView(player, inst, { goId, backId }) {
+  const pet = PETS[inst.petId];
+  const name = inst.nickname ?? pet.name;
+  const item = ITEMS[TICKET_ID];
+  return {
+    embeds: [
+      {
+        title: `${item.emoji} ${item.name} 사용`,
+        description:
+          `${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** Lv.${inst.level} 의 **${SLOT_COUNT}번 스킬 슬롯**을 열까요?\n\n` +
+          `${item.emoji} ${item.name} **1개**를 써요 (지금 ${ticketCount(player)}개).\n` +
+          `열리면 랜덤 스킬 하나를 바로 배워요 (전용기가 나올 수도 있어요).\n\n` +
+          `✨ **지금 스킬**\n${skillSlotLines(inst)}`,
+        color: EMBED_COLOR,
+      },
+    ],
+    components: [
+      row(
+        button({ label: '개방하기', emoji: item.emoji, customId: goId, style: 3 }),
+        button({ label: '취소', emoji: '❌', customId: backId, style: 2 }),
+      ),
+    ],
+  };
+}
+
+function profileView(player, viewerId, isMe, note) {
+  const need = expToNext(player.level);
+  const levelLine =
+    player.level >= MAX_LEVEL
+      ? `⭐ **Lv.${player.level}** (MAX)`
+      : `⭐ **Lv.${player.level}**  ${expBar(player.exp, need)}  ${player.exp}/${need}`;
+
+  const main = getMainPet(player);
+  let mainText = '없음';
+  if (main) {
+    const pet = PETS[main.petId];
+    const s = calcStats(main.petId, main.level);
+    const name = main.nickname ?? pet.name;
+    mainText =
+      `${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** Lv.${main.level}\n` +
+      `❤️ ${currentHp(main)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
+      (main.level >= MAX_LEVEL
+        ? '⭐ MAX'
+        : `⭐ ${expBar(main.exp, expToNext(main.level))}  ${main.exp}/${expToNext(main.level)}`) +
+      `\n✨ **스킬** (전투 마나 최대 ${maxMana(main)})\n${skillSlotLines(main)}`;
+  }
+
+  const dex = dexProgress(player);
+
+  // 🎫 내 정보를 볼 때만, 개방권이 있고 대표 펫의 5번 슬롯이 아직 잠겨 있으면 버튼을 보여줘요
+  const components = [];
+  if (isMe && main && !main.slot3 && ticketCount(player) > 0) {
+    components.push(
+      row(
+        button({
+          label: `대표 펫 스킬 슬롯 개방 (${ticketCount(player)}개)`,
+          emoji: ITEMS[TICKET_ID].emoji,
+          customId: `profile:ticket:${viewerId}`,
+          style: 1,
+        }),
+      ),
+    );
+  }
+
+  return {
+    embeds: [
+      {
+        title: `🪪 ${player.name}님의 정보`,
+        description: `${note ? note + '\n\n' : ''}${levelLine}`,
+        color: EMBED_COLOR,
+        fields: [
+          { name: '💰 골드', value: `${player.gold.toLocaleString('ko-KR')}`, inline: true },
+          { name: `${BALL.emoji} ${BALL.name}`, value: `${player.inventory?.[BALL.id] ?? 0}개`, inline: true },
+          { name: '📖 도감', value: `${dex.found} / ${dex.total}`, inline: true },
+          { name: '🐾 보유 펫', value: `${player.pets.length}마리`, inline: true },
+          { name: '👑 대표 펫', value: mainText },
+        ],
+      },
+    ],
+    components,
+  };
+}
+
 const profile = {
   data: {
     name: '내정보',
@@ -2349,53 +2455,53 @@ const profile = {
         { ephemeral: true },
       );
     }
+    return reply(profileView(player, me.id, isMe));
+  },
 
-    const need = expToNext(player.level);
-    const levelLine =
-      player.level >= MAX_LEVEL
-        ? `⭐ **Lv.${player.level}** (MAX)`
-        : `⭐ **Lv.${player.level}**  ${expBar(player.exp, need)}  ${player.exp}/${need}`;
+  components: {
+    profile: async function profileHandleButton(interaction, args) {
+      const [action, ownerId, uid] = args;
+      const user = getUser(interaction);
 
-    const main = getMainPet(player);
-    let mainText = '없음';
-    if (main) {
-      const pet = PETS[main.petId];
-      const s = calcStats(main.petId, main.level);
-      const name = main.nickname ?? pet.name;
-      const skillLines = [0, 1, 2]
-        .map((i) => {
-          const sk = SKILLS[main.skills[i]];
-          if (sk) return `　${i + 1}번 ${sk.emoji} **${sk.name}** (마나 ${sk.cost}) ${tierStars(sk.tier)}`;
-          return `　${i + 1}번 🔒 ${SLOT_HINT()[i]}`;
-        })
-        .join('\n');
-      mainText =
-        `${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** Lv.${main.level}\n` +
-        `❤️ ${currentHp(main)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
-        (main.level >= MAX_LEVEL
-          ? '⭐ MAX'
-          : `⭐ ${expBar(main.exp, expToNext(main.level))}  ${main.exp}/${expToNext(main.level)}`) +
-        `\n✨ **스킬** (전투 마나 최대 ${maxMana(main)})\n${skillLines}`;
-    }
+      if (user.id !== ownerId) {
+        return reply({ content: '이 버튼은 연 사람만 쓸 수 있어요 🙅 `/내정보` 로 직접 열어보세요!' }, { ephemeral: true });
+      }
 
-    const dex = dexProgress(player);
+      const player = await getPlayer(user.id);
+      if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
 
-    return reply({
-      embeds: [
-        {
-          title: `🪪 ${player.name}님의 정보`,
-          description: levelLine,
-          color: EMBED_COLOR,
-          fields: [
-            { name: '💰 골드', value: `${player.gold.toLocaleString('ko-KR')}`, inline: true },
-            { name: `${BALL.emoji} ${BALL.name}`, value: `${player.inventory?.[BALL.id] ?? 0}개`, inline: true },
-            { name: '📖 도감', value: `${dex.found} / ${dex.total}`, inline: true },
-            { name: '🐾 보유 펫', value: `${player.pets.length}마리`, inline: true },
-            { name: '👑 대표 펫', value: mainText },
-          ],
-        },
-      ],
-    });
+      if (action === 'back') return update(profileView(player, user.id, true));
+
+      // 🎫 [대표 펫 스킬 슬롯 개방] → 확인 화면
+      if (action === 'ticket') {
+        const main = getMainPet(player);
+        if (!main) return reply({ content: '대표 펫이 없어요 🤔' }, { ephemeral: true });
+        if (ticketCount(player) <= 0) {
+          return reply({ content: `${ITEMS[TICKET_ID].emoji} ${ITEMS[TICKET_ID].name}이(가) 없어요 😭 \`/상점\` 에서 사올 수 있어요!` }, { ephemeral: true });
+        }
+        if (main.slot3) return update(profileView(player, user.id, true, '이미 5번 슬롯이 열려 있어요!'));
+        return update(
+          ticketConfirmView(player, main, {
+            goId: `profile:ticketgo:${user.id}:${main.uid}`,
+            backId: `profile:back:${user.id}`,
+          }),
+        );
+      }
+
+      // ✅ [개방하기] → 실제로 쓰기
+      if (action === 'ticketgo') {
+        let latest = null;
+        const out = await updatePlayer(user.id, (p) => {
+          const r = useSkillItem(p, TICKET_ID, uid, null, Date.now());
+          latest = p;
+          return { commit: r.commit === true, value: r };
+        });
+        if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+        return update(profileView(latest, user.id, true, skillItemResultText(out)));
+      }
+
+      return update({ content: '이 버튼은 이제 쓸 수 없어요 🥲', embeds: [], components: [] });
+    },
   },
 };
 
@@ -2547,14 +2653,14 @@ function catchItemRows(snap, userId) {
 function skillRows(snap, userId) {
   const b = snap.battle;
   if (!b) return [];
-  const btns = [0, 1, 2]
+  const btns = SLOT_IDX
     .filter((i) => SKILLS[b.skills?.[i]])
     .map((i) => {
       const sk = SKILLS[b.skills[i]];
       return button({
         label: `${sk.name} (${sk.cost})`,
         emoji: sk.emoji,
-        customId: `explore:skill:${userId}:${snap.id}:${i}`,
+        customId: `explore:skillask:${userId}:${snap.id}:${i}`, // 누르면 설명 + 사용 확인창이 먼저 떠요
         style: 1,
         disabled: b.myMana < sk.cost,
       });
@@ -2665,6 +2771,44 @@ function exploreViewBattle(snap, userId, note) {
         button({ label: '교체', emoji: '🔄', customId: `explore:swap:${userId}:${snap.id}`, style: 1 }),
       ),
       ...catchItemRows(snap, userId),
+    ],
+  };
+}
+
+// ✨ 스킬 설명 + "사용할까요?" 확인 화면 (스킬 버튼을 누르면 바로 쓰지 않고 이 화면이 먼저 떠요)
+function exploreViewSkillConfirm(snap, userId, slot) {
+  const b = snap.battle;
+  const sk = SKILLS[b.skills?.[slot]];
+  const wild = PETS[snap.encounter.petId];
+  const mine = PETS[b.myPetId];
+  const maxM = maxMana(getMainPetFromSnap(snap));
+  const enough = b.myMana >= sk.cost;
+  const after = Math.max(0, b.myMana - sk.cost);
+  const effects = skillEffectLines(sk);
+  return {
+    embeds: [
+      {
+        title: `✨ ${sk.emoji} ${sk.name} — 이 스킬을 쓸까요?`,
+        description:
+          `${tierStars(sk.tier)} · ${skillCategory(sk)}${sk.pet ? ` · ${mine.emoji} ${b.myName} 전용기` : ''} · ${slot + 1}번 슬롯\n` +
+          (sk.flavor ? `*${sk.flavor}*\n` : '') +
+          `\n**📖 스킬 효과**\n${effects.length ? effects.map((t) => `• ${t}`).join('\n') : '• 효과 없음'}\n\n` +
+          `🔋 마나 **${sk.cost}** 소모 (지금 ${b.myMana} → 사용 후 ${after} / 최대 ${maxM})\n` +
+          `⏱️ 스킬을 쓰면 **이번 턴이 끝나고** ${wild.emoji} ${wild.name}(이)가 반격해요. 턴이 끝나면 마나가 +${SKILL_CFG.manaPerTurn} 차요.\n` +
+          `💫 기절 중이면 스킬이 나가지 않아요 (마나는 그대로).` +
+          (enough ? '' : `\n\n⚠️ **마나가 모자라요!** (필요 ${sk.cost} / 현재 ${b.myMana})`),
+        color: 0x5865f2,
+        fields: [
+          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
+          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
+        ],
+      },
+    ],
+    components: [
+      row(
+        button({ label: '사용하기', emoji: '✅', customId: `explore:skillgo:${userId}:${snap.id}:${slot}`, style: 3, disabled: !enough }),
+        button({ label: '취소', emoji: '❌', customId: `explore:skillno:${userId}:${snap.id}`, style: 2 }),
+      ),
     ],
   };
 }
@@ -2817,14 +2961,14 @@ function skillItemResultText(out) {
   if (out.kind === 'unknown') return '그런 아이템은 없어요 🤔';
   if (out.kind === 'not_found') return '그 펫을 찾을 수 없어요 🤔 번호나 이름을 다시 확인해주세요! (`/펫` 에서 확인 가능)';
   if (out.kind === 'none') return `${out.item.emoji} ${out.item.name}이(가) 없어요 😭 \`/상점\` 에서 사올 수 있어요!`;
-  if (out.kind === 'already_open') return '이미 3번 슬롯이 열려 있어요! 스킬을 바꾸고 싶으면 🔄 **스킬 변경권**을 써보세요.';
-  if (out.kind === 'bad_slot') return '그 슬롯은 아직 안 열려 있어요! `/사용` 의 **슬롯** 칸에 이미 열린 번호(1~3)를 적어주세요. (`/펫` 에서 확인 가능)';
+  if (out.kind === 'already_open') return '이미 5번 슬롯이 열려 있어요! 스킬을 바꾸고 싶으면 🔄 **스킬 변경권**을 써보세요.';
+  if (out.kind === 'bad_slot') return '그 슬롯은 아직 안 열려 있어요! `/사용` 의 **슬롯** 칸에 이미 열린 번호(1~5)를 적어주세요. (`/펫` 에서 확인 가능)';
   if (out.kind === 'empty_slot') return '그 슬롯은 아직 비어 있어요! (스킬이 있어야 바꿀 수 있어요)';
   if (out.kind === 'no_skill_left') return '더 뽑을 수 있는 스킬이 없어요 🤔';
   const pet = PETS[out.inst.petId];
   const name = out.inst.nickname ?? pet.name;
   if (out.kind === 'slot_opened') {
-    return `🎫 ${GRADES[pet.grade].emoji} ${pet.emoji} **${name}**의 **3번 스킬 슬롯**이 열렸어요!\n✨ ${out.skill.emoji} **${out.skill.name}** (마나 ${out.skill.cost}) ${tierStars(out.skill.tier)} 를 배웠어요!`;
+    return `🎫 ${GRADES[pet.grade].emoji} ${pet.emoji} **${name}**의 **5번 스킬 슬롯**이 열렸어요!\n✨ ${out.skill.emoji} **${out.skill.name}** (마나 ${out.skill.cost}) ${tierStars(out.skill.tier)} 를 배웠어요!`;
   }
   return `🔄 ${GRADES[pet.grade].emoji} ${pet.emoji} **${name}**의 ${out.before.emoji} **${out.before.name}** 이(가) ${out.skill.emoji} **${out.skill.name}** (마나 ${out.skill.cost}) ${tierStars(out.skill.tier)} 로 바뀌었어요!`;
 }
@@ -3037,8 +3181,26 @@ async function exploreHandleButton(interaction, args) {
     return battleOutcomeView(out, user.id); // won / lost / draw / wild_flee
   }
 
-  // 🆕 [스킬] — 슬롯 번호(extra)의 스킬을 써요
-  if (action === 'skill') {
+  // ✨ [스킬 버튼] — 바로 쓰지 않고, 스킬 설명 + "사용할까요?" 확인 화면을 먼저 보여줘요 (아직 턴은 안 써요)
+  // (예전 메시지의 'skill' 버튼도 안전하게 확인창으로 보내요)
+  if (action === 'skill' || action === 'skillask' || action === 'skillno') {
+    const player = await getPlayer(user.id);
+    const ex = player?.exploration;
+    if (!ex || ex.id !== id || !ex.encounter) return exploreViewExpired();
+    if (!ex.battle) {
+      return reply({ content: '아직 전투가 시작되지 않았어요! **[싸우기]** 를 먼저 눌러요 ⚔️' }, { ephemeral: true });
+    }
+    const snap = snapshot(player, Date.now());
+    if (action === 'skillno') return update(exploreViewBattle(snap, user.id));
+    const slotNo = Number(extra);
+    if (!Number.isInteger(slotNo) || !SKILLS[snap.battle.skills?.[slotNo]]) {
+      return reply({ content: '그 슬롯에는 스킬이 없어요!' }, { ephemeral: true });
+    }
+    return update(exploreViewSkillConfirm(snap, user.id, slotNo));
+  }
+
+  // ✅ 확인창에서 [사용하기] 를 눌렀을 때 — 슬롯 번호(extra)의 스킬을 써요
+  if (action === 'skillgo') {
     const out = await updatePlayer(user.id, (p) => {
       const r = battleSys.battleSkill(p, id, Number(extra), Date.now());
       return { commit: r.commit === true, value: r };
@@ -3494,9 +3656,11 @@ function petsView(player, userId, page = 0, note) {
     const pet = PETS[inst.petId];
     const s = calcStats(inst.petId, inst.level);
     const crown = inst.uid === player.mainPetUid ? '👑 ' : '';
+    const learned = SLOT_IDX.filter((k) => SKILLS[inst.skills?.[k]]).length;
     return (
       `**${start + i + 1}.** ${crown}${GRADES[pet.grade].emoji} ${pet.emoji} **${inst.nickname ?? pet.name}** Lv.${inst.level}\n` +
-      `　❤️ ${currentHp(inst)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}`
+      `　❤️ ${currentHp(inst)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
+      `　✨ 스킬 ${learned}/${SLOT_COUNT}${inst.slot3 ? '' : ' · 🎫 5번 칸 잠김'}`
     );
   });
 
@@ -3527,6 +3691,19 @@ function petsView(player, userId, page = 0, note) {
       ),
     );
   }
+  // 🎫 스킬 슬롯 개방권이 있으면 이 페이지의 펫에게 쓸 수 있는 버튼을 보여줘요
+  if (ticketCount(player) > 0) {
+    components.push(
+      row(
+        button({
+          label: `스킬 슬롯 개방권 사용 (${ticketCount(player)}개)`,
+          emoji: ITEMS[TICKET_ID].emoji,
+          customId: `pets:ticket:${userId}:${cur}`,
+          style: 1,
+        }),
+      ),
+    );
+  }
 
   return {
     embeds: [
@@ -3538,6 +3715,46 @@ function petsView(player, userId, page = 0, note) {
       },
     ],
     components,
+  };
+}
+
+// 🎫 개방권을 쓸 펫을 고르는 화면 (이 페이지의 펫 중 5번 칸이 아직 잠긴 펫만 나와요)
+function petsTicketPickView(player, userId, page) {
+  const cur = Math.max(0, page);
+  const start = cur * PAGE_SIZE;
+  const cands = player.pets
+    .slice(start, start + PAGE_SIZE)
+    .map((inst, i) => ({ inst, no: start + i + 1 }))
+    .filter((c) => !c.inst.slot3);
+  const item = ITEMS[TICKET_ID];
+  return {
+    embeds: [
+      {
+        title: `${item.emoji} ${item.name} — 어느 펫에게 쓸까요?`,
+        description:
+          `${item.emoji} **${ticketCount(player)}개** 가지고 있어요. 아래에서 펫을 고르면 **확인 화면**이 떠요.\n` +
+          `5번 스킬 칸이 잠긴 펫만 보여요. (지금 보고 있는 페이지의 펫들이에요)`,
+        color: EMBED_COLOR,
+      },
+    ],
+    components: [
+      row(
+        select({
+          customId: `pets:ticketpick:${userId}:${cur}`,
+          placeholder: '🎫 스킬 칸을 열 펫을 골라요',
+          options: cands.map(({ inst, no }) => {
+            const pet = PETS[inst.petId];
+            return {
+              label: `${no}. ${inst.nickname ?? pet.name} Lv.${inst.level}`,
+              value: inst.uid,
+              description: `스킬 ${SLOT_IDX.filter((k) => SKILLS[inst.skills?.[k]]).length}/${SLOT_COUNT}`,
+              emoji: pet.emoji,
+            };
+          }),
+        }),
+      ),
+      row(button({ label: '돌아가기', emoji: '◀️', customId: `pets:page:${userId}:${cur}`, style: 2 })),
+    ],
   };
 }
 
@@ -3557,7 +3774,7 @@ const pets = {
 
   components: {
     pets: async function petsHandleButton(interaction, args) {
-      const [action, ownerId, pageStr] = args;
+      const [action, ownerId, pageStr, uidArg] = args;
       const user = getUser(interaction);
       const page = Number(pageStr) || 0;
 
@@ -3592,6 +3809,50 @@ const pets = {
             ? `${pet.emoji} **${name}**(이)가 이미 대표 펫이에요!`
             : `👑 이제 ${pet.emoji} **${name}**(이)가 대표 펫이에요!`;
         return update(petsView(latest, user.id, page, note));
+      }
+
+      // 🎫 [스킬 슬롯 개방권 사용] → 펫 고르기
+      if (action === 'ticket') {
+        const player = await getPlayer(user.id);
+        if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
+        if (ticketCount(player) <= 0) {
+          return reply({ content: `${ITEMS[TICKET_ID].emoji} ${ITEMS[TICKET_ID].name}이(가) 없어요 😭 \`/상점\` 에서 사올 수 있어요!` }, { ephemeral: true });
+        }
+        const start = page * PAGE_SIZE;
+        if (!player.pets.slice(start, start + PAGE_SIZE).some((x) => !x.slot3)) {
+          return update(petsView(player, user.id, page, '이 페이지의 펫들은 5번 스킬 칸이 모두 열려 있어요! 다른 페이지를 확인해보세요.'));
+        }
+        return update(petsTicketPickView(player, user.id, page));
+      }
+
+      // 🎫 고른 펫 → 확인 화면
+      if (action === 'ticketpick') {
+        const uid = interaction.data.values?.[0];
+        const player = await getPlayer(user.id);
+        if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
+        const inst = player.pets.find((x) => x.uid === uid);
+        if (!inst) return reply({ content: '그 펫을 찾을 수 없어요 🤔 `/펫` 을 다시 열어보세요!' }, { ephemeral: true });
+        if (ticketCount(player) <= 0) return update(petsView(player, user.id, page, '개방권이 없어요 😭'));
+        if (inst.slot3) return update(petsView(player, user.id, page, '이미 5번 슬롯이 열려 있는 펫이에요!'));
+        ensureSkills(inst);
+        return update(
+          ticketConfirmView(player, inst, {
+            goId: `pets:ticketgo:${user.id}:${page}:${inst.uid}`,
+            backId: `pets:ticket:${user.id}:${page}`,
+          }),
+        );
+      }
+
+      // ✅ [개방하기] → 실제로 쓰기
+      if (action === 'ticketgo') {
+        let latest = null;
+        const out = await updatePlayer(user.id, (p) => {
+          const r = useSkillItem(p, TICKET_ID, uidArg, null, Date.now());
+          latest = p;
+          return { commit: r.commit === true, value: r };
+        });
+        if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+        return update(petsView(latest, user.id, page, skillItemResultText(out)));
       }
 
       return update({ content: '이 버튼은 이제 쓸 수 없어요 🥲', embeds: [], components: [] });
@@ -4020,7 +4281,7 @@ const use = {
       },
       { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? (비우면 1개, 회복약은 가득 찰 때까지만 써요)', required: false, min_value: 1 },
       { type: 5, name: '최대', description: '켜면 가진 만큼 최대로 써요', required: false },
-      { type: 4, name: '슬롯', description: '🔄 스킬 변경권 전용: 다시 뽑을 스킬 슬롯 번호 (1~3)', required: false, min_value: 1, max_value: 3 },
+      { type: 4, name: '슬롯', description: '🔄 스킬 변경권 전용: 다시 뽑을 스킬 슬롯 번호 (1~5)', required: false, min_value: 1, max_value: SLOT_COUNT },
       {
         type: 3,
         name: '대상',
@@ -4175,9 +4436,10 @@ const help = {
                 name: '✨ 스킬 · 🔋 마나',
                 value:
                   `전투 시작 시 마나 **${SKILL_CFG.manaStart}** 로 시작하고, 매 턴 **+${SKILL_CFG.manaPerTurn}** 씩 차요 (최대 ${SKILL_CFG.manaMax}).\n` +
-                  `스킬 칸은 **Lv.${SKILL_CFG.slot1Level}** 에 1번, **Lv.${SKILL_CFG.slot2Level}** 에 2번이 열리고, 3번은 상점의 🎫 **스킬 슬롯 개방권**으로 열어요.\n` +
+                  `스킬 칸은 총 **${SLOT_COUNT}칸**이에요. **Lv.${SKILL_CFG.slot1Level}** · **Lv.${SKILL_CFG.slot2Level}** · **Lv.${SKILL_CFG.slot3Level}** · **Lv.${SKILL_CFG.slot4Level}** 에 1~4번이 열리고, 5번은 상점의 🎫 **스킬 슬롯 개방권**으로 열어요 (\`/사용\` · \`/펫\` · \`/내정보\` 에서 쓸 수 있어요).\n` +
                   `열린 칸에는 랜덤 스킬이 들어와요. 펫마다 **전용기**가 있고, 그 펫만 배울 수 있어요. 전용기는 같은 마나의 일반 스킬보다 세요.\n` +
-                  `🔄 스킬을 바꾸는 방법은 나중에 추가될 예정이에요.\n` +
+                  `🔄 스킬은 상점의 **스킬 변경권**(\`/사용\`)으로 다시 뽑을 수 있어요.\n` +
+                  `전투에서 스킬 버튼을 누르면 **스킬 설명과 사용 확인창**이 먼저 떠요.\n` +
                   `\`/내정보\` 에서 대표 펫의 스킬 칸을 확인해요.`,
               },
               {
