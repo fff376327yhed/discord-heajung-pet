@@ -587,15 +587,25 @@ function autocompleteResult(choices) {
 // 버튼 응답과 별개로 채널에 "새 메시지"를 하나 더 보내요.
 // 채팅이 올라와서 탐험 패널이 위로 묻혔을 때, 패널을 맨 아래로 다시 띄우는 용도예요.
 async function postChannelMessage(channelId, data) {
-  const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
-    },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) console.error('새 메시지 보내기 실패:', res.status, await res.text());
+  try {
+    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+      },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      console.error('새 메시지 보내기 실패:', res.status, await res.text());
+      return false;
+    }
+    return true;
+  } catch (error) {
+    // 네트워크 오류 등으로 fetch 자체가 실패해도 여기서 막아서, 인터랙션 응답까지 통째로 날아가지 않게 해요
+    console.error('새 메시지 보내기 실패(네트워크):', error);
+    return false;
+  }
 }
 
 // 숫자 한 칸짜리 입력창을 띄워요 (버튼을 누르면 뜨고, 제출하면 customId 로 다시 들어와요)
@@ -2531,12 +2541,10 @@ function exploreViewEncounter(snap, userId, note) {
     components: [
       row(
         button({ label: '잡기', emoji: BALL.emoji, customId: `explore:catch:${userId}:${snap.id}`, style: 3 }),
-        button({ label: `잡기 ×${MULTI_THROWS}`, emoji: BALL.emoji, customId: `explore:catch3:${userId}:${snap.id}`, style: 3 }),
         button({ label: '싸우기', emoji: '⚔️', customId: `explore:fight:${userId}:${snap.id}`, style: 4 }),
         button({ label: '무시하기', emoji: '👋', customId: `explore:ignore:${userId}:${snap.id}`, style: 2 }),
         bumpButton(userId, snap.id),
       ),
-      row(button({ label: '잡기 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:catch`, style: 3 })),
       ...catchItemRows(snap, userId),
     ],
   };
@@ -2578,16 +2586,7 @@ function exploreViewBattle(snap, userId, note) {
       ),
       ...skillRows(snap, userId),
       row(
-        button({ label: `공격 ×${MULTI_TURNS}`, emoji: '⚔️', customId: `explore:attack3:${userId}:${snap.id}`, style: 4 }),
-        button({ label: `잡기 ×${MULTI_THROWS}`, emoji: BALL.emoji, customId: `explore:catch3:${userId}:${snap.id}`, style: 3 }),
-        button({ label: '회복 ×3', emoji: '🧪', customId: `explore:heal3:${userId}:${snap.id}`, style: 1 }),
-        button({ label: '회복 가득', emoji: '🍶', customId: `explore:healfull:${userId}:${snap.id}`, style: 1 }),
         button({ label: '교체', emoji: '🔄', customId: `explore:swap:${userId}:${snap.id}`, style: 1 }),
-      ),
-      row(
-        button({ label: '공격 (턴 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:attack`, style: 4 }),
-        button({ label: '잡기 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:catch`, style: 3 }),
-        button({ label: '회복 (개수 입력)', emoji: '✏️', customId: `explore:ask:${userId}:${snap.id}:heal`, style: 1 }),
       ),
       ...catchItemRows(snap, userId),
     ],
@@ -3022,7 +3021,12 @@ async function exploreHandleButton(interaction, args) {
     if (!ex || ex.id !== id) return exploreViewExpired();
 
     const snap = snapshot(player, Date.now());
-    await postChannelMessage(interaction.channel_id, exploreViewSnap(snap, user.id));
+    const sent = await postChannelMessage(interaction.channel_id, exploreViewSnap(snap, user.id));
+
+    // 실패했을 때도 "내려갔어요!"라고 거짓으로 알리지 않고, 기존 패널을 그대로 둬서 바로 다시 눌러볼 수 있게 해요
+    if (!sent) {
+      return reply({ content: '🔽 새 패널을 내려보내지 못했어요! 잠시 후 다시 눌러주세요 🙏' }, { ephemeral: true });
+    }
 
     return update({
       embeds: [{ title: '🔽 아래로 내려갔어요!', description: '채팅 맨 아래에서 새 탐험 패널을 이어서 눌러주세요!', color: 0x99aab5 }],
