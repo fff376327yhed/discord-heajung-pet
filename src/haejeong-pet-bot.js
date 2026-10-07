@@ -618,9 +618,10 @@ async function postChannelMessage(channelId, data) {
         'Content-Type': 'application/json',
         Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, flags: SILENT }),
     });
     if (!res.ok) {
+      // 403 = 봇이 그 채널을 못 보거나 메시지 보내기 권한이 없어요
       console.error('새 메시지 보내기 실패:', res.status, await res.text());
       return false;
     }
@@ -3402,9 +3403,10 @@ async function exploreHandleButton(interaction, args) {
     const snap = snapshot(player, Date.now());
     const sent = await postChannelMessage(interaction.channel_id, exploreViewSnap(snap, user.id));
 
-    // 실패했을 때도 "내려갔어요!"라고 거짓으로 알리지 않고, 기존 패널을 그대로 둬서 바로 다시 눌러볼 수 있게 해요
+    // 봇이 채널에 직접 글을 못 쓰는 경우(권한 부족)에는, 버튼 응답 자체를 새 메시지로 보내서 패널을 맨 아래에 띄워요.
+    // 버튼 응답은 봇 권한과 상관없이 항상 보낼 수 있어요. (이때 예전 패널은 그대로 남아요)
     if (!sent) {
-      return reply({ content: '🔽 새 패널을 내려보내지 못했어요! 잠시 후 다시 눌러주세요 🙏' }, { ephemeral: true });
+      return reply(exploreViewSnap(snap, user.id));
     }
 
     return update({
