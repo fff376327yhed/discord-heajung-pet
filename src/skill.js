@@ -1,6 +1,6 @@
 // 해정펫 스킬 ✨ — 스킬 데이터 + 전투 규칙 (디스코드와 상관없는 순수한 규칙)
 //
-// 마나: 최대 SKILL_CFG.manaMax(100), 매 턴 +manaPerTurn(15). 스킬은 마나를 써요. 좋은 스킬일수록 마나가 많이 들어요.
+// 마나: 최대 SKILL_CFG.manaMax(100), 기본 공격을 한 턴에만 +manaPerTurn(15) (스킬·회복·교체·잡기 턴에는 안 차요). 스킬은 마나를 써요. 좋은 스킬일수록 마나가 많이 들어요.
 // 슬롯(총 5칸): 1번 Lv.20 · 2번 Lv.40 · 3번 Lv.100 · 4번 Lv.200 · 5번 상점의 [스킬 슬롯 개방권]. 열릴 때 랜덤 스킬이 하나 들어와요 ([스킬 변경권] 으로 다시 뽑기).
 // 전용기: 펫마다 1~2개. 그 펫만 배울 수 있고, 같은 마나의 일반 스킬보다 더 세요.
 //
@@ -16,7 +16,7 @@
 export const SKILL_CFG = {
   manaMax: 100, // 마나 최대치 (마나 수정으로 펫마다 더 늘릴 수 있어요)
   manaStart: 30, // 전투 시작 마나
-  manaPerTurn: 15, // 한 턴마다 차는 마나
+  manaPerTurn: 15, // 기본 공격을 했을 때 차는 마나 (스킬을 쓴 턴에는 안 차요)
   slot1Level: 20, // 1번 스킬 슬롯이 열리는 펫 레벨
   slot2Level: 40, // 2번 스킬 슬롯이 열리는 펫 레벨
   slot3Level: 100, // 3번 스킬 슬롯이 열리는 펫 레벨
@@ -629,8 +629,9 @@ export function castSkill(sk, A, B, rng, log) {
   A.mana = Math.min(A.mana, A.manaMax);
 }
 
-// 턴이 끝날 때 한쪽에게 일어나는 일: 지속 피해 · 회복 · 남은 턴 줄이기 · 마나 +manaPerTurn
-export function tickSide(X, log) {
+// 턴이 끝날 때 한쪽에게 일어나는 일: 지속 피해 · 회복 · 남은 턴 줄이기 · (gainMana 일 때만) 마나 +manaPerTurn
+// gainMana: 이번 턴에 기본 공격을 했을 때만 true 로 넘겨요. 스킬을 쓴 턴에는 마나가 안 차요.
+export function tickSide(X, log, gainMana = true) {
   const st = X.st;
   for (const d of st.dots ?? []) {
     const n = Math.max(1, Math.round(X.max * d.pct));
@@ -656,7 +657,7 @@ export function tickSide(X, log) {
   for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo']) {
     if (st[k] && --st[k].turns <= 0) delete st[k];
   }
-  X.mana = Math.min(X.manaMax, X.mana + SKILL_CFG.manaPerTurn);
+  if (gainMana) X.mana = Math.min(X.manaMax, X.mana + SKILL_CFG.manaPerTurn);
 }
 
 // 야생 펫의 스킬 고르기: 전용기 중 마나가 되는 것 (가끔만 써요)

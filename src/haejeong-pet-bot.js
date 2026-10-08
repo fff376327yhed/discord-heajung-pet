@@ -1875,7 +1875,8 @@ function stunned(st, name, log) {
 }
 
 // 한 턴이 끝났을 때: 체력 저장 → 승리/패배/무승부/계속 판정
-function finishTurn(player, ex, c, log, now, rng) {
+// myManaGain: 내가 이번 턴에 기본 공격을 했을 때만 true → 마나 +15 (스킬·회복·교체·잡기 턴에는 안 차요)
+function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   const b = ex.battle;
   const { main, myPet, wildPet, wildInfo, myName } = c;
   const locationId = ex.locationId;
@@ -1951,10 +1952,10 @@ function finishTurn(player, ex, c, log, now, rng) {
     return { kind: 'draw', commit: true, log, locationId, wildPetId: wildInfo.petId };
   }
 
-  // 🆕 턴 끝: 마나 회복 · 지속 피해 · 재생 · 상태이상 턴 감소 — [공격]/[회복]/[교체]/[스킬] 뭘 써도 항상 적용돼요!
+  // 🆕 턴 끝: 지속 피해 · 재생 · 상태이상 턴 감소는 항상 적용돼요. 내 마나는 기본 공격을 한 턴에만 차요!
   const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp, mana: b.myMana, manaMax: maxMana(main), st: b.mySt };
   const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt };
-  tickSide(tMe, log);
+  tickSide(tMe, log, myManaGain);
   tickSide(tWild, log);
   b.myHp = tMe.hp; b.myMana = tMe.mana;
   b.wildHp = tWild.hp; b.wildMana = tWild.mana;
@@ -1997,12 +1998,14 @@ function battleTurn(player, id, now = Date.now(), rng = Math.random) {
   const c = context(player, ex);
   const log = [];
   const order = c.mine.spd >= c.wild.spd ? ['me', 'wild'] : ['wild', 'me'];
+  let attacked = false; // 내가 실제로 기본 공격을 했는지 (기절하면 못 해요)
   for (const who of order) {
     if (b.myHp <= 0 || b.wildHp <= 0) break; // 이미 쓰러졌으면 반격 못 해요
-    if (who === 'me') { if (!stunned(b.mySt, c.myName, log)) myAttack(c, b, log, rng); }
+    if (who === 'me') { if (!stunned(b.mySt, c.myName, log)) { myAttack(c, b, log, rng); attacked = true; } }
     else { if (!stunned(b.wildSt, c.wildPet.name, log)) wildAttack(c, b, log, rng); }
   }
-  return finishTurn(player, ex, c, log, now, rng);
+  if (attacked && b.myHp > 0 && b.wildHp > 0) log.push(`🔋 기본 공격으로 마나 **+${SKILL_CFG.manaPerTurn}** 회복!`);
+  return finishTurn(player, ex, c, log, now, rng, attacked);
 }
 
 // [공격 ×N] — 한 번 눌러서 여러 턴을 진행해요 (끝나거나, 내 체력이 위험해지면 멈춰요)
@@ -3242,7 +3245,7 @@ function exploreViewSkillConfirm(snap, userId, slot) {
           (sk.flavor ? `*${sk.flavor}*\n` : '') +
           `\n**📖 스킬 효과**\n${effects.length ? effects.map((t) => `• ${t}`).join('\n') : '• 효과 없음'}\n\n` +
           `🔋 마나 **${sk.cost}** 소모 (지금 ${b.myMana} → 사용 후 ${after} / 최대 ${maxM})\n` +
-          `⏱️ 스킬을 쓰면 **이번 턴이 끝나고** ${wild.emoji} ${wild.name}(이)가 반격해요. 턴이 끝나면 마나가 +${SKILL_CFG.manaPerTurn} 차요.\n` +
+          `⏱️ 스킬을 쓰면 **이번 턴이 끝나고** ${wild.emoji} ${wild.name}(이)가 반격해요. 스킬을 쓴 턴에는 마나가 차지 않아요! (기본 공격을 해야 마나 +${SKILL_CFG.manaPerTurn})\n` +
           `💫 기절 중이면 스킬이 나가지 않아요 (마나는 그대로).` +
           (enough ? '' : `\n\n⚠️ **마나가 모자라요!** (필요 ${sk.cost} / 현재 ${b.myMana})`),
         color: 0x5865f2,
@@ -3657,7 +3660,7 @@ async function exploreHandleButton(interaction, args) {
     if (out.kind === 'no_battle') return reply({ content: '아직 전투가 시작되지 않았어요! **[싸우기]** 를 먼저 눌러요 ⚔️' }, { ephemeral: true });
     if (out.kind === 'no_skill') return reply({ content: '그 슬롯에는 스킬이 없어요!' }, { ephemeral: true });
     if (out.kind === 'no_mana') {
-      return reply({ content: `🔋 마나가 모자라요! (필요 ${out.need} / 현재 ${out.have}) 공격이나 회복으로 턴을 넘겨봐요.` }, { ephemeral: true });
+      return reply({ content: `🔋 마나가 모자라요! (필요 ${out.need} / 현재 ${out.have}) 기본 공격을 해서 마나를 모아봐요.` }, { ephemeral: true });
     }
     if (out.kind === 'continue') return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
     return battleOutcomeView(out, user.id); // won / lost / draw / wild_flee
@@ -4884,7 +4887,7 @@ const help = {
               {
                 name: '✨ 스킬 · 🔋 마나',
                 value:
-                  `전투 시작 시 마나 **${SKILL_CFG.manaStart}** 로 시작하고, 매 턴 **+${SKILL_CFG.manaPerTurn}** 씩 차요 (최대 ${SKILL_CFG.manaMax}).\n` +
+                  `전투 시작 시 마나 **${SKILL_CFG.manaStart}** 로 시작하고, **기본 공격**을 할 때만 **+${SKILL_CFG.manaPerTurn}** 씩 차요 (스킬·회복·교체 턴에는 안 차요, 최대 ${SKILL_CFG.manaMax}).\n` +
                   `스킬 칸은 총 **${SLOT_COUNT}칸**이에요. **Lv.${SKILL_CFG.slot1Level}** · **Lv.${SKILL_CFG.slot2Level}** · **Lv.${SKILL_CFG.slot3Level}** · **Lv.${SKILL_CFG.slot4Level}** 에 1~4번이 열리고, 5번은 상점의 🎫 **스킬 슬롯 개방권**으로 열어요 (\`/사용\` · \`/펫\` · \`/내정보\` 에서 쓸 수 있어요).\n` +
                   `열린 칸에는 랜덤 스킬이 들어와요. 펫마다 **전용기**가 있고, 그 펫만 배울 수 있어요. 전용기는 같은 마나의 일반 스킬보다 세요.\n` +
                   `🔄 스킬은 상점의 **스킬 변경권**(\`/사용\`)으로 다시 뽑을 수 있어요.\n` +
