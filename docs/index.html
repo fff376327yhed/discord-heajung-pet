@@ -142,6 +142,17 @@ async function call(method, body, path = '?action=config') {
   return { ok: r.ok, status: r.status, data };
 }
 
+async function userCall(method, path, body) {
+  const r = await fetch(`${api}/api/users${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(token() ? { Authorization: `Bearer ${token()}` } : {}) },
+    body: body ? J(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401 && token()) logout('로그인이 만료됐어요. 다시 열어주세요');
+  return { ok: r.ok, status: r.status, data };
+}
+
 // ───────── 알림 ─────────
 let toastTimer;
 function toast(msg, bad = false, list = []) {
@@ -474,8 +485,72 @@ function tabTools() {
       h('button', { class: 'del', onclick: () => { if (confirm('모든 설정을 기본값으로 되돌릴까요?')) { cur = merge({}); touch(); show(); } } }, '기본값으로 되돌리기')));
 }
 
+// ───────── 탭: 유저 관리 ─────────
+let U = null, Uadmin = true; // 불러온 유저 데이터, 관리자 모드(모든 항목 해금) 여부
+function tabUsers() {
+  const idInput = h('input', { placeholder: '디스코드 유저 ID', value: U?.userId ?? '' });
+  const msg = h('small', { style: 'color:var(--sub)' });
+  const box = h('div', { style: 'display:grid;gap:14px' });
+  const field = (label, node) => h('label', { class: 'f' }, label, node);
+  const bound = (make) => (obj, key) => { const i = make(obj, key); i.disabled = !Uadmin; return i; };
+  const txt = bound((obj, key) => { const i = h('input', { value: obj[key] ?? '' }); i.addEventListener('input', () => { obj[key] = i.value; }); return i; });
+  const num = bound((obj, key) => { const i = h('input', { type: 'number', value: obj[key] ?? 0 }); i.addEventListener('input', () => { obj[key] = Number(i.value); }); return i; });
+  const chk = bound((obj, key) => { const i = h('input', { type: 'checkbox', checked: !!obj[key] }); i.addEventListener('change', () => { obj[key] = i.checked; }); return i; });
+
+  function drawLoaded() {
+    const jsonArea = h('textarea', { 'aria-label': '펫·인벤토리·도감 (JSON)', disabled: !Uadmin });
+    jsonArea.value = J({ inventory: U.data.inventory, pets: U.data.pets, mainPetUid: U.data.mainPetUid, dex: U.data.dex, exploration: U.data.exploration }, null, 2);
+    const applyJson = () => { try { Object.assign(U.data, JSON.parse(jsonArea.value)); toast('반영했어요 (저장을 눌러야 적용돼요)'); } catch { toast('JSON 을 읽을 수 없어요', true); } };
+    box.replaceChildren(
+      h('section', { class: 'card' },
+        h('h3', {}, `👤 ${U.data.name ?? U.userId}`, !Uadmin ? h('code', { style: 'margin-left:8px' }, '유저 모드(읽기 전용)') : null),
+        h('div', { class: 'tools' }, field('이름', txt(U.data, 'name')), field('레벨', num(U.data, 'level')), field('경험치', num(U.data, 'exp')), field('골드', num(U.data, 'gold'))),
+        field('자동사냥', chk(U.data, 'autoHunt'))),
+      h('section', { class: 'card' },
+        h('h3', {}, '펫 · 인벤토리 · 도감 (JSON)'),
+        h('p', { class: 'hint' }, '구조가 복잡해서 JSON으로 직접 편집해요. [위 내용 반영]을 누른 뒤 저장해주세요.'),
+        jsonArea,
+        h('div', { class: 'tools', style: 'margin-top:8px' }, h('button', { disabled: !Uadmin, onclick: applyJson }, '위 내용 반영'))),
+      h('div', { class: 'tools' },
+        h('button', { class: 'pri', disabled: !Uadmin, onclick: saveUser }, '저장'),
+        h('button', { disabled: !U.hasBackup, onclick: revertUser }, '이전 저장으로 되돌리기')));
+  }
+
+  async function loadUser() {
+    const id = idInput.value.trim();
+    if (!id) return;
+    msg.textContent = '불러오는 중...';
+    const r = await userCall('GET', `?action=user&id=${encodeURIComponent(id)}`);
+    if (!r.ok) { msg.textContent = r.data.error ?? '불러오지 못했어요'; U = null; box.replaceChildren(); return; }
+    U = r.data; msg.textContent = '';
+    drawLoaded();
+  }
+  async function saveUser() {
+    const r = await userCall('PUT', `?action=user&id=${encodeURIComponent(U.userId)}`, { data: U.data });
+    if (r.ok) { U.hasBackup = true; toast('저장했어요 ✔'); drawLoaded(); }
+    else toast(r.data.error ?? '저장하지 못했어요', true);
+  }
+  async function revertUser() {
+    if (!confirm('이전 저장으로 되돌릴까요? (한 단계만 보관돼요)')) return;
+    const r = await userCall('POST', `?action=revert&id=${encodeURIComponent(U.userId)}`);
+    if (r.ok) { U.data = r.data.data; U.hasBackup = false; toast('되돌렸어요 ✔'); drawLoaded(); }
+    else toast(r.data.error ?? '되돌리지 못했어요', true);
+  }
+
+  const adminToggle = h('label', { class: 'f', style: 'display:flex;flex-direction:row;align-items:center;gap:8px' },
+    h('input', { type: 'checkbox', checked: Uadmin, onchange: (e) => { Uadmin = e.target.checked; if (U) drawLoaded(); } }),
+    '관리자 모드 (모든 항목 편집 해금) — 끄면 유저처럼 읽기 전용으로 봐요');
+
+  if (U) drawLoaded();
+  return h('div', { style: 'display:grid;gap:14px' },
+    h('section', { class: 'card' }, h('h3', {}, '유저 불러오기'),
+      h('div', { class: 'tools' }, idInput, h('button', { class: 'pri', onclick: loadUser }, '불러오기'), msg),
+      adminToggle),
+    box);
+}
+
 // ───────── 화면 ─────────
-const TABS = { 설정: tabSettings, 펫: tabPets, 아이템: tabItems, 지역: tabLocations, '등급·표': tabTables, 도구: tabTools };
+const TABS = { 설정: tabSettings, 펫: tabPets, 아이템: tabItems, 지역: tabLocations, '등급·표': tabTables, '유저 관리': tabUsers, 도구: tabTools };
 function show() {
   $('#tabs').replaceChildren(...Object.keys(TABS).map((n) => h('button', { role: 'tab', 'aria-selected': n === tab, onclick: () => { tab = n; show(); } }, n)));
   $('#view').replaceChildren(TABS[tab]());

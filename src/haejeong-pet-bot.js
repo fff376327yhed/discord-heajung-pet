@@ -822,6 +822,34 @@ async function updatePlayerPair(idA, idB, mutate) {
   });
 }
 
+// 관리자: 유저 데이터 직접 편집 (관리자 웹페이지의 "유저 관리" 탭에서 써요)
+// 덮어쓰기 전 값을 1단계만 백업해서 "이전 저장으로 되돌리기"가 가능해요.
+const playerBackups = () => getDb().collection('player_backups');
+
+async function getPlayerBackup(userId) {
+  if (useMemory()) return memoryStore.get(`__backup:${userId}`) ?? null;
+  const snap = await playerBackups().doc(userId).get();
+  return snap.exists ? snap.data().data : null;
+}
+
+async function adminSavePlayer(userId, data) {
+  const before = await getPlayer(userId);
+  if (!before) return { ok: false, error: '그런 유저가 없어요' };
+  if (useMemory()) memoryStore.set(`__backup:${userId}`, structuredClone(before));
+  else await playerBackups().doc(userId).set({ data: before, savedAt: Date.now() });
+  await savePlayer(userId, data);
+  return { ok: true };
+}
+
+async function adminRevertPlayer(userId) {
+  const backup = await getPlayerBackup(userId);
+  if (!backup) return { ok: false, error: '되돌릴 이전 저장이 없어요' };
+  await savePlayer(userId, backup);
+  if (useMemory()) memoryStore.delete(`__backup:${userId}`);
+  else await playerBackups().doc(userId).delete();
+  return { ok: true, data: backup };
+}
+
 // ============================================================
 // 시스템: 레벨 (systems/level.js)
 // ============================================================
@@ -5467,7 +5495,7 @@ const admin = createConfigManager({
     },
   },
 });
-export { admin };
+export { admin, getPlayer, getPlayerBackup, adminSavePlayer, adminRevertPlayer };
 
 // ============================================================
 // 라우터 (router.js)
