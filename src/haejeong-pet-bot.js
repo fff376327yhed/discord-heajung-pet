@@ -968,7 +968,23 @@ function newAutoHuntReport(locationId, now) {
   return { locationId, startedAt: now, runs: 0, wins: 0, escapes: 0, gold: 0, trainerExp: 0, petExp: 0, trainerLevels: 0, petLevels: 0, stopReason: null };
 }
 
-function toggleAutoHunt(player, now = Date.now()) {
+// 자동사냥에 나갈 펫: 직접 고른 펫 (없어졌거나 안 골랐으면 대표 펫)
+function getAutoHuntPet(player) {
+  const pet = player.pets.find((p) => p.uid === player.autoHuntPetUid) ?? getMainPet(player);
+  if (pet) ensureSkills(pet);
+  return pet;
+}
+
+// petUid 를 주면 자동사냥에 보낼 펫을 그 펫으로 바꿔요 (켜져 있으면 켠 채로 펫만 바꾸고, 꺼져 있으면 그 펫으로 켜요)
+function toggleAutoHunt(player, now = Date.now(), petUid = null) {
+  if (petUid) {
+    const pick = player.pets.find((p) => p.uid === petUid);
+    if (!pick) return { kind: 'pet_not_found' };
+    player.autoHuntPetUid = pick.uid;
+    if (player.autoHunt) {
+      return { kind: 'pet_changed', pet: { emoji: PETS[pick.petId].emoji, name: nameOf(pick), level: pick.level }, commit: true };
+    }
+  }
   // 끄기 (자리 비운 동안의 정산은 updatePlayer 에서 이미 끝났어요)
   if (player.autoHunt) {
     const report = player.autoHuntReport ?? null;
@@ -986,14 +1002,14 @@ function toggleAutoHunt(player, now = Date.now()) {
   const loc = LOCATIONS[player.lastLocationId];
   if (!loc) return { kind: 'no_location' };
   if (player.level < loc.minLevel) return { kind: 'locked', minLevel: loc.minLevel };
-  const main = getMainPet(player);
+  const main = getAutoHuntPet(player);
   if (!main) return { kind: 'no_pet' };
   if (currentHp(main, now) / maxHp(main) <= MULTI_STOP_HP_RATIO) return { kind: 'weak_pet' };
 
   player.autoHunt = true;
   player.autoHuntAt = now;
   player.autoHuntReport = newAutoHuntReport(loc.id, now);
-  return { kind: 'on', locationId: loc.id, commit: true };
+  return { kind: 'on', locationId: loc.id, pet: { emoji: PETS[main.petId].emoji, name: nameOf(main), level: main.level }, commit: true };
 }
 
 // 야생 펫 1마리와 자동으로 싸워 봐요 (스킬·아이템은 안 써요).
@@ -1048,7 +1064,7 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
   let t = since;
   for (let i = 0; i < AUTO_HUNT_MAX_RUNS; i++) {
     const loc = LOCATIONS[player.lastLocationId];
-    const main = getMainPet(player);
+    const main = getAutoHuntPet(player);
     if (!loc || player.level < loc.minLevel) { stop('location'); break; }
     if (!main) { stop('no_pet'); break; }
 
@@ -2771,7 +2787,7 @@ const explore = {
 // ═════════════════════════════════════════════
 
 const autoHuntStopText = (reason) => ({
-  too_strong: '⚠️ 이 장소는 대표 펫에게 너무 위험해서 멈췄어요. 펫을 키우거나 더 쉬운 곳으로 가보세요!',
+  too_strong: '⚠️ 이 장소는 나간 펫에게 너무 위험해서 멈췄어요. 펫을 키우거나 더 쉬운 곳으로 가보세요!',
   time: `⏰ 최대 ${AUTO_HUNT_MAX_HOURS}시간을 다 채워서 멈췄어요. 다시 켜면 또 해줘요!`,
   location: '🔒 갈 수 있는 장소가 아니라서 멈췄어요.',
   no_pet: '🐾 싸울 펫이 없어서 멈췄어요.',
@@ -2795,23 +2811,33 @@ function autoHuntReportText(rep) {
 const autoHuntCmd = {
   data: {
     name: '자동사냥',
-    description: '자리를 비운 동안 대신 탐험해줘요 (보상 -80%). 다시 누르면 끄고 결과를 보여줘요.',
+    description: '자리를 비운 동안 펫이 대신 탐험해줘요 (보상 -80%). 다시 누르면 끄고 결과를 보여줘요.',
     type: 1,
+    options: [{ type: 3, name: '펫', description: '대신 싸울 펫 (비우면 지난번에 고른 펫, 없으면 대표 펫)', required: false, autocomplete: true }],
+  },
+
+  async autocomplete(interaction) {
+    return petAutocomplete(interaction, '펫');
   },
 
   async execute(interaction) {
     const user = getUser(interaction);
+    const selector = getOption(interaction, '펫');
     const out = await updatePlayer(user.id, (player) => {
-      const r = toggleAutoHunt(player);
+      const inst = selector ? resolvePetSelector(player, selector) : null;
+      if (selector && !inst) return { commit: false, value: { kind: 'pet_not_found' } };
+      const r = toggleAutoHunt(player, Date.now(), inst?.uid ?? null);
       return { commit: !!r.commit, value: r };
     });
 
     if (!out) return reply({ content: NOT_STARTED }, { ephemeral: true });
 
+    if (out.kind === 'pet_not_found') return reply({ content: PET_NOT_FOUND }, { ephemeral: true });
+    if (out.kind === 'pet_changed') return reply({ content: `🐾 이제부터 ${out.pet.emoji} **${out.pet.name}** Lv.${out.pet.level} (이)가 대신 탐험해요! (자동사냥은 계속 켜져 있어요)` });
     if (out.kind === 'no_location') return reply({ content: '🌿 먼저 `/탐험` 으로 한 번 다녀온 장소가 있어야 해요! 자동사냥은 **마지막으로 간 장소**를 대신 탐험해요.' }, { ephemeral: true });
     if (out.kind === 'locked') return reply({ content: `🔒 마지막으로 간 장소는 Lv.${out.minLevel} 이 되어야 갈 수 있어요.` }, { ephemeral: true });
     if (out.kind === 'no_pet') return reply({ content: '🐾 싸울 펫이 없어요!' }, { ephemeral: true });
-    if (out.kind === 'weak_pet') return reply({ content: '❤️ 대표 펫의 체력이 너무 낮아요! 회복시킨 뒤 다시 켜주세요.' }, { ephemeral: true });
+    if (out.kind === 'weak_pet') return reply({ content: '❤️ 나갈 펫의 체력이 너무 낮아요! 회복시키거나 다른 펫을 골라주세요.' }, { ephemeral: true });
 
     if (out.kind === 'on') {
       const loc = LOCATIONS[out.locationId];
@@ -2819,8 +2845,8 @@ const autoHuntCmd = {
         embeds: [{
           title: '🏃 자동사냥 시작!',
           description:
-            `자리를 비운 동안 ${loc.emoji} **${loc.name}** 을(를) 대신 \`/탐험\` 해줘요.\n` +
-            `대표 펫이 알아서 싸우고, 결과는 다음에 봇을 쓸 때 한꺼번에 정산돼요.\n` +
+            `자리를 비운 동안 ${out.pet.emoji} **${out.pet.name}** Lv.${out.pet.level} (이)가 ${loc.emoji} **${loc.name}** 을(를) 대신 \`/탐험\` 해줘요.\n` +
+            `알아서 싸우고, 결과는 다음에 봇을 쓸 때 한꺼번에 정산돼요. (펫 바꾸기: \`/자동사냥 펫:\`)\n` +
             `대신 골드·경험치는 **-${pct(1 - AUTO_HUNT_REWARD_MULT)}%** 로 줄어들어요. (직접 \`/탐험\` 하는 건 그대로예요)\n\n` +
             `⚠️ 해정볼·회복약·스킬은 안 쓰고, 펫이 위험해지면 멈춰요. 최대 ${AUTO_HUNT_MAX_HOURS}시간까지만 해줘요.\n` +
             '다시 `/자동사냥` 을 누르면 끄고 결과를 보여줘요!',
