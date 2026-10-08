@@ -8,6 +8,10 @@
 //   pow 데미지 배율 · hits 타수 · pierce 방어무시 · crit 급소확률+ · exec 체력30%↓ 적에게 배율 · drain 흡혈 · recoil 반동
 //   heal 회복 · regen [비율,턴] · shield 보호막 · guard [감소율,턴] · evade 회피 횟수 · atkUp/defUp [비율,턴] · atkDown/defDown [비율,턴]
 //   stun 기절확률 · dot [종류,비율,턴,확률] · mana 마나회복 · drainMana 적 마나 감소 · cleanse 상태이상 제거
+//   🆕 독창 스킬용 효과 칸:
+//   bomb [배율,턴] 시한폭탄(방어 무시) · detonate 배율 화상/독/출혈 터뜨리기 · overload 계수 남은 마나 전부 쏟아붓기
+//   revenge 계수 내 체력이 낮을수록 강해짐 · gamble [확률,성공배율,실패반동] 도박 · hitsRange [최소,최대] 랜덤 연타
+//   stealMana 숫자 적 마나 훔치기 · swapHp 서로의 체력 비율 맞바꾸기 · echo 턴 다음 공격 스킬이 메아리침
 
 export const SKILL_CFG = {
   manaMax: 100, // 마나 최대치 (마나 수정으로 펫마다 더 늘릴 수 있어요)
@@ -17,13 +21,15 @@ export const SKILL_CFG = {
   slot2Level: 40, // 2번 스킬 슬롯이 열리는 펫 레벨
   slot3Level: 100, // 3번 스킬 슬롯이 열리는 펫 레벨
   slot4Level: 200, // 4번 스킬 슬롯이 열리는 펫 레벨 (MAX_LEVEL 이 200 이상이어야 닿을 수 있어요)
-  sigChance: 0.25, // 슬롯이 열리거나 변경될 때 "전용기"가 나올 확률 (펫에게 전용기가 있을 때)
+  sigChance: 0.01, // 슬롯이 열리거나 변경될 때 "전용기"가 나올 확률 (펫에게 전용기가 있을 때) — 1%
   wildSkillChance: 0.35, // 야생 펫이 매 턴 전용기를 쓸 확률 (마나가 될 때)
   crystalMana: 10, // 마나 수정 1개당 늘어나는 최대 마나
   crystalMaxBonus: 100, // 마나 수정으로 늘릴 수 있는 최대치
 };
-// 슬롯이 열릴 때 등급(★)별로 뽑힐 무게 (클수록 자주 나와요)
-export const TIER_WEIGHT = { 1: 30, 2: 28, 3: 22, 4: 14, 5: 6 };
+// 슬롯이 열릴 때 "등급(★)"이 뽑힐 확률 무게예요. 합이 100이라서 숫자가 곧 퍼센트(%)예요!
+// 등급을 먼저 뽑고, 그 등급 안에서는 모든 스킬이 똑같은 확률이에요 (스킬을 새로 추가해도 등급 확률은 안 변해요).
+// 예전: ★1 30% · ★2 28% · ★3 22% · ★4 14% · ★5 6%  →  지금: ★4·★5 가 훨씬 드물어요.
+export const TIER_WEIGHT = { 1: 40, 2: 33, 3: 20, 4: 6, 5: 1 };
 const TIER_COST = { 1: 10, 2: 20, 3: 35, 4: 50, 5: 70 }; // 등급별 기본 마나 (스킬마다 따로 고칠 수 있어요)
 
 export const SKILLS = {};
@@ -32,6 +38,7 @@ const add = (id, name, emoji, tier, fx, extra = {}) => {
 };
 const G = (id, name, emoji, tier, fx) => add(id, name, emoji, tier, fx); // 일반 스킬 (모든 펫)
 const P = (pet, id, name, emoji, tier, fx, flavor) => add(id, name, emoji, tier, fx, { pet, flavor }); // 전용기
+const U = (id, name, emoji, tier, fx, flavor) => add(id, name, emoji, tier, fx, { flavor, unique: true }); // 🆕 독창 스킬 (모든 펫, 특이한 규칙)
 
 // ───────── 일반 스킬: 속성 공격 (속성마다 ★1 · ★3 · ★5) ─────────
 G('fire_spark', '불씨', '🔥', 1, { pow: 1.4, dot: ['burn', 0.05, 2, 0.3] });
@@ -227,6 +234,38 @@ G('frostbite', '동상', '🥶', 3, { pow: 1.3, dot: ['burn', 0.06, 3, 0.7], atk
 G('scorch', '그을림', '♨️', 2, { pow: 1.2, dot: ['burn', 0.05, 3, 0.8] });
 G('soul_curse', '영혼저주', '☯️', 4, { dot: ['poison', 0.1, 4, 1], defDown: [0.25, 4] });
 
+// ───────── 🆕 독창 스킬 (모든 펫이 배울 수 있어요 · 다른 게임에 잘 없는 특이한 규칙들) ─────────
+// ★1
+U('pillow_fight', '베개싸움', '🛏️', 1, { pow: 1.0, stun: 0.2, heal: 0.05 }, '푹신푹신 퍽! 아프진 않은데 눈이 스르르 감겨요.');
+U('confetti', '색종이 폭죽', '🎊', 1, { pow: 1.2, atkDown: [0.1, 2], mana: 5 }, '팡! 하고 터지면 다들 눈이 휘둥그레져요.');
+U('tickle', '간지럼 공격', '🪶', 1, { pow: 0.8, hits: 2, atkDown: [0.1, 2] }, '깃털로 살살… 웃음이 터져서 힘이 빠져요.');
+U('lucky_penny', '행운의 동전', '🪙', 1, { pow: 1.0, gamble: [0.5, 2.0, 0.05] }, '동전 던지기! 앞면이면 두 배, 뒷면이면 아야.');
+// ★2
+U('dice_fury', '주사위 난타', '🎲', 2, { pow: 0.55, hitsRange: [1, 5] }, '몇 번 때릴지는 주사위만 알아요 (1~5번).');
+U('comeback', '오기', '😤', 2, { pow: 1.3, revenge: 1.5 }, '아프면 아플수록 더 세게 때려요!');
+U('mana_thief', '마나 도둑', '🧤', 2, { pow: 0.8, stealMana: 20, cost: 15 }, '슬쩍~ 상대 마나를 내 주머니로.');
+U('piggy_bank', '저금통 깨기', '🐷', 2, { pow: 1.5, mana: 15 }, '쨍그랑! 마나 동전이 와르르 쏟아져요.');
+U('hot_potato', '뜨거운 감자', '🥔', 2, { pow: 1.2, dot: ['burn', 0.05, 3, 0.9], atkDown: [0.15, 2] }, '앗 뜨거! 던졌더니 상대가 데어요.');
+U('ghost_prank', '도깨비 장난', '🎭', 2, { atkDown: [0.25, 3], defDown: [0.2, 3] }, '"왁!" 깜짝 놀라서 온몸에 힘이 빠져요.');
+// ★3
+U('time_bomb', '시한폭탄', '💣', 3, { bomb: [3.0, 3] }, '똑딱똑딱… 3턴 뒤에 쾅! 방어도 소용없어요.');
+U('fireworks', '불꽃놀이', '🎆', 3, { pow: 0.9, detonate: 1.5, dot: ['burn', 0.05, 3, 1] }, '이미 걸린 불씨를 한꺼번에 팡팡! 터뜨리고 새 불씨를 심어요.');
+U('lucky_seven', '럭키 세븐', '🎰', 3, { pow: 0.75, hitsRange: [1, 7] }, '1번일까 7번일까? 7번 나오면 대박이에요.');
+U('mana_vampire', '마나 흡혈', '🧛‍♂️', 3, { pow: 1.3, stealMana: 40, drain: 0.2 }, '피와 마나를 한꺼번에 쪽쪽 빨아요.');
+U('echo_chamber', '메아리 방', '🔊', 3, { echo: 3, cost: 20 }, '3턴 안에 쓰는 다음 공격 스킬이 한 번 더 울려 퍼져요.');
+U('dance_battle', '댄스 배틀', '💃', 3, { atkUp: [0.4, 3], mana: 20, heal: 0.1 }, '흥이 오르면 힘도 마나도 솟아요!');
+U('sugar_rush', '설탕 폭주', '🍬', 3, { atkUp: [0.5, 3], mana: 25, recoil: 0.08 }, '당이 확 올라서 신나지만… 뒤가 좀 무서워요.');
+// ★4
+U('all_in_gamble', '올인 도박', '🎰', 4, { pow: 1.6, gamble: [0.4, 3.6, 0.2] }, '40%에 모든 걸 걸어요. 터지면 엄청난 한 방!');
+U('last_gasp', '마지막 발악', '🩸', 4, { pow: 1.8, revenge: 2.0 }, '체력이 바닥일수록 무서운 한 방이 나가요.');
+U('mana_flood', '마나 대방출', '🌊', 4, { pow: 1.0, overload: 0.025, cost: 20 }, '남은 마나를 전부 쏟아부어요. 모아둘수록 세져요!');
+U('chain_reaction', '연쇄반응', '⛓️', 4, { pow: 1.2, detonate: 2.0 }, '화상·독·출혈이 걸려 있으면 남은 피해를 한꺼번에 폭발시켜요.');
+// ★5
+U('fate_swap', '운명 교환', '🔀', 5, { swapHp: true }, '"당신의 건강은 이제 내 것." 내 체력이 더 낮으면 서로의 체력 비율을 바꿔요.');
+U('doomsday_clock', '종말의 시계', '🕰️', 5, { bomb: [5.5, 4], defDown: [0.2, 4] }, '시곗바늘이 12를 가리키면 모든 게 끝나요.');
+U('mana_nova', '마나 초신성', '🌟', 5, { pow: 1.2, overload: 0.035, pierce: 0.3, cost: 30 }, '쌓아둔 마나가 별처럼 폭발해요. 방어도 뚫어요!');
+U('devil_dice', '악마의 주사위', '😈', 5, { pow: 1.8, gamble: [0.3, 5.0, 0.3] }, '30%의 기적에 나를 걸어요. 실패하면 많이 아파요.');
+
 // ───────── 전용기 (그 펫만 배울 수 있어요 · 같은 마나의 일반 스킬보다 세요) ─────────
 // 스타팅
 P('pyro_cat', 'sig_pyro_cat', '불꽃 발톱', '🐾', 2, { pow: 2.1, dot: ['burn', 0.06, 3, 0.6] }, '꼬리 끝 불꽃을 발톱에 모아 할퀴어요.');
@@ -340,7 +379,13 @@ const DOT = { burn: '🔥 화상', poison: '☠️ 독', bleed: '🩸 출혈' };
 // 효과를 한 줄씩 나눠서 돌려줘요 (확인창에서 자세히 보여줄 때 써요)
 export function skillEffectLines(sk) {
   const t = [];
-  if (sk.pow) t.push(sk.hits > 1 ? `적을 **${sk.hits}번** 공격 (1번에 공격력의 ${P100(sk.pow)})` : `적에게 공격력의 **${P100(sk.pow)}** 데미지`);
+  if (sk.pow) {
+    if (sk.hitsRange) t.push(`적을 **${sk.hitsRange[0]}~${sk.hitsRange[1]}번** 랜덤 연타 (1번에 공격력의 ${P100(sk.pow)})`);
+    else t.push(sk.hits > 1 ? `적을 **${sk.hits}번** 공격 (1번에 공격력의 ${P100(sk.pow)})` : `적에게 공격력의 **${P100(sk.pow)}** 데미지`);
+  }
+  if (sk.overload) t.push(`쓰고 남은 마나를 전부 쏟아부어요 (남은 마나 1당 데미지 +${+(sk.overload * 100).toFixed(1)}%, 쓰고 나면 마나 0)`);
+  if (sk.revenge) t.push(`내 체력이 낮을수록 데미지 증가 (체력이 바닥이면 최대 +${P100(sk.revenge)})`);
+  if (sk.gamble) t.push(`${P100(sk.gamble[0])} 확률로 **대박** (데미지 ×${sk.gamble[1]}) · 실패하면 데미지 ×0.4 + 반동으로 내 최대 체력의 ${P100(sk.gamble[2])} 감소`);
   if (sk.pierce) t.push(`적 방어력 ${P100(sk.pierce)} 무시`);
   if (sk.crit) t.push(`급소 확률 +${P100(sk.crit)}`);
   if (sk.exec) t.push(`적 체력 30% 이하면 데미지 ×${sk.exec}`);
@@ -359,6 +404,11 @@ export function skillEffectLines(sk) {
   if (sk.dot) t.push(`${P100(sk.dot[3])} 확률로 ${DOT[sk.dot[0]] ?? sk.dot[0]} (${sk.dot[2]}턴, 매 턴 적 최대 체력의 ${P100(sk.dot[1])})`);
   if (sk.mana) t.push(`마나 +${sk.mana}`);
   if (sk.drainMana) t.push(`적 마나 -${sk.drainMana}`);
+  if (sk.bomb) t.push(`💣 적에게 **시한폭탄** 설치: 이번 턴 포함 ${sk.bomb[1]}번째 턴이 끝날 때 공격력의 ${P100(sk.bomb[0])} 피해 (방어 무시)`);
+  if (sk.detonate) t.push(`적에게 걸린 화상·독·출혈을 터뜨려요: 남은 피해의 ×${sk.detonate} 를 한 번에 (방어 무시, 상태이상은 사라져요)`);
+  if (sk.stealMana) t.push(`적 마나를 ${sk.stealMana}만큼 훔쳐서 내 마나로`);
+  if (sk.swapHp) t.push('내 체력 비율이 더 낮으면 서로의 체력 비율을 맞바꿔요 (적은 최소 1은 남아요 · 내가 더 건강하면 아무 일도 안 일어나요)');
+  if (sk.echo) t.push(`${sk.echo}턴 안에 쓰는 다음 공격 스킬이 한 번 더 울려요 (위력 75%, 마나 0)`);
   if (sk.cleanse) t.push('내 상태이상(화상·독·출혈·약화) 제거');
   return t;
 }
@@ -370,9 +420,9 @@ export function describeSkill(sk) {
 export const tierStars = (t) => '★'.repeat(Math.max(1, Math.min(5, t)));
 export function skillCategory(sk) {
   if (sk.pet) return '전용기';
-  if (sk.pow) return '공격';
-  if (sk.atkUp || sk.defUp || sk.mana) return '강화';
-  if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana) return '약화';
+  if (sk.pow || sk.bomb || sk.detonate) return '공격';
+  if (sk.atkUp || sk.defUp || sk.mana || sk.echo) return '강화';
+  if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp) return '약화';
   return '회복·방어';
 }
 
@@ -409,13 +459,19 @@ export function normalizeSkills(inst) {
 
 export function rollSkill(inst, rng = Math.random, exclude = []) {
   const all = Object.values(SKILLS).filter((s) => !exclude.includes(s.id));
+  // 1) 전용기 판정: 펫에게 (아직 안 배운) 전용기가 있을 때만 sigChance(1%) 로 나와요. 전용기가 2개면 반반이에요.
   const sig = all.filter((s) => s.pet === inst.petId);
-  const pool = sig.length && rng() < SKILL_CFG.sigChance ? sig : all.filter((s) => !s.pet);
+  if (sig.length && rng() < SKILL_CFG.sigChance) return sig[Math.floor(rng() * sig.length)].id;
+  // 2) 일반 스킬: 등급(★)을 먼저 뽑고(TIER_WEIGHT), 그 등급 안에서는 모든 스킬이 똑같은 확률이에요.
+  const pool = all.filter((s) => !s.pet);
   if (!pool.length) return null;
-  const w = (s) => Math.max(0.01, TIER_WEIGHT[s.tier] ?? 10);
-  let r = rng() * pool.reduce((n, s) => n + w(s), 0);
-  for (const s of pool) { r -= w(s); if (r < 0) return s.id; }
-  return pool[pool.length - 1].id;
+  const tiers = [...new Set(pool.map((s) => s.tier))].filter((t) => (TIER_WEIGHT[t] ?? 0) > 0);
+  if (!tiers.length) return pool[Math.floor(rng() * pool.length)].id;
+  let r = rng() * tiers.reduce((n, t) => n + TIER_WEIGHT[t], 0);
+  let tier = tiers[tiers.length - 1];
+  for (const t of tiers) { r -= TIER_WEIGHT[t]; if (r < 0) { tier = t; break; } }
+  const same = pool.filter((s) => s.tier === tier);
+  return same[Math.floor(rng() * same.length)].id;
 }
 
 // 열려 있는데 비어 있는 슬롯에 랜덤 스킬을 채워요. 새로 생긴 [슬롯번호, 스킬id] 목록을 돌려줘요.
@@ -459,12 +515,42 @@ export function castSkill(sk, A, B, rng, log) {
   A.mana = Math.max(0, A.mana - sk.cost);
   log.push(`✨ ${A.emoji} ${A.name}의 ${sk.emoji} **${sk.name}**!`);
   let dealt = 0;
+
+  // 🆕 독창 스킬: 이번 한 번의 데미지 배율 (마나 쏟아붓기 · 오기/발악 · 도박이 여기에 곱해져요)
+  let mult = 1;
+  if (sk.overload) {
+    const spent = Math.round(A.mana);
+    mult *= 1 + spent * sk.overload;
+    A.mana = 0;
+    log.push(`　🔥 남은 마나 ${spent} 을(를) 전부 쏟아부었어요! (데미지 ×${mult.toFixed(2)})`);
+  }
+  if (sk.revenge) {
+    const lost = Math.max(0, 1 - A.hp / A.max);
+    if (lost >= 0.05) {
+      const m = 1 + lost * sk.revenge;
+      mult *= m;
+      log.push(`　😤 아플수록 강해져요! (데미지 ×${m.toFixed(2)})`);
+    }
+  }
+  if (sk.gamble) {
+    if (rng() < sk.gamble[0]) {
+      mult *= sk.gamble[1];
+      log.push(`　🎲 **대박!** (데미지 ×${sk.gamble[1]})`);
+    } else {
+      mult *= 0.4;
+      const n = Math.max(0, Math.min(A.hp - 1, Math.round(A.max * sk.gamble[2])));
+      A.hp -= n;
+      log.push(`　🎲 쪽박… 반동으로 -${n}`);
+    }
+  }
+  const hits = sk.hitsRange ? sk.hitsRange[0] + Math.floor(rng() * (sk.hitsRange[1] - sk.hitsRange[0] + 1)) : (sk.hits ?? 1);
+  if (sk.hitsRange && sk.pow) log.push(`　🎰 ${hits}연타가 나왔어요!`);
+
   if (sk.pow) {
-    const hits = sk.hits ?? 1;
     for (let i = 0; i < hits && B.hp > 0; i++) {
       const atk = effAtk(A);
       const def = effDef(B) * (1 - (sk.pierce ?? 0));
-      let dmg = Math.max(atk * 0.25, atk - def * 0.5) * sk.pow * (0.85 + rng() * 0.3);
+      let dmg = Math.max(atk * 0.25, atk - def * 0.5) * sk.pow * mult * (0.85 + rng() * 0.3);
       const crit = rng() < (A.crit ?? 0.1) + (sk.crit ?? 0);
       if (crit) dmg *= 1.5;
       if (sk.exec && B.hp / B.max <= 0.3) dmg *= sk.exec;
@@ -488,7 +574,41 @@ export function castSkill(sk, A, B, rng, log) {
   if (sk.defUp) { A.st.defUp = { pct: sk.defUp[0], turns: sk.defUp[1] }; log.push(`　🧱 ${sk.defUp[1]}턴 동안 방어력 +${P100(sk.defUp[0])}`); }
   if (sk.mana) { const n = Math.min(sk.mana, SKILL_CFG.manaMax + 1000); A.mana += n; log.push(`　🔋 마나 +${n}`); }
   if (sk.cleanse) { A.st.dots = []; delete A.st.atkDown; delete A.st.defDown; delete A.st.stun; log.push('　✨ 나쁜 상태가 사라졌어요'); }
+  // 🆕 독창 스킬: 상태이상 터뜨리기 (새 상태이상을 걸기 전에 먼저 터뜨려요)
+  if (sk.detonate && B.hp > 0) {
+    const left = (B.st.dots ?? []).reduce((n, d) => n + Math.max(1, Math.round(B.max * d.pct)) * d.turns, 0);
+    if (left > 0) {
+      const n = Math.max(1, Math.round(left * sk.detonate));
+      B.hp = Math.max(0, B.hp - n);
+      dealt += n;
+      B.st.dots = [];
+      log.push(`　💥 ${B.name}의 상태이상이 **폭발**해서 **${n}** 피해!`);
+    } else {
+      log.push('　💨 터뜨릴 상태이상이 없어요…');
+    }
+  }
+  if (sk.swapHp && B.hp > 0) {
+    const ra = A.hp / A.max;
+    const rb = B.hp / B.max;
+    if (ra < rb) {
+      A.hp = Math.min(A.max, Math.max(1, Math.round(A.max * rb)));
+      B.hp = Math.max(1, Math.round(B.max * ra));
+      log.push(`　🔀 서로의 체력이 뒤바뀌었어요! ${A.name} ${A.hp}/${A.max} · ${B.name} ${B.hp}/${B.max}`);
+    } else {
+      log.push('　💨 내가 더 건강해서 아무 일도 일어나지 않았어요…');
+    }
+  }
   if (B.hp > 0) {
+    if (sk.bomb) {
+      B.st.bomb = { dmg: Math.max(1, Math.round(effAtk(A) * sk.bomb[0])), turns: sk.bomb[1] };
+      log.push(`　💣 ${B.name}에게 **시한폭탄**을 달았어요! (${sk.bomb[1]}턴 뒤 폭발)`);
+    }
+    if (sk.stealMana) {
+      const n = Math.min(B.mana, sk.stealMana);
+      B.mana -= n;
+      A.mana += n;
+      log.push(`　🧤 ${B.name}의 마나 ${n}을(를) 훔쳤어요!`);
+    }
     if (sk.atkDown) { B.st.atkDown = { pct: sk.atkDown[0], turns: sk.atkDown[1] }; log.push(`　🔻 ${B.name} 공격력 -${P100(sk.atkDown[0])} (${sk.atkDown[1]}턴)`); }
     if (sk.defDown && sk.defDown[0] > 0) { B.st.defDown = { pct: sk.defDown[0], turns: sk.defDown[1] }; log.push(`　🔻 ${B.name} 방어력 -${P100(sk.defDown[0])} (${sk.defDown[1]}턴)`); }
     if (sk.stun && rng() < sk.stun) { B.st.stun = 1; log.push(`　💫 ${B.name}(이)가 **기절**했어요!`); }
@@ -498,6 +618,13 @@ export function castSkill(sk, A, B, rng, log) {
       log.push(`　${DOT[sk.dot[0]] ?? sk.dot[0]} ${B.name}에게 ${sk.dot[2]}턴 동안!`);
     }
     if (sk.drainMana) { const n = Math.min(B.mana, sk.drainMana); B.mana -= n; if (n) log.push(`　🔻 ${B.name} 마나 -${n}`); }
+  }
+  if (sk.echo) { A.st.echo = { turns: sk.echo }; log.push(`　🔊 ${sk.echo}턴 안에 쓰는 다음 공격 스킬이 메아리쳐요`); }
+  // 🆕 메아리: 메아리가 켜진 상태에서 공격 스킬을 쓰면 위력 75% 로 한 번 더 (마나 0)
+  if (A.st.echo && sk.pow && !sk.echoed && A.hp > 0 && B.hp > 0) {
+    delete A.st.echo;
+    log.push('　🔊 메아리가 울려 퍼져요!');
+    castSkill({ id: sk.id, name: `${sk.name} (메아리)`, emoji: sk.emoji, tier: sk.tier, cost: 0, pow: sk.pow * 0.75, hits: sk.hits, hitsRange: sk.hitsRange, pierce: sk.pierce, crit: sk.crit, exec: sk.exec, echoed: true }, A, B, rng, log);
   }
   A.mana = Math.min(A.mana, A.manaMax);
 }
@@ -512,12 +639,21 @@ export function tickSide(X, log) {
     d.turns -= 1;
   }
   st.dots = (st.dots ?? []).filter((d) => d.turns > 0);
+  if (st.bomb) {
+    st.bomb.turns -= 1;
+    if (st.bomb.turns <= 0) {
+      const n = Math.max(1, Math.round(st.bomb.dmg));
+      X.hp = Math.max(0, X.hp - n);
+      log.push(`💣 ${X.name}에게 **시한폭탄**이 터졌어요! **${n}** 피해`);
+      delete st.bomb;
+    }
+  }
   if (st.regen && X.hp > 0) {
     const n = heal(X, X.max * st.regen.pct);
     if (n) log.push(`🌱 ${X.name} 체력 +${n}`);
     if (--st.regen.turns <= 0) delete st.regen;
   }
-  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard']) {
+  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo']) {
     if (st[k] && --st[k].turns <= 0) delete st[k];
   }
   X.mana = Math.min(X.manaMax, X.mana + SKILL_CFG.manaPerTurn);
@@ -543,6 +679,8 @@ export function statusText(st = {}) {
   if (st.shield > 0) t.push(`🔰 보호막 ${st.shield}`);
   if (st.evade > 0) t.push(`🌀 회피 ${st.evade}회`);
   if (st.regen) t.push(`🌱 재생 ${st.regen.turns}턴`);
+  if (st.bomb) t.push(`💣 시한폭탄 ${st.bomb.turns}턴`);
+  if (st.echo) t.push(`🔊 메아리 ${st.echo.turns}턴`);
   return t.join(' · ');
 }
 
