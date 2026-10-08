@@ -70,7 +70,12 @@ let WIN_TRAINER_EXP_MULT = 1.5; // 승리 시 트레이너 경험치 = expYield 
 let WIN_PET_EXP_MULT = 2.0; // 승리 시 대표 펫 경험치 = expYield × 장소배율 × 이 값 (펫이 트레이너보다 빨리 크도록 더 크게)
 let BONUS_TRIPLE_CHANCE = 0.001; // 승리 시 0.1% 확률로 경험치·골드 3배 🎰
 let BONUS_DOUBLE_CHANCE = 0.005; // 승리 시 0.5% 확률로 경험치·골드 2배 (3배와 동시에 나오지 않아요)
-let AUTO_HUNT_REWARD_MULT = 0.35; // 🏃 자동사냥 중에는 골드·경험치가 이 배율로 줄어요 (-65%)
+let AUTO_HUNT_REWARD_MULT = 0.2; // 🏃 자동사냥(자리 비운 사이 대신 탐험) 보상 배율 → 골드·경험치 -80%
+let AUTO_HUNT_MAX_HOURS = 8; // 한 번 켜면 최대 이 시간(시간)까지만 대신 탐험해요 (끝나면 자동으로 꺼져요)
+let AUTO_HUNT_MAX_RUNS = 600; // 한 번 정산할 때 돌리는 최대 탐험 횟수 (서버 보호용)
+let AUTO_HUNT_SEC_PER_ROUND = 3; // 자동 전투 1턴에 걸린 것으로 치는 시간(초)
+let AUTO_HUNT_MIN_SETTLE_SEC = 20; // 이 시간(초)보다 짧게 지났으면 정산을 미뤄요
+let AUTO_HUNT_RESUME_RATIO = 0.7; // 펫이 위험해지면 쉬었다가, 체력이 이 비율까지 차면 다시 나가요
 
 // ───────── 편의 기능 ✨ ─────────
 let HEAL_FULL_CAP = 99; // [회복 가득] / /사용 자동 모드에서 한 번에 쓸 수 있는 약 개수 상한
@@ -752,7 +757,14 @@ async function savePlayer(userId, data) {
 // 두 번 빠르게 눌러도 해정볼이 두 번 줄어드는 일이 없어요.
 // mutate(player) 는 { commit: true/false, value: 돌려줄값 } 을 돌려줘야 해요.
 // (주의: mutate 안에서는 player만 고치고, 다른 일은 하지 마세요)
-async function updatePlayer(userId, mutate) {
+async function updatePlayer(userId, rawMutate) {
+  // 🏃 자리 비운 사이 자동사냥이 한 일을 먼저 정산하고, 원래 하려던 일을 이어서 해요
+  const mutate = (player) => {
+    const settled = settleAutoHunt(player);
+    const out = rawMutate(player);
+    if (settled && out && !out.commit) out.commit = true;
+    return out;
+  };
   if (useMemory()) {
     const found = memoryStore.get(userId);
     if (!found) return null;
@@ -929,7 +941,7 @@ function buildNewPlayer(userId, username, starterPetId) {
     mainPetUid: starter.uid,
     dex: { [starterPetId]: true }, // 도감: 만난/잡은 펫 기록
     exploration: null, // 지금 하고 있는 탐험 (없으면 null)
-    autoHunt: false, // 🏃 자동사냥 모드 (켜져 있으면 대기 시간 없이 바로 사냥, 대신 보상 -65%)
+    autoHunt: false, // 🏃 자동사냥 (켜 두면 자리 비운 사이 대신 /탐험, 보상 -80%)
      createdAt: Date.now(),
     createdAt: Date.now(),
   };
@@ -950,10 +962,146 @@ function setMainPet(player, uid) {
   return { kind: 'changed', commit: true };
 }
 
-// 🏃 자동사냥 켜기/끄기 — 켜져 있는 동안은 탐험 대기 시간이 사라지는 대신 보상이 -65%예요
-function toggleAutoHunt(player) {
-  player.autoHunt = !player.autoHunt;
-  return { kind: player.autoHunt ? 'on' : 'off', commit: true };
+// 🏃 자동사냥 켜기/끄기
+// 켜 두면 내가 자리를 비운 동안 마지막으로 간 장소를 /탐험 해주고, 다음에 봇을 쓸 때 결과를 한꺼번에 정산해요 (보상 -80%)
+function newAutoHuntReport(locationId, now) {
+  return { locationId, startedAt: now, runs: 0, wins: 0, escapes: 0, gold: 0, trainerExp: 0, petExp: 0, trainerLevels: 0, petLevels: 0, stopReason: null };
+}
+
+function toggleAutoHunt(player, now = Date.now()) {
+  // 끄기 (자리 비운 동안의 정산은 updatePlayer 에서 이미 끝났어요)
+  if (player.autoHunt) {
+    const report = player.autoHuntReport ?? null;
+    player.autoHunt = false;
+    player.autoHuntAt = null;
+    delete player.autoHuntReport;
+    return { kind: 'off', report, commit: true };
+  }
+  // 저절로 멈춘 결과가 남아 있으면 먼저 보여줘요
+  if (player.autoHuntReport) {
+    const report = player.autoHuntReport;
+    delete player.autoHuntReport;
+    return { kind: 'report', report, commit: true };
+  }
+  const loc = LOCATIONS[player.lastLocationId];
+  if (!loc) return { kind: 'no_location' };
+  if (player.level < loc.minLevel) return { kind: 'locked', minLevel: loc.minLevel };
+  const main = getMainPet(player);
+  if (!main) return { kind: 'no_pet' };
+  if (currentHp(main, now) / maxHp(main) <= MULTI_STOP_HP_RATIO) return { kind: 'weak_pet' };
+
+  player.autoHunt = true;
+  player.autoHuntAt = now;
+  player.autoHuntReport = newAutoHuntReport(loc.id, now);
+  return { kind: 'on', locationId: loc.id, commit: true };
+}
+
+// 야생 펫 1마리와 자동으로 싸워 봐요 (스킬·아이템은 안 써요).
+// 내 펫이 위험해지면(다음 한 대에 쓰러질 수 있으면) 싸움을 멈추고 물러나서 펫이 사라지는 일은 없어요!
+function autoFight(main, enc, startHp, rng) {
+  const mine = calcStats(main.petId, main.level);
+  const wild = calcStats(enc.petId, enc.level);
+  const fx = GRADE_EFFECTS[PETS[enc.petId].grade];
+  // 야생 펫이 낼 수 있는 최대 한 방 (변동 +15% · 급소 ×1.5)
+  const worstHit = Math.round(Math.max(wild.atk * 0.25, wild.atk - mine.def * 0.5) * 1.15 * 1.5);
+  let myHp = startHp;
+  let wildHp = wild.hp;
+  const order = mine.spd >= wild.spd ? ['me', 'wild'] : ['wild', 'me'];
+
+  for (let round = 1; round <= BATTLE_MAX_ROUNDS; round++) {
+    if (myHp <= worstHit) return { result: 'retreat', myHp, rounds: round - 1 };
+    for (const who of order) {
+      if (wildHp <= 0) break;
+      if (who === 'me') {
+        if (rng() >= fx.missChance) wildHp -= calcDamage(mine.atk, wild.def, rng).dmg;
+      } else if (rng() >= EVADE_CHANCE) {
+        myHp -= calcDamage(wild.atk, mine.def, rng, fx.critChance).dmg;
+      }
+    }
+    if (wildHp <= 0) return { result: 'won', myHp, rounds: round };
+    if (rng() < WILD_FLEE_CHANCE) return { result: 'escape', myHp, rounds: round };
+  }
+  return { result: 'escape', myHp, rounds: BATTLE_MAX_ROUNDS };
+}
+
+// 🏃 자리 비운 사이에 자동사냥이 한 일을 정산해요. 바뀐 게 있으면 true (저장해야 해요)
+// 한 번 도는 일 = 대기(5~30초) + 전투. 걸린 시간만큼 흘러간 것으로 치고, 지난 시간이 다 쓰일 때까지 반복해요.
+function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
+  if (!player.autoHunt) return false;
+  const since = player.autoHuntAt ?? now;
+  const elapsed = now - since;
+  if (elapsed < AUTO_HUNT_MIN_SETTLE_SEC * 1000) return false;
+
+  // 직접 탐험하던 중이면 대신 안 해요 (몇 분 넘게 방치된 화면은 정리하고 대신 해줘요)
+  const ex = player.exploration;
+  if (ex && (ex.battle || now - (ex.startedAt ?? 0) < 120000)) {
+    player.autoHuntAt = now;
+    return true;
+  }
+  if (ex) player.exploration = null;
+
+  const cap = AUTO_HUNT_MAX_HOURS * 3600 * 1000;
+  const end = since + Math.min(elapsed, cap);
+  const rep = (player.autoHuntReport ??= newAutoHuntReport(player.lastLocationId, since));
+  const stop = (reason) => { rep.stopReason = reason; player.autoHunt = false; player.autoHuntAt = null; };
+
+  let t = since;
+  for (let i = 0; i < AUTO_HUNT_MAX_RUNS; i++) {
+    const loc = LOCATIONS[player.lastLocationId];
+    const main = getMainPet(player);
+    if (!loc || player.level < loc.minLevel) { stop('location'); break; }
+    if (!main) { stop('no_pet'); break; }
+
+    const enc = rollEncounter(loc, rng);
+    const waitMs = calcWaitSec(loc, player.level, enc, rng).sec * 1000;
+    const fightAt = t + waitMs;
+    let hp = currentHp(main, fightAt);
+    if (hp / maxHp(main) <= MULTI_STOP_HP_RATIO) {
+      // 🛌 체력이 위험하면 쉬어요: 저절로 회복되는 시간(체력이 RESUME 비율까지 찰 때까지)만큼 흘러가요
+      const max = maxHp(main);
+      const restMs = Math.ceil(((AUTO_HUNT_RESUME_RATIO * max - hp) / (max * HP_REGEN_PCT_PER_MIN)) * 60000);
+      t = fightAt + restMs;
+      rep.restMs = (rep.restMs ?? 0) + Math.min(restMs, Math.max(0, end - fightAt));
+      if (t >= end) { t = end; break; }
+      continue;
+    }
+
+    const fight = autoFight(main, enc, hp, rng);
+    const doneAt = fightAt + fight.rounds * AUTO_HUNT_SEC_PER_ROUND * 1000;
+    if (doneAt > end) break; // 남은 시간이 모자라면 다음 정산 때 이어서 해요
+
+    t = doneAt;
+    rep.runs += 1;
+    player.visited = { ...(player.visited ?? {}), [loc.id]: true };
+    setHp(main, fight.myHp, t);
+
+    if (fight.result === 'retreat') {
+      if (fight.rounds === 0) { stop('too_strong'); break; } // 가득 찬 체력으로도 위험하면 이 장소는 무리예요
+      rep.escapes += 1;
+      continue; // 다음 바퀴에서 쉬어요
+    }
+    if (fight.result !== 'won') { rep.escapes += 1; continue; }
+
+    const pet = PETS[enc.petId];
+    const gold = Math.max(1, Math.round(pet.expYield * GOLD_PER_YIELD * (0.8 + rng() * 0.4) * AUTO_HUNT_REWARD_MULT));
+    const trainerExp = Math.max(1, Math.round(pet.expYield * loc.expMultiplier * WIN_TRAINER_EXP_MULT * AUTO_HUNT_REWARD_MULT));
+    const petExp = Math.max(1, Math.round(pet.expYield * loc.expMultiplier * WIN_PET_EXP_MULT * AUTO_HUNT_REWARD_MULT));
+    player.gold += gold;
+    const tr = addExp(player, trainerExp);
+    const pr = addExp(main, petExp);
+    if (pr.levelsGained > 0) setHp(main, maxHp(main), t); // 레벨업 보너스: 체력 가득!
+    rep.wins += 1;
+    rep.gold += gold;
+    rep.trainerExp += trainerExp;
+    rep.petExp += petExp;
+    rep.trainerLevels += tr.levelsGained;
+    rep.petLevels += pr.levelsGained;
+  }
+
+  if (player.autoHunt && elapsed >= cap) stop('time'); // 최대 시간을 다 채우면 자동으로 꺼져요
+  else if (player.autoHunt) player.autoHuntAt = t; // 못 쓴 시간은 다음에 이어서 써요
+  rep.endedAt = t;
+  return true;
 }
 
 // ============================================================
@@ -1389,8 +1537,7 @@ function startExploration(player, locationId, now = Date.now(), rng = Math.rando
   }
 
   const enc = rollEncounter(loc, rng); // 나올 펫을 먼저 정하고
-    const { sec: rawWaitSec } = calcWaitSec(loc, player.level, enc, rng); // 그 펫이 셀수록 오래 기다려요
-  const waitSec = player.autoHunt ? 0 : rawWaitSec; // 🏃 자동사냥 중엔 기다림 없이 바로 등장해요
+  const { sec: waitSec } = calcWaitSec(loc, player.level, enc, rng); // 그 펫이 셀수록 오래 기다려요
   player.exploration = {
     id: randomUUID().slice(0, 8),
     locationId,
@@ -1444,7 +1591,6 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
     let expGain = Math.round(PETS[petId].expYield * loc.expMultiplier * 1.5) + (isNew ? 25 : 0);
     const trainerBoost = takeBoost(player, 'trainerExp'); // 🚀 포획 경험치에도 트레이너 부스트가 붙어요
     if (trainerBoost) expGain = Math.round(expGain * (1 + BOOST_PCT));
-    if (player.autoHunt) expGain = Math.max(1, Math.round(expGain * AUTO_HUNT_REWARD_MULT)); // 🏃 자동사냥 패널티 -65%
     const before = player.level;
     const result = addExp(player, expGain);
     const unlocked = LOCATION_LIST.filter((l) => l.minLevel > before && l.minLevel <= player.level);
@@ -1624,13 +1770,6 @@ function finishTurn(player, ex, c, log, now, rng) {
     let gold = Math.max(1, Math.round(wildPet.expYield * GOLD_PER_YIELD * (0.8 + rng() * 0.4))) * bonusMult;
      let trainerExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_TRAINER_EXP_MULT) * bonusMult;
      let petExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_PET_EXP_MULT) * bonusMult;
-
-     // 🏃 자동사냥 중이면 보상이 -65%로 줄어요
-    if (player.autoHunt) {
-      gold = Math.max(1, Math.round(gold * AUTO_HUNT_REWARD_MULT));
-      trainerExp = Math.max(1, Math.round(trainerExp * AUTO_HUNT_REWARD_MULT));
-     petExp = Math.max(1, Math.round(petExp * AUTO_HUNT_REWARD_MULT));
-         }
 
     // 🚀 켜둔 경험치 부스트가 있으면 1회씩 쓰고 +30%
     const trainerBoost = takeBoost(player, 'trainerExp');
@@ -2631,10 +2770,32 @@ const explore = {
 // /자동사냥
 // ═════════════════════════════════════════════
 
+const autoHuntStopText = (reason) => ({
+  too_strong: '⚠️ 이 장소는 대표 펫에게 너무 위험해서 멈췄어요. 펫을 키우거나 더 쉬운 곳으로 가보세요!',
+  time: `⏰ 최대 ${AUTO_HUNT_MAX_HOURS}시간을 다 채워서 멈췄어요. 다시 켜면 또 해줘요!`,
+  location: '🔒 갈 수 있는 장소가 아니라서 멈췄어요.',
+  no_pet: '🐾 싸울 펫이 없어서 멈췄어요.',
+}[reason] ?? '');
+
+function autoHuntReportText(rep) {
+  const loc = LOCATIONS[rep.locationId];
+  const mins = Math.max(0, Math.round(((rep.endedAt ?? rep.startedAt) - rep.startedAt) / 60000));
+  const time = mins >= 60 ? `${Math.floor(mins / 60)}시간 ${mins % 60}분` : `${mins}분`;
+  const lines = [
+    `${loc ? `${loc.emoji} ${loc.name}` : '탐험'} · ${time} 동안 **${rep.runs}번** 대신 탐험했어요`,
+    `⚔️ 승리 ${rep.wins}번 · 💨 놓침/물러남 ${rep.runs - rep.wins}번` + (rep.restMs ? ` · 🛌 휴식 ${Math.round(rep.restMs / 60000)}분` : ''),
+    `💰 골드 +${rep.gold.toLocaleString()} · 🎓 트레이너 경험치 +${rep.trainerExp.toLocaleString()} · 🐾 펫 경험치 +${rep.petExp.toLocaleString()}`,
+  ];
+  if (rep.trainerLevels > 0) lines.push(`⬆️ 트레이너 레벨 +${rep.trainerLevels}`);
+  if (rep.petLevels > 0) lines.push(`⬆️ 펫 레벨 +${rep.petLevels}`);
+  if (rep.stopReason) lines.push('', autoHuntStopText(rep.stopReason));
+  return lines.join('\n');
+}
+
 const autoHuntCmd = {
   data: {
     name: '자동사냥',
-    description: '자동사냥 모드를 켜고 꺼요. 켜져 있으면 탐험 대기 시간 없이 바로 사냥할 수 있지만 보상이 -65%예요.',
+    description: '자리를 비운 동안 대신 탐험해줘요 (보상 -80%). 다시 누르면 끄고 결과를 보여줘요.',
     type: 1,
   },
 
@@ -2642,33 +2803,45 @@ const autoHuntCmd = {
     const user = getUser(interaction);
     const out = await updatePlayer(user.id, (player) => {
       const r = toggleAutoHunt(player);
-      return { commit: true, value: r };
+      return { commit: !!r.commit, value: r };
     });
 
     if (!out) return reply({ content: NOT_STARTED }, { ephemeral: true });
 
+    if (out.kind === 'no_location') return reply({ content: '🌿 먼저 `/탐험` 으로 한 번 다녀온 장소가 있어야 해요! 자동사냥은 **마지막으로 간 장소**를 대신 탐험해요.' }, { ephemeral: true });
+    if (out.kind === 'locked') return reply({ content: `🔒 마지막으로 간 장소는 Lv.${out.minLevel} 이 되어야 갈 수 있어요.` }, { ephemeral: true });
+    if (out.kind === 'no_pet') return reply({ content: '🐾 싸울 펫이 없어요!' }, { ephemeral: true });
+    if (out.kind === 'weak_pet') return reply({ content: '❤️ 대표 펫의 체력이 너무 낮아요! 회복시킨 뒤 다시 켜주세요.' }, { ephemeral: true });
+
+    if (out.kind === 'on') {
+      const loc = LOCATIONS[out.locationId];
+      return reply({
+        embeds: [{
+          title: '🏃 자동사냥 시작!',
+          description:
+            `자리를 비운 동안 ${loc.emoji} **${loc.name}** 을(를) 대신 \`/탐험\` 해줘요.\n` +
+            `대표 펫이 알아서 싸우고, 결과는 다음에 봇을 쓸 때 한꺼번에 정산돼요.\n` +
+            `대신 골드·경험치는 **-${pct(1 - AUTO_HUNT_REWARD_MULT)}%** 로 줄어들어요. (직접 \`/탐험\` 하는 건 그대로예요)\n\n` +
+            `⚠️ 해정볼·회복약·스킬은 안 쓰고, 펫이 위험해지면 멈춰요. 최대 ${AUTO_HUNT_MAX_HOURS}시간까지만 해줘요.\n` +
+            '다시 `/자동사냥` 을 누르면 끄고 결과를 보여줘요!',
+          color: 0xf1c40f,
+        }],
+      });
+    }
+
+    // 'off' (끄기) / 'report' (저절로 멈춘 결과 보기)
     return reply({
-      embeds: [
-        out.kind === 'on'
-          ? {
-             title: '🏃 자동사냥 시작!',
-              description:
-               '`/탐험` 을 쓰면 대기 시간 없이 바로바로 야생 펫을 마주쳐요.\n' +
-                `대신 전투 승리·포획으로 얻는 골드·경험치가 **-${pct(1 - AUTO_HUNT_REWARD_MULT)}%** 로 줄어들어요.\n\n` +
-               '다시 `/자동사냥` 을 누르면 꺼져요!',
-             color: 0xf1c40f,
-                        }
-          : {
-              title: '🛑 자동사냥 종료',
-              description: '보상이 원래대로 돌아왔어요. `/탐험` 으로 다시 평소처럼 모험해요!',
-              color: 0x99aab5,
-            },
-      ],
+      embeds: [{
+        title: out.kind === 'off' ? '🛑 자동사냥 종료' : '🏃 자동사냥 결과',
+        description: (out.report ? autoHuntReportText(out.report) : '자리를 비운 사이 한 일이 아직 없어요.') +
+          (out.kind === 'report' ? '\n\n다시 켜려면 `/자동사냥` 을 한 번 더 눌러주세요!' : ''),
+        color: out.kind === 'off' ? 0x99aab5 : 0xf1c40f,
+      }],
     });
   },
-  };
+};
 
- // ───────── 탐험 화면 그리기 ─────────
+// ───────── 탐험 화면 그리기 ─────────
 
 // 채팅이 쌓여서 패널이 안 보일 때, 채널 맨 아래로 다시 올려주는 버튼이에요
 function bumpButton(userId, snapId) {
