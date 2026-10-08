@@ -554,6 +554,10 @@ const TABS = { 설정: tabSettings, 펫: tabPets, 아이템: tabItems, 지역: t
 function show() {
   $('#tabs').replaceChildren(...Object.keys(TABS).map((n) => h('button', { role: 'tab', 'aria-selected': n === tab, onclick: () => { tab = n; show(); } }, n)));
   $('#view').replaceChildren(TABS[tab]());
+  // 상단 저장/되돌리기는 "설정·펫·아이템·지역·등급·표" 전용이에요. 유저 관리 탭은 유저별로 따로 저장/되돌리기 버튼이 있어서
+  // (기본값과 다른 항목이 없으면 계속 비활성 상태로 보여서 눌리지 않는 것처럼 보였어요) 이 탭에서는 숨겨요.
+  $('#saveBtn').classList.toggle('hide', tab === '유저 관리');
+  $('#revertBtn').classList.toggle('hide', tab === '유저 관리');
   updateBar();
 }
 function updateBar() {
