@@ -660,11 +660,37 @@ export function tickSide(X, log, gainMana = true) {
   if (gainMana) X.mana = Math.min(X.manaMax, X.mana + SKILL_CFG.manaPerTurn);
 }
 
-// 야생 펫의 스킬 고르기: 전용기 중 마나가 되는 것 (가끔만 써요)
-export function pickWildSkill(petId, mana, rng = Math.random) {
-  if (rng() >= SKILL_CFG.wildSkillChance) return null;
-  const ok = Object.values(SKILLS).filter((s) => s.pet === petId && s.cost <= mana);
-  return ok.length ? ok[Math.floor(rng() * ok.length)] : null;
+// 🆕 야생 펫도 아군처럼 만날 때 랜덤 스킬을 1~3개 배워서 나와요
+export function rollWildSkills(petId, rng = Math.random) {
+  const count = 1 + Math.floor(rng() * 3); // 1~3개
+  const skills = [];
+  for (let i = 0; i < count; i++) {
+    const id = rollSkill({ petId }, rng, skills); // sigChance(1%)로 전용기가 섞여 나올 수도 있어요
+    if (id) skills.push(id);
+  }
+  return skills;
+}
+
+// 야생 펫의 스킬 고르기: 배운 스킬 중 "지금 상황에 가장 쓸모 있는" 걸 점수로 골라요.
+// 마나만 되면 거의 항상 스킬을 써요 (활용률 100%) — 예전처럼 35%로 거르지 않아요.
+export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
+  const options = (skillIds ?? []).map((id) => SKILLS[id]).filter((sk) => sk && sk.cost <= wild.mana);
+  if (!options.length) return null; // 배운 스킬이 없거나 마나가 모자라면 기본 공격
+
+  const myRatio = wild.hp / wild.max;
+  const foeRatio = me.hp / me.max;
+
+  const score = (sk) => {
+    let s = 1 + rng() * 0.5; // 동점일 땐 랜덤하게
+    if (myRatio <= 0.4 && (sk.heal || sk.regen || sk.shield || sk.guard || sk.cleanse)) s += 6; // 위험하면 회복·방어 최우선
+    if (foeRatio <= 0.3 && (sk.exec || (sk.pow ?? 0) >= 2)) s += 5; // 상대가 빈사면 마무리기 우선
+    if (sk.stun || sk.atkDown || sk.defDown || sk.dot) s += 2; // 방해 효과는 언제나 쓸모 있어요
+    if (sk.pow) s += sk.pow; // 순수 세기도 반영
+    if (sk.cost > wild.mana * 0.8) s -= 1; // 너무 비싸면 살짝 아껴요
+    return s;
+  };
+
+  return options.sort((a, b) => score(b) - score(a))[0];
 }
 
 // 상태 줄 글자: "🔥화상 2턴 · 💪공격↑ 3턴"

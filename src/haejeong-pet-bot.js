@@ -11,6 +11,7 @@ import {
   grantSkills,
   slotsOpen,
   rollSkill,
+  rollWildSkills, // 🆕
   maxMana,
   castSkill,
   tickSide,
@@ -1438,10 +1439,11 @@ function autoHeal(player, selector, now = Date.now(), potionId = null) {
 
 const BALL_ID = 'haejeong_ball';
 
-// 이 장소에서 나올 야생 펫을 하나 뽑아요 (펫 종류 + 레벨)
+// 이 장소에서 나올 야생 펫을 하나 뽑아요 (펫 종류 + 레벨 + 🆕 랜덤 스킬 1~3개)
 function rollEncounter(loc, rng = Math.random) {
   const spawn = weightedPick(loc.spawns, (s) => s.weight, rng);
-  return { petId: spawn.petId, level: randInt(spawn.lv[0], spawn.lv[1], rng) };
+  const petId = spawn.petId;
+  return { petId, level: randInt(spawn.lv[0], spawn.lv[1], rng), skills: rollWildSkills(petId, rng) };
 }
 
 // 나올 펫이 얼마나 센지에 따른 대기 시간 배수 (등급이 높을수록, 그 장소에서 높은 레벨일수록 커져요)
@@ -2121,9 +2123,9 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
     b.wildHp = wild.hp; b.wildMana = wild.mana;
   }
 
-  // 2) 야생 펫이 기본 공격 또는 전용기로 반격해요 (기절 중이면 못 해요)
+  // 2) 야생 펫이 반격해요: 배운 스킬 중 상황에 맞는 걸 우선 써요 (마나만 되면 거의 항상 스킬)
   if (b.wildHp > 0 && b.myHp > 0 && !stunned(b.wildSt, c.wildPet.name, log)) {
-    const wsk = pickWildSkill(c.wildInfo.petId, b.wildMana, rng);
+    const wsk = pickWildSkill(c.wildInfo.skills, wild, me, rng);
     if (wsk) {
       castSkill(wsk, wild, me, rng, log);
       b.wildHp = wild.hp; b.wildMana = wild.mana;
