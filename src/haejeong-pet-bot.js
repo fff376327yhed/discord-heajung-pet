@@ -630,6 +630,7 @@ async function postChannelMessage(channelId, data) {
         Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
       },
       body: JSON.stringify({ ...data, flags: SILENT }),
+      signal: AbortSignal.timeout(2500), // ⚡ 디스코드가 느려도 3초 제한에 걸리지 않게 2.5초에서 포기해요
     });
     if (!res.ok) {
       // 403 = 봇이 그 채널을 못 보거나 메시지 보내기 권한이 없어요
@@ -725,6 +726,35 @@ function getDb() {
 
 const players = () => getDb().collection('players');
 
+// ⚡ 자동완성(타자 칠 때마다 호출)용 짧은 읽기 캐시 — 글자 하나마다 DB 를 읽지 않게 해요.
+// 저장(updatePlayer/savePlayer)이 일어나면 바로 비워서 오래된 값이 보이지 않아요.
+const playerCache = new Map(); // userId -> { at, data }
+const PLAYER_CACHE_MS = 4000;
+
+async function getPlayerCached(userId) {
+  const hit = playerCache.get(userId);
+  if (hit && Date.now() - hit.at < PLAYER_CACHE_MS) return structuredClone(hit.data);
+  const data = await getPlayer(userId);
+  if (data) {
+    if (playerCache.size > 500) playerCache.clear();
+    playerCache.set(userId, { at: Date.now(), data: structuredClone(data) });
+  }
+  return data;
+}
+
+// ⚡ 같은 유저의 쓰기를 한 줄로 세워요 — 버튼을 빠르게 연타해도 DB 트랜잭션끼리 부딪혀 재시도하느라 느려지는 일이 줄어요.
+const userLocks = new Map();
+function withUserLock(userId, fn) {
+  const prev = userLocks.get(userId) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  const tail = next.catch(() => {});
+  userLocks.set(userId, tail);
+  tail.then(() => {
+    if (userLocks.get(userId) === tail) userLocks.delete(userId);
+  });
+  return next;
+}
+
 async function getPlayer(userId) {
   if (useMemory()) {
     const found = memoryStore.get(userId);
@@ -751,6 +781,7 @@ async function createPlayer(userId, data) {
 }
 
 async function savePlayer(userId, data) {
+  playerCache.delete(userId);
   if (useMemory()) {
     memoryStore.set(userId, structuredClone(data));
     return;
@@ -762,7 +793,17 @@ async function savePlayer(userId, data) {
 // 두 번 빠르게 눌러도 해정볼이 두 번 줄어드는 일이 없어요.
 // mutate(player) 는 { commit: true/false, value: 돌려줄값 } 을 돌려줘야 해요.
 // (주의: mutate 안에서는 player만 고치고, 다른 일은 하지 마세요)
-async function updatePlayer(userId, rawMutate) {
+function updatePlayer(userId, rawMutate) {
+  return withUserLock(userId, async () => {
+    try {
+      return await updatePlayerNow(userId, rawMutate);
+    } finally {
+      playerCache.delete(userId);
+    }
+  });
+}
+
+async function updatePlayerNow(userId, rawMutate) {
   // 🏃 자리 비운 사이 자동사냥이 한 일을 먼저 정산하고, 원래 하려던 일을 이어서 해요
   const mutate = (player) => {
     const settled = settleAutoHunt(player);
@@ -808,6 +849,8 @@ async function updatePlayerPair(idA, idB, mutate) {
   }
   const refA = players().doc(idA);
   const refB = players().doc(idB);
+  playerCache.delete(idA);
+  playerCache.delete(idB);
   return getDb().runTransaction(async (tx) => {
     const [sa, sb] = await tx.getAll(refA, refB);
     if (!sa.exists || !sb.exists) return null;
@@ -975,7 +1018,6 @@ function buildNewPlayer(userId, username, starterPetId) {
     dex: { [starterPetId]: true }, // 도감: 만난/잡은 펫 기록
     exploration: null, // 지금 하고 있는 탐험 (없으면 null)
     autoHunt: false, // 🏃 자동사냥 (켜 두면 자리 비운 사이 대신 /탐험, 보상 -80%)
-     createdAt: Date.now(),
     createdAt: Date.now(),
   };
 }
@@ -4163,9 +4205,13 @@ const buy = {
         required: true,
         choices: SHOP_ITEMS.map((i) => ({ name: `${i.emoji} ${i.name} (${i.price}골드)`, value: i.id })),
       },
-      { type: 4, name: '수량', description: `몇 개 살까요? (비우면 1개, 최대 ${MAX_BUY_AT_ONCE}개)`, required: false, min_value: 1, max_value: MAX_BUY_AT_ONCE },
+      { type: 4, name: '수량', description: `몇 개 살까요? 칸을 누르면 살 수 있는 최대 개수가 떠요 (비우면 1개, 최대 ${MAX_BUY_AT_ONCE}개)`, required: false, autocomplete: true },
       { type: 5, name: '최대', description: '켜면 가진 골드로 살 수 있는 만큼 전부 사요', required: false },
     ],
+  },
+
+  async autocomplete(interaction) {
+    return qtyAutocomplete(interaction, '구매');
   },
 
   async execute(interaction) {
@@ -4551,7 +4597,7 @@ const dexCmd = {
 
 async function petAutocomplete(interaction, optionName) {
   const user = getUser(interaction);
-  const player = await getPlayer(user.id);
+  const player = await getPlayerCached(user.id);
   if (!player) return autocompleteResult([]);
 
   const typed = String(getOption(interaction, optionName) ?? '').trim().toLowerCase();
@@ -4572,6 +4618,93 @@ async function petAutocomplete(interaction, optionName) {
     });
 
   return autocompleteResult(choices);
+}
+
+// ═════════════════════════════════════════════
+// 공용: "최대 몇 개까지 되는지" 수량 자동완성 (/사용 수량 · /구매 수량 · /훈련 횟수)
+// 칸을 누르거나 숫자를 치는 동안 쓸 수 있는 최대치를 바로 띄워줘요.
+// ═════════════════════════════════════════════
+
+// 최대치 max 를 기준으로 고르기 쉬운 숫자 후보를 만들어요 (직접 친 숫자가 있으면 맨 위)
+function qtyChoices(max, typedRaw, { unit, maxNote, labelPrefix = '' }) {
+  const fmt = (n) => n.toLocaleString('ko-KR');
+  const typed = Math.floor(Number(typedRaw));
+  const values = [];
+  if (Number.isFinite(typed) && typed >= 1 && typed <= max) values.push(typed);
+  for (const n of [max, 1, 5, 10, 20, 50, 100]) {
+    if (n >= 1 && n <= max && !values.includes(n)) values.push(n);
+  }
+  const out = values.map((n) => ({
+    name: n === max ? `${labelPrefix}최대 ${fmt(n)}${unit}${maxNote ? ` (${maxNote})` : ''}` : `${labelPrefix}${fmt(n)}${unit}`,
+    value: n,
+  }));
+  return out.slice(0, 25);
+}
+
+const qtyHint = (text) => autocompleteResult([{ name: text.slice(0, 100), value: 1 }]);
+
+async function qtyAutocomplete(interaction, commandName) {
+  const user = getUser(interaction);
+  const player = await getPlayerCached(user.id);
+  if (!player) return autocompleteResult([]);
+  const typedRaw = getOption(interaction, interaction.data.options?.find((o) => o.focused)?.name);
+  const now = Date.now();
+
+  if (commandName === '구매') {
+    const item = ITEMS[getOption(interaction, '아이템')];
+    if (!item?.price) return qtyHint('👆 먼저 위에서 살 아이템을 골라주세요');
+    const afford = Math.floor(player.gold / item.price);
+    const max = Math.min(MAX_BUY_AT_ONCE, afford);
+    if (max < 1) return qtyHint(`💸 골드가 부족해요 (${item.name} 1개 = ${item.price.toLocaleString('ko-KR')}골드 / 보유 ${player.gold.toLocaleString('ko-KR')})`);
+    return autocompleteResult(
+      qtyChoices(max, typedRaw, { unit: '개', maxNote: `💰 ${(max * item.price).toLocaleString('ko-KR')}골드`, labelPrefix: `${item.emoji} ` }),
+    );
+  }
+
+  if (commandName === '훈련') {
+    const inst = resolvePetSelector(player, getOption(interaction, '펫'));
+    if (!inst) return qtyHint('🤔 펫을 찾을 수 없어요 (펫 칸을 다시 확인해주세요)');
+    const sim = { level: inst.level, exp: inst.exp ?? 0 };
+    let gold = player.gold;
+    let n = 0;
+    let spent = 0;
+    while (n < MAX_TRAIN_AT_ONCE && sim.level < levelCap(player)) {
+      const cost = trainCost(sim.level);
+      if (gold < cost) break;
+      gold -= cost;
+      spent += cost;
+      addExp(sim, trainExp(sim.level));
+      n += 1;
+    }
+    if (n < 1) {
+      const why = sim.level >= levelCap(player) ? '🔒 레벨 상한이에요' : `💸 골드가 부족해요 (1회 ${trainCost(sim.level).toLocaleString('ko-KR')}골드)`;
+      return qtyHint(why);
+    }
+    return autocompleteResult(qtyChoices(n, typedRaw, { unit: '회', maxNote: `Lv.${inst.level}→${sim.level} · 💰 ${spent.toLocaleString('ko-KR')}골드` }));
+  }
+
+  // 사용
+  const item = ITEMS[getOption(interaction, '아이템')];
+  if (!item) return qtyHint('👆 아이템을 먼저 고르면 최대 개수가 떠요 (안 고르면 회복약을 알아서 써요)');
+  const owned = player.inventory?.[item.id] ?? 0;
+  if (owned < 1) return qtyHint(`${item.emoji} ${item.name}이(가) 없어요 😭`);
+
+  let max = owned;
+  let maxNote = `보유 ${owned}개`;
+  if (item.heal) {
+    const inst = resolvePetSelector(player, getOption(interaction, '대상'));
+    if (!inst) return qtyHint('🤔 대상 펫을 찾을 수 없어요');
+    const cur = currentHp(inst, now);
+    const hpMax = maxHp(inst);
+    if (cur >= hpMax) return qtyHint(`💚 체력이 이미 가득해요 (${cur}/${hpMax})`);
+    const needed = Math.ceil((hpMax - cur) / item.heal);
+    max = Math.min(owned, needed);
+    maxNote = needed <= owned ? `가득 찰 때까지 · ❤${cur}→${hpMax}` : `보유 ${owned}개 전부 · ❤${cur}→${Math.min(hpMax, cur + item.heal * owned)}`;
+  } else if (!item.boost) {
+    max = 1; // 시간 감소·포획·스킬 아이템은 한 번에 1개씩만 써요
+    maxNote = '이 아이템은 1개씩 써요';
+  }
+  return autocompleteResult(qtyChoices(max, typedRaw, { unit: '개', maxNote, labelPrefix: `${item.emoji} ` }));
 }
 
 const PET_OPTION = (description, required = true) => ({ type: 3, name: '펫', description, required, autocomplete: true });
@@ -4887,18 +5020,23 @@ const train = {
     type: 1,
     options: [
       PET_OPTION('훈련시킬 펫 (번호나 이름, 입력하면 목록이 떠요)', false),
-      { type: 4, name: '횟수', description: `바로 훈련할 횟수 (최대 ${MAX_TRAIN_AT_ONCE}회, 비우면 훈련장 화면이 열려요)`, required: false, min_value: 1, max_value: MAX_TRAIN_AT_ONCE },
+      { type: 4, name: '횟수', description: `바로 훈련할 횟수 — 칸을 누르면 할 수 있는 최대 횟수가 떠요 (최대 ${MAX_TRAIN_AT_ONCE}회, 비우면 훈련장 화면)`, required: false, autocomplete: true },
       { type: 3, name: '목록', description: '여러 마리를 한번에: 번호를 콤마·범위로 (예: 2,4,7-9) 또는 "전체". "횟수"도 함께 입력해주세요', required: false, max_length: 60 },
     ],
   },
 
   async autocomplete(interaction) {
+    const focused = interaction.data.options?.find((o) => o.focused)?.name;
+    if (focused === '횟수') return qtyAutocomplete(interaction, '훈련');
     return petAutocomplete(interaction, '펫');
   },
 
   async execute(interaction) {
     const user = getUser(interaction);
     const times = getOption(interaction, '횟수');
+    if (times !== undefined && (!Number.isInteger(times) || times < 1 || times > MAX_TRAIN_AT_ONCE)) {
+      return reply({ content: `횟수는 1~${MAX_TRAIN_AT_ONCE} 사이 숫자로 적어주세요!` }, { ephemeral: true });
+    }
     const listText = String(getOption(interaction, '목록') ?? '').trim();
 
     // 🆕 목록을 적었으면 여러 마리를 한번에 훈련해요 (횟수가 꼭 필요해요)
@@ -4906,7 +5044,9 @@ const train = {
       if (!times) return reply({ content: '여러 마리를 훈련하려면 `횟수` 도 함께 입력해주세요! (예: 목록:2,4,7-9 횟수:5)' }, { ephemeral: true });
 
       let notFound = [];
+      let latest = null;
       const out = await updatePlayer(user.id, (p) => {
+        latest = p; // ⚡ 저장 후 다시 읽지 않고 바로 이 데이터로 보여줘요
         const resolved = resolvePetSelectors(p, listText);
         notFound = resolved.notFound;
         const uids = resolved.insts.map((i) => i.uid);
@@ -4919,7 +5059,6 @@ const train = {
         return reply({ content: `${PET_NOT_FOUND}${extra}` }, { ephemeral: true });
       }
 
-      const latest = await getPlayer(user.id);
       const lines = out.results.slice(0, 20).map((r) => {
         const inst = latest?.pets.find((x) => x.uid === r.uid);
         const label = inst ? `${PETS[inst.petId].emoji} ${inst.nickname ?? PETS[inst.petId].name}` : '???';
@@ -5013,7 +5152,7 @@ const use = {
         required: false,
         choices: USABLE_ITEMS.map((i) => ({ name: `${i.emoji} ${i.name}`, value: i.id })),
       },
-      { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? (비우면 1개, 회복약은 가득 찰 때까지만 써요)', required: false, min_value: 1 },
+      { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? 칸을 누르면 쓸 수 있는 최대 개수가 떠요 (비우면 1개)', required: false, autocomplete: true },
       { type: 5, name: '최대', description: '켜면 가진 만큼 최대로 써요', required: false },
       { type: 4, name: '슬롯', description: '🔄 스킬 변경권 전용: 다시 뽑을 스킬 슬롯 번호 (1~5)', required: false, min_value: 1, max_value: SLOT_COUNT },
       {
@@ -5044,7 +5183,9 @@ const use = {
       }
 
       let notFound = [];
+      let latest = null;
       const out = await updatePlayer(user.id, (p) => {
+        latest = p; // ⚡ 저장 후 다시 읽지 않고 바로 이 데이터로 보여줘요
         const resolved = resolvePetSelectors(p, listText);
         notFound = resolved.notFound;
         const uids = resolved.insts.map((i) => i.uid);
@@ -5062,7 +5203,6 @@ const use = {
         return reply({ content: `${PET_NOT_FOUND}${extra}` }, { ephemeral: true });
       }
 
-      const latest = await getPlayer(user.id);
       const petLabel = (uid) => {
         const inst = latest?.pets.find((x) => x.uid === uid);
         return inst ? `${PETS[inst.petId].emoji} ${inst.nickname ?? PETS[inst.petId].name}` : '???';
@@ -5166,6 +5306,8 @@ const use = {
 
   // "대상" 칸에 타이핑하는 동안 주식봇처럼 실시간으로 후보와 현재 체력을 미리 보여줘요
   async autocomplete(interaction) {
+    const focused = interaction.data.options?.find((o) => o.focused)?.name;
+    if (focused === '수량') return qtyAutocomplete(interaction, '사용');
     return petAutocomplete(interaction, '대상');
   },
 };
@@ -5826,8 +5968,34 @@ for (const m of modules) {
 
 export const commandDefinitions = modules.map((m) => m.data);
 
+// ⚡ 디스코드는 3초 안에 답을 못 받으면 "애플리케이션이 응답하지 않음" 을 띄워요.
+//    자동완성은 2.2초 안에 못 끝내면 빈 목록으로, 그 외는 2.7초 안에 못 끝내면 안내 메시지로 먼저 답해서
+//    실패 화면 대신 "다시 눌러주세요" 가 보이게 해요 (뒤에서 진행 중인 저장은 그대로 끝나요).
 export async function handleInteraction(interaction) {
-  if (interaction.type !== InteractionType.PING) await admin.ensure(); // 관리자 설정 (20초마다 한 번만 읽어요)
+  if (interaction.type === InteractionType.PING) return { type: 1 };
+
+  const isAuto = interaction.type === InteractionType.AUTOCOMPLETE;
+  const limitMs = isAuto ? 2200 : 2700;
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      console.error('⏱️ 응답이 느려서 임시 답을 보냈어요:', interaction.data?.name ?? interaction.data?.custom_id);
+      resolve(
+        isAuto
+          ? autocompleteResult([])
+          : reply({ content: '⏳ 서버가 조금 느려요. 잠시 후 다시 한 번 시도해주세요! (이미 처리됐을 수도 있으니 `/내정보` 로 확인해보세요)' }, { ephemeral: true }),
+      );
+    }, limitMs);
+  });
+  try {
+    return await Promise.race([handleInteractionInner(interaction), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function handleInteractionInner(interaction) {
+  await admin.ensure(); // 관리자 설정 (1분마다 뒤에서 갱신해요)
   switch (interaction.type) {
     case InteractionType.PING:
       return { type: 1 };

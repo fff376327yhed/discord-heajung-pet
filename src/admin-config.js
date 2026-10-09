@@ -10,7 +10,7 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const ID_RE = /^[a-z0-9_]{2,40}$/;
 
-export function createConfigManager({ scalars, tables, entities, refresh, store, ttlMs = 20000 }) {
+export function createConfigManager({ scalars, tables, entities, refresh, store, ttlMs = 60000, firstLoadTimeoutMs = 1500 }) {
   // scalars: { NAME: { get, set, section, desc } }   tables: { NAME: 객체|배열 }
   // entities: { pets: PETS, items: ITEMS, locations: LOCATIONS }
   const defaults = {
@@ -136,10 +136,13 @@ export function createConfigManager({ scalars, tables, entities, refresh, store,
 
   return {
     // 요청 처리 전에 불러요. ttl 안에는 다시 읽지 않아서 빨라요 (동시 요청은 한 번만 읽어요)
+    // ⚡ 처음 한 번만 (최대 firstLoadTimeoutMs 동안) 기다리고, 그 뒤로는 기다리지 않고 뒤에서 갱신해요.
+    //    → 매 요청마다 DB 를 읽느라 3초 제한(애플리케이션이 응답하지 않음)에 걸리는 일이 줄어요.
     async ensure() {
       if (Date.now() - loadedAt < ttlMs) return;
       loading ??= reload().finally(() => (loading = null));
-      await loading;
+      if (loadedAt > 0) return; // 이미 한 번 불러왔으면 이전 설정으로 바로 진행
+      await Promise.race([loading, new Promise((resolve) => setTimeout(resolve, firstLoadTimeoutMs))]);
     },
     async getAll() {
       await reload();
