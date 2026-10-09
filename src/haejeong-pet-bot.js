@@ -5974,7 +5974,7 @@ const use = {
         return { commit: r.commit === true, value: r };
       });
       if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
-      return reply({ content: skillItemResultText(res) }, { ephemeral: true });
+      return reply({ content: skillItemResultText(res) }, { ephemeral: res.commit !== true });
     }
 
     // 🍖 포획 아이템 (야생 펫을 만난 뒤에 써요. 전투 중에는 전투 화면의 아이템 버튼으로 써요)
