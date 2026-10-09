@@ -354,13 +354,13 @@ function matchupText(myId, wildId, mySt = {}, wildSt = {}) {
 }
 // 대결 기록용 짧은 상성 표시
 const clashShort = (m) => (m >= 2 ? ' 🌟약점!!' : m >= 1.1 ? ' ✨약점' : m <= 0.5 ? ' 💨거의없음' : m <= 0.9 ? ' 💧별로' : '');
-// 전투 화면용 짧은 상성 한 줄 (만났을 때 화면은 matchupText 그대로 써요)
+// 전투 화면용 짧은 상성 한 줄 — 배율 숫자만 보여줘요 (만났을 때 화면은 matchupText 그대로 써요)
 function matchupTextShort(myId, wildId, mySt = {}, wildSt = {}) {
   const me = { elems: petElems(myId), st: mySt };
   const wd = { elems: petElems(wildId), st: wildSt };
   const out = elemClash(effElems(me)[0], wd).mult;
   const inn = elemClash(effElems(wd)[0], me).mult;
-  return `🧬 상성 나→상대${clashShort(out) || ' 보통'} · 상대→나${clashShort(inn) || ' 보통'}`;
+  return `⚔️ 내 공격 ×${+out.toFixed(2)} · 받는 공격 ×${+inn.toFixed(2)}`;
 }
 
 // ============================================================
