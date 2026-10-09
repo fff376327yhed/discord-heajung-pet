@@ -4422,19 +4422,52 @@ const bag = {
 
 const PAGE_SIZE = 10;
 
+// 🔀 /펫 목록 정렬 — 번호(잡은 순서)는 그대로 두고 "보이는 순서"만 바꿔요. (/별명 · /방생 · /훈련 의 번호가 안 헷갈려요)
+// 고른 정렬은 저장돼서 다음에 열어도 그대로고, 자동완성 목록도 같은 순서로 보여줘요.
+const PET_SORTS = {
+  no: { label: '번호순 (잡은 순서)', emoji: '🔢' },
+  grade: { label: '등급 높은순', emoji: '🌈' },
+  grade_asc: { label: '등급 낮은순', emoji: '⚪' },
+  level: { label: '레벨 높은순', emoji: '⭐' },
+  level_asc: { label: '레벨 낮은순', emoji: '🌱' },
+  power: { label: '전투력 높은순', emoji: '⚔️' },
+  name: { label: '이름순 (가나다)', emoji: '🔤' },
+  price: { label: '가격 높은순 (방생 골드)', emoji: '💰' },
+  price_asc: { label: '가격 낮은순 (방생 골드)', emoji: '🪙' },
+};
+
+// [{ inst, no }] — no 는 원래 번호예요 (정렬해도 안 바뀌어요)
+function sortedPetEntries(player, mode = 'no') {
+  const entries = (player.pets ?? []).map((inst, i) => ({ inst, no: i + 1 }));
+  const gradeOf = (inst) => GRADES[PETS[inst.petId]?.grade]?.order ?? 0;
+  const nameOfInst = (inst) => inst.nickname ?? PETS[inst.petId]?.name ?? '';
+  const cmp = {
+    grade: (a, b) => gradeOf(b.inst) - gradeOf(a.inst) || b.inst.level - a.inst.level || petPower(b.inst) - petPower(a.inst),
+    grade_asc: (a, b) => gradeOf(a.inst) - gradeOf(b.inst) || a.inst.level - b.inst.level,
+    level: (a, b) => b.inst.level - a.inst.level || gradeOf(b.inst) - gradeOf(a.inst),
+    level_asc: (a, b) => a.inst.level - b.inst.level || gradeOf(a.inst) - gradeOf(b.inst),
+    power: (a, b) => petPower(b.inst) - petPower(a.inst),
+    name: (a, b) => nameOfInst(a.inst).localeCompare(nameOfInst(b.inst), 'ko') || b.inst.level - a.inst.level,
+    price: (a, b) => releaseValue(b.inst) - releaseValue(a.inst),
+    price_asc: (a, b) => releaseValue(a.inst) - releaseValue(b.inst),
+  }[mode];
+  return cmp ? entries.sort((a, b) => cmp(a, b) || a.no - b.no) : entries;
+}
+
 function petsView(player, userId, page = 0, note) {
   const pages = Math.max(1, Math.ceil(player.pets.length / PAGE_SIZE));
   const cur = Math.max(0, Math.min(pages - 1, page));
   const start = cur * PAGE_SIZE;
-  const slice = player.pets.slice(start, start + PAGE_SIZE);
+  const sortMode = PET_SORTS[player.petSort] ? player.petSort : 'no';
+  const slice = sortedPetEntries(player, sortMode).slice(start, start + PAGE_SIZE);
 
-  const lines = slice.map((inst, i) => {
+  const lines = slice.map(({ inst, no }) => {
     const pet = PETS[inst.petId];
     const s = calcStats(inst.petId, inst.level);
     const crown = inst.uid === player.mainPetUid ? '👑 ' : '';
     const learned = SLOT_IDX.filter((k) => SKILLS[inst.skills?.[k]]).length;
     return (
-      `**${start + i + 1}.** ${crown}${GRADES[pet.grade].emoji} ${pet.emoji} **${inst.nickname ?? pet.name}** Lv.${inst.level}\n` +
+      `**${no}.** ${crown}${GRADES[pet.grade].emoji} ${pet.emoji} **${inst.nickname ?? pet.name}** Lv.${inst.level}\n` +
       `　❤️ ${currentHp(inst)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
       `　✨ 스킬 ${learned}/${SLOT_COUNT}${inst.slot3 ? '' : ' · 🎫 5번 칸 잠김'}`
     );
@@ -4445,10 +4478,10 @@ function petsView(player, userId, page = 0, note) {
       select({
         customId: `pets:main:${userId}:${cur}`,
         placeholder: '👑 대표 펫으로 삼을 친구를 골라요',
-        options: slice.map((inst, i) => {
+        options: slice.map(({ inst, no }) => {
           const pet = PETS[inst.petId];
           return {
-            label: `${start + i + 1}. ${inst.nickname ?? pet.name} Lv.${inst.level}`,
+            label: `${no}. ${inst.nickname ?? pet.name} Lv.${inst.level}`,
             value: inst.uid,
             description: `${GRADES[pet.grade].name} 등급`,
             emoji: pet.emoji,
@@ -4458,6 +4491,15 @@ function petsView(player, userId, page = 0, note) {
       }),
     ),
   ];
+  components.push(
+    row(
+      select({
+        customId: `pets:sort:${userId}:${cur}`,
+        placeholder: `🔀 정렬: ${PET_SORTS[sortMode].label}`,
+        options: Object.entries(PET_SORTS).map(([value, o]) => ({ label: o.label, value, emoji: o.emoji, default: value === sortMode })),
+      }),
+    ),
+  );
   if (pages > 1) {
     components.push(
       row(
@@ -4487,7 +4529,7 @@ function petsView(player, userId, page = 0, note) {
         title: `🐾 ${player.name}님의 해정펫 (${player.pets.length}마리)`,
         description: `${note ? note + '\n\n' : ''}${lines.join('\n')}`,
         color: EMBED_COLOR,
-        footer: { text: '번호는 /별명 · /방생 · /훈련 에서 써요 · 👑 대표 펫이 전투에 나서요' },
+        footer: { text: `${PET_SORTS[sortMode].emoji} ${PET_SORTS[sortMode].label} · 번호는 /별명 · /방생 · /훈련 에서 써요 (정렬해도 번호는 그대로) · 👑 대표 펫이 전투에 나서요` },
       },
     ],
     components,
@@ -4498,9 +4540,8 @@ function petsView(player, userId, page = 0, note) {
 function petsTicketPickView(player, userId, page) {
   const cur = Math.max(0, page);
   const start = cur * PAGE_SIZE;
-  const cands = player.pets
+  const cands = sortedPetEntries(player, player.petSort)
     .slice(start, start + PAGE_SIZE)
-    .map((inst, i) => ({ inst, no: start + i + 1 }))
     .filter((c) => !c.inst.slot3);
   const item = ITEMS[TICKET_ID];
   return {
@@ -4537,12 +4578,28 @@ function petsTicketPickView(player, userId, page) {
 const pets = {
   data: {
     name: '펫',
-    description: '내 해정펫 목록을 보고 대표 펫을 바꿔요.',
+    description: '내 해정펫 목록을 보고 대표 펫을 바꿔요. 등급·레벨·이름·가격순으로 정렬할 수도 있어요.',
     type: 1,
+    options: [
+      {
+        type: 3,
+        name: '정렬',
+        description: '목록을 어떤 순서로 볼까요? (한 번 고르면 저장돼요)',
+        required: false,
+        choices: Object.entries(PET_SORTS).map(([value, o]) => ({ name: o.label, value })),
+      },
+    ],
   },
 
   async execute(interaction) {
     const user = getUser(interaction);
+    const sortOpt = getOption(interaction, '정렬');
+    if (sortOpt && PET_SORTS[sortOpt]) {
+      await updatePlayer(user.id, (p) => {
+        p.petSort = sortOpt;
+        return { commit: true, value: true };
+      });
+    }
     const player = await getPlayer(user.id);
     if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
     return reply(petsView(player, user.id, 0));
@@ -4562,6 +4619,20 @@ const pets = {
         const player = await getPlayer(user.id);
         if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
         return update(petsView(player, user.id, page));
+      }
+
+      // 🔀 정렬 바꾸기 (저장돼요)
+      if (action === 'sort') {
+        const mode = interaction.data.values?.[0];
+        if (!PET_SORTS[mode]) return reply({ content: '그런 정렬은 없어요 🤔' }, { ephemeral: true });
+        let latest = null;
+        const out = await updatePlayer(user.id, (p) => {
+          p.petSort = mode;
+          latest = p;
+          return { commit: true, value: true };
+        });
+        if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+        return update(petsView(latest, user.id, 0, `🔀 **${PET_SORTS[mode].label}** 으로 정렬했어요!`));
       }
 
       if (action === 'main') {
@@ -4595,7 +4666,7 @@ const pets = {
           return reply({ content: `${ITEMS[TICKET_ID].emoji} ${ITEMS[TICKET_ID].name}이(가) 없어요 😭 \`/상점\` 에서 사올 수 있어요!` }, { ephemeral: true });
         }
         const start = page * PAGE_SIZE;
-        if (!player.pets.slice(start, start + PAGE_SIZE).some((x) => !x.slot3)) {
+        if (!sortedPetEntries(player, player.petSort).slice(start, start + PAGE_SIZE).some((x) => !x.inst.slot3)) {
           return update(petsView(player, user.id, page, '이 페이지의 펫들은 5번 스킬 칸이 모두 열려 있어요! 다른 페이지를 확인해보세요.'));
         }
         return update(petsTicketPickView(player, user.id, page));
@@ -4744,8 +4815,8 @@ async function petAutocomplete(interaction, optionName) {
   const typed = String(getOption(interaction, optionName) ?? '').trim().toLowerCase();
   const now = Date.now();
 
-  const choices = player.pets
-    .map((inst, i) => ({ inst, index: i + 1, label: inst.nickname ?? PETS[inst.petId].name }))
+  const choices = sortedPetEntries(player, player.petSort) // 🔀 /펫 에서 고른 정렬 순서대로 보여줘요
+    .map(({ inst, no }) => ({ inst, index: no, label: inst.nickname ?? PETS[inst.petId].name }))
     .filter((c) => !typed || `${c.index} ${c.label}`.toLowerCase().includes(typed))
     .slice(0, 25)
     .map((c) => {
@@ -5487,13 +5558,17 @@ function playerPower(player) {
 const RANK_KINDS = {
   power: { label: '전투력', emoji: '⚔️' },
   level: { label: '트레이너 레벨', emoji: '⭐' },
+  grade: { label: '최고 등급 펫', emoji: '🌈' },
   dex: { label: '도감', emoji: '📖' },
+  pets: { label: '펫 수', emoji: '🐾' },
+  gold: { label: '골드', emoji: '💰' },
+  name: { label: '이름순 (가나다)', emoji: '🔤' },
 };
 
 // 모든 플레이어를 읽어와요 (필요한 칸만 골라서 읽어요)
 async function loadAllPlayers() {
   if (useMemory()) return [...memoryStore.entries()].map(([id, p]) => ({ ...p, userId: p.userId ?? id }));
-  const snap = await players().select('name', 'level', 'exp', 'pets', 'mainPetUid', 'dex').limit(RANK_MAX_PLAYERS).get();
+  const snap = await players().select('name', 'level', 'exp', 'gold', 'pets', 'mainPetUid', 'dex').limit(RANK_MAX_PLAYERS).get();
   return snap.docs.map((d) => ({ ...d.data(), userId: d.id }));
 }
 
@@ -5510,8 +5585,16 @@ function buildRankRow(p) {
   const pw = playerPower(p);
   const main = (p.pets ?? []).find((x) => x.uid === p.mainPetUid && PETS[x.petId]) ?? null;
   const dex = dexProgress(p);
+  let topGrade = null; // 가진 펫 중 가장 높은 등급
+  for (const x of p.pets ?? []) {
+    const g = PETS[x.petId]?.grade;
+    if (g && (!topGrade || (GRADES[g]?.order ?? 0) > (GRADES[topGrade]?.order ?? 0))) topGrade = g;
+  }
   return {
     userId: p.userId,
+    gold: p.gold ?? 0,
+    gradeOrder: topGrade ? GRADES[topGrade].order : 0,
+    gradeText: topGrade ? `${GRADES[topGrade].emoji} ${GRADES[topGrade].name}` : '없음',
     name: p.name ?? '이름 없음',
     level: p.level ?? 1,
     exp: p.exp ?? 0,
@@ -5546,7 +5629,11 @@ function sortRankRows(rows, kind) {
   const by = {
     power: (a, b) => b.power - a.power || b.level - a.level || b.exp - a.exp,
     level: (a, b) => b.level - a.level || b.exp - a.exp || b.power - a.power,
+    grade: (a, b) => b.gradeOrder - a.gradeOrder || b.power - a.power || b.level - a.level,
     dex: (a, b) => b.dexFound - a.dexFound || b.power - a.power || b.level - a.level,
+    pets: (a, b) => b.petCount - a.petCount || b.power - a.power || b.level - a.level,
+    gold: (a, b) => b.gold - a.gold || b.power - a.power || b.level - a.level,
+    name: (a, b) => String(a.name).localeCompare(String(b.name), 'ko') || b.power - a.power,
   }[kind];
   return [...rows].sort((a, b) => by(a, b) || String(a.userId).localeCompare(String(b.userId)));
 }
@@ -5568,7 +5655,7 @@ function rankingView(allRows, kind, page, viewerId) {
       `${head} · **${r.name}** · ⭐ Lv.${r.level} · ⚔️ ${fmtNum(r.power)}\n` +
       `└ ${r.mainText}\n` +
       (r.bestText ? `└ 🏅 최강 펫 ${r.bestText}\n` : '') +
-      `└ 🐾 ${r.petCount}마리 · 📖 도감 ${r.dexFound}/${r.dexTotal}`
+      `└ 🐾 ${r.petCount}마리 · 🎖️ 최고 등급 ${r.gradeText} · 📖 도감 ${r.dexFound}/${r.dexTotal} · 💰 ${fmtNum(r.gold)}`
     );
   });
 
@@ -5597,9 +5684,11 @@ function rankingView(allRows, kind, page, viewerId) {
         button({ label: '새로고침', emoji: '🔄', customId: id('refresh', kind, pg), style: 2 }),
       ),
       row(
-        ...Object.entries(RANK_KINDS).map(([kk, v]) =>
-          button({ label: v.label, emoji: v.emoji, customId: id('kind', kk, 0), style: kk === kind ? 3 : 2, disabled: kk === kind }),
-        ),
+        select({
+          customId: id('kindsel', kind, 0),
+          placeholder: '🔀 줄 세우는 기준을 골라요',
+          options: Object.entries(RANK_KINDS).map(([kk, v]) => ({ label: v.label, value: kk, emoji: v.emoji, default: kk === kind })),
+        }),
       ),
     ],
   };
@@ -5620,11 +5709,7 @@ const rankingCmd = {
         name: '종류',
         description: '무엇으로 줄 세울까요? (기본: 전투력)',
         required: false,
-        choices: [
-          { name: '전투력', value: 'power' },
-          { name: '트레이너 레벨', value: 'level' },
-          { name: '도감', value: 'dex' },
-        ],
+        choices: Object.entries(RANK_KINDS).map(([value, v]) => ({ name: v.label, value })),
       },
     ],
   },
@@ -5645,6 +5730,10 @@ const rankingCmd = {
       }
       const kind = RANK_KINDS[kind0] ? kind0 : 'power';
       const rows = await getRankRows(action === 'refresh');
+      if (action === 'kindsel') {
+        const picked = interaction.data.values?.[0];
+        return update(rankingView(rows, RANK_KINDS[picked] ? picked : kind, 0, user.id));
+      }
       return update(rankingView(rows, kind, action === 'me' ? 'me' : Number(page0), user.id));
     },
   },
@@ -5761,7 +5850,7 @@ const help = {
                   `**전투력**은 얼마나 센지를 숫자 하나로 보여줘요.\n` +
                   `🐾 펫 1마리 = (체력×${POWER_HP_W} + 공격×${POWER_ATK_W} + 방어×${POWER_DEF_W} + 속도×${POWER_SPD_W}) × 등급 보너스(단계마다 +${pct(POWER_GRADE_BONUS)}%) × 스킬 보너스(칸마다 +${pct(POWER_SKILL_BONUS)}%)\n` +
                   `👤 내 전투력 = 가장 센 펫 **${POWER_TOP_PETS}마리**의 합 + 트레이너 레벨 × **${POWER_TRAINER_LEVEL_W}**\n` +
-                  '`/랭킹` 으로 전투력 순서대로 사람들의 레벨·대표 펫·최강 펫·도감을 볼 수 있어요. **[전투력] [트레이너 레벨] [도감]** 버튼으로 줄 세우는 기준을 바꾸고, **[내 순위]** 로 내 쪽으로 바로 가요!',
+                  '`/랭킹` 으로 전투력 순서대로 사람들의 레벨·대표 펫·최강 펫·도감을 볼 수 있어요. 아래 **기준 메뉴**에서 전투력 · 트레이너 레벨 · 최고 등급 · 도감 · 펫 수 · 골드 · 이름순으로 바꾸고, **[내 순위]** 로 내 쪽으로 바로 가요!\n`/펫` 목록도 **정렬 메뉴**로 등급 · 레벨 · 전투력 · 이름 · 가격순으로 볼 수 있어요.',
               },
               {
                 name: '🥊 유저 대결',
