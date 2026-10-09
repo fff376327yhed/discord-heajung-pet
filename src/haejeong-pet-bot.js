@@ -648,6 +648,301 @@ function weightedPick(items, getWeight, rng = Math.random) {
 }
 
 // ============================================================
+// 장비 시스템 (equipment) 🛡️
+// ============================================================
+
+// 펫마다 장비 4칸 (⚔️ 무기 · 🛡️ 방어구 · 👟 신발 · 💍 장신구) — 숫자만 바꾸면 느낌이 바뀌어요!
+//  · 야생 펫을 쓰러뜨리거나 잡으면 장비가 가방에 떨어져요 → /장비 로 장착해요
+//  · 야생 펫도 일정 확률로 장비를 입고 나와요 (입고 있으면 그만큼 더 강하고, 쓰러뜨리면 떨어뜨려요)
+//  · 장비 등급은 펫 등급과 같은 7단계예요. 등급이 높을수록 능력치가 훨씬 좋아요.
+let EQUIP_INV_MAX = 150; // 장비 가방 최대 개수 (가득 차면 새로 얻은 장비는 자동으로 팔려요)
+let EQUIP_DROP_WIN = 0.12; // 승리했을 때 "새 장비"가 떨어질 기본 확률
+let EQUIP_DROP_CATCH = 0.18; // 포획했을 때 "새 장비"가 떨어질 기본 확률
+let EQUIP_DROP_GRADE_BONUS = 0.2; // 야생 펫 등급이 한 단계 오를 때마다 드롭 확률 +20% (곱셈)
+let EQUIP_WILD_SLOT_CHANCE = 0.08; // 야생 펫이 칸 하나에 장비를 입고 나올 확률 (4칸 각각 따로 굴려요)
+let EQUIP_WORN_DROP_WIN = 0.5; // 승리했을 때 야생 펫이 입고 있던 장비를 떨어뜨릴 확률 (한 칸마다)
+let EQUIP_WORN_DROP_CATCH = 0.7; // 포획했을 때 입고 있던 장비를 떨어뜨릴 확률 (한 칸마다)
+let EQUIP_ROLL_VARIANCE = 0.15; // 장비 능력치 랜덤 편차 (±15%)
+let EQUIP_CRIT_CAP = 0.3; // 장비로 올릴 수 있는 급소 확률 상한 (30%)
+let EQUIP_EVADE_CAP = 0.2; // 장비로 올릴 수 있는 회피 확률 상한 (20%)
+let EQUIP_PAGE_SIZE = 8; // /장비 가방 한 쪽에 보여줄 개수 (최대 25)
+
+const EQUIP_SLOT_KEYS = ['weapon', 'armor', 'boots', 'accessory'];
+const EQUIP_SLOTS = {
+  weapon: { name: '무기', emoji: '⚔️' },
+  armor: { name: '방어구', emoji: '🛡️' },
+  boots: { name: '신발', emoji: '👟' },
+  accessory: { name: '장신구', emoji: '💍' },
+};
+const EQUIP_GRADE_KEYS = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'divine']; // 펫 등급과 같은 순서예요
+// 등급별 장비 이름 (등급 낮음 → 높음)
+const EQUIP_NAMES = {
+  weapon: ['나무 몽둥이', '철제 단검', '강철 장검', '룬 각인검', '용살 대검', '신화의 성검', '창세의 빛검'],
+  armor: ['헝겊 옷', '가죽 갑옷', '강철 갑옷', '마력 판금갑', '용비늘 갑주', '신화의 흉갑', '천상의 성의'],
+  boots: ['낡은 짚신', '가죽 장화', '질풍 신발', '번개 장화', '바람의 군화', '신속의 날개신', '시공의 발걸음'],
+  accessory: ['구리 반지', '은 목걸이', '사파이어 팔찌', '영웅의 인장', '용왕의 목걸이', '신화의 왕관', '태초의 보주'],
+};
+// 등급이 오를수록 능력치가 몇 배가 되는지 (일반 ×1 → 초월 ×18)
+const EQUIP_GRADE_MULT = { common: 1, uncommon: 1.8, rare: 3, epic: 5, legendary: 8, mythic: 12, divine: 18 };
+// 칸마다 기본 능력치 (등급 배율이 곱해져요). crit / evade 는 아래 등급표에 곱해지는 "비율"이에요.
+const EQUIP_BASE = {
+  weapon: { atk: 4, crit: 1 },
+  armor: { def: 3, hp: 14 },
+  boots: { spd: 2, def: 1, hp: 4, evade: 1 },
+  accessory: { hp: 8, atk: 1.5, def: 1.5, crit: 0.6, evade: 0.6 },
+};
+// 등급별 급소 확률 / 회피 확률 (장비 1개 기준, 일반·고급은 0)
+const EQUIP_CRIT_BY_GRADE = { common: 0, uncommon: 0, rare: 0.01, epic: 0.02, legendary: 0.04, mythic: 0.07, divine: 0.12 };
+const EQUIP_EVADE_BY_GRADE = { common: 0, uncommon: 0, rare: 0.005, epic: 0.01, legendary: 0.02, mythic: 0.035, divine: 0.06 };
+// 장비를 팔 때 받는 골드
+const EQUIP_SELL_VALUE = { common: 10, uncommon: 30, rare: 90, epic: 300, legendary: 1000, mythic: 3500, divine: 12000 };
+
+const emptyEquip = () => ({ weapon: null, armor: null, boots: null, accessory: null });
+const equipGradeOrder = (e) => EQUIP_GRADE_KEYS.indexOf(e.grade) + 1;
+const equipSellValue = (e) => EQUIP_SELL_VALUE[e.grade] ?? 10;
+const equipPctText = (v) => `${+(v * 100).toFixed(1)}%`;
+const equipLabel = (e) => `${GRADES[e.grade].emoji} ${EQUIP_SLOTS[e.slot].emoji} ${e.name}`;
+const equippedCount = (inst) => EQUIP_SLOT_KEYS.filter((k) => inst?.equip?.[k]).length;
+
+// 장비 하나를 "능력치 글자"로: 공격 +12 · 급소 +2%
+function equipStatText(e) {
+  const t = [];
+  if (e.stats?.hp) t.push(`체력 +${e.stats.hp}`);
+  if (e.stats?.atk) t.push(`공격 +${e.stats.atk}`);
+  if (e.stats?.def) t.push(`방어 +${e.stats.def}`);
+  if (e.stats?.spd) t.push(`속도 +${e.stats.spd}`);
+  if (e.crit) t.push(`급소 +${equipPctText(e.crit)}`);
+  if (e.evade) t.push(`회피 +${equipPctText(e.evade)}`);
+  return t.join(' · ') || '능력치 없음';
+}
+
+// 좋은 장비 판단용 점수 (자동 장착 · 정렬에 써요)
+function equipScore(e) {
+  const s = e.stats ?? {};
+  return (s.hp ?? 0) * POWER_HP_W + (s.atk ?? 0) * POWER_ATK_W + (s.def ?? 0) * POWER_DEF_W + (s.spd ?? 0) * POWER_SPD_W + (e.crit ?? 0) * 300 + (e.evade ?? 0) * 300;
+}
+
+// 펫(또는 야생 펫 정보)이 입고 있는 장비의 능력치 합계. inst.equip = { weapon, armor, boots, accessory }
+function equipBonus(inst) {
+  const t = { hp: 0, atk: 0, def: 0, spd: 0, crit: 0, evade: 0 };
+  const eq = inst?.equip;
+  if (!eq) return t;
+  for (const slot of EQUIP_SLOT_KEYS) {
+    const e = eq[slot];
+    if (!e) continue;
+    for (const k of ['hp', 'atk', 'def', 'spd']) t[k] += e.stats?.[k] ?? 0;
+    t.crit += e.crit ?? 0;
+    t.evade += e.evade ?? 0;
+  }
+  t.crit = Math.min(EQUIP_CRIT_CAP, t.crit);
+  t.evade = Math.min(EQUIP_EVADE_CAP, t.evade);
+  return t;
+}
+
+// 장비 한 개 만들기 (능력치는 만들 때 굴려서 저장해요)
+function createEquipment(slot, grade, rng = Math.random) {
+  const base = EQUIP_BASE[slot];
+  const mult = EQUIP_GRADE_MULT[grade] ?? 1;
+  const roll = () => 1 - EQUIP_ROLL_VARIANCE + rng() * EQUIP_ROLL_VARIANCE * 2;
+  const stats = {};
+  for (const k of ['hp', 'atk', 'def', 'spd']) if (base[k]) stats[k] = Math.max(1, Math.round(base[k] * mult * roll()));
+  const crit = base.crit && EQUIP_CRIT_BY_GRADE[grade] ? +(EQUIP_CRIT_BY_GRADE[grade] * base.crit * roll()).toFixed(3) : 0;
+  const evade = base.evade && EQUIP_EVADE_BY_GRADE[grade] ? +(EQUIP_EVADE_BY_GRADE[grade] * base.evade * roll()).toFixed(3) : 0;
+  const idx = Math.max(0, EQUIP_GRADE_KEYS.indexOf(grade));
+  return { uid: randomUUID(), slot, grade, name: EQUIP_NAMES[slot][idx], stats, crit, evade, at: Date.now() };
+}
+
+// 이 펫이 나오는 곳의 "세기"(1~7): 펫 등급과 장소(입장 레벨 순서)를 반반 섞어요
+function equipBaseTier(petId, loc) {
+  const petTier = GRADES[PETS[petId].grade].order;
+  if (!loc) return petTier;
+  const idx = LOCATION_LIST.findIndex((l) => l.id === loc.id);
+  const locTier = idx < 0 ? petTier : 1 + Math.round((idx * 6) / Math.max(1, LOCATION_LIST.length - 1));
+  return Math.round((petTier + locTier) / 2);
+}
+
+// 세기에 맞는 장비 등급 뽑기: 같은 등급 65% · 한 단계 아래 22% · 한 단계 위 10% · 두 단계 위 3%
+function rollEquipGrade(tier, rng = Math.random) {
+  const r = rng();
+  let t = tier;
+  if (r < 0.22) t -= 1;
+  else if (r < 0.32) t += 1;
+  else if (r < 0.35) t += 2;
+  return EQUIP_GRADE_KEYS[Math.max(0, Math.min(EQUIP_GRADE_KEYS.length - 1, t - 1))];
+}
+
+// 야생 펫이 입고 나올 장비 (칸마다 따로 확률을 굴려요). 아무것도 안 입으면 빈 객체예요.
+function rollWildEquip(petId, loc, rng = Math.random) {
+  const tier = equipBaseTier(petId, loc);
+  const equip = {};
+  for (const slot of EQUIP_SLOT_KEYS) {
+    if (rng() < EQUIP_WILD_SLOT_CHANCE) equip[slot] = createEquipment(slot, rollEquipGrade(tier, rng), rng);
+  }
+  return equip;
+}
+
+// 야생 펫을 쓰러뜨리거나(kind 'win') 잡았을 때('catch') 떨어지는 장비를 가방에 넣어요.
+//  ① 야생 펫이 입고 있던 장비 → 칸마다 확률로 떨어져요
+//  ② 새 장비 → 기본 확률 × 야생 펫 등급 보너스로 하나 떨어져요
+// 가방이 가득 차면 그 장비는 자동으로 팔려요. mult: 자동사냥처럼 보상을 줄일 때 (0.2 = 20%)
+function awardEquipDrops(player, enc, loc, kind, rng = Math.random, mult = 1) {
+  const found = [];
+  const worn = (kind === 'catch' ? EQUIP_WORN_DROP_CATCH : EQUIP_WORN_DROP_WIN) * mult;
+  for (const slot of EQUIP_SLOT_KEYS) {
+    const e = enc?.equip?.[slot];
+    if (e && rng() < worn) found.push(e);
+  }
+  const petOrder = GRADES[PETS[enc.petId].grade].order;
+  const chance = (kind === 'catch' ? EQUIP_DROP_CATCH : EQUIP_DROP_WIN) * (1 + (petOrder - 1) * EQUIP_DROP_GRADE_BONUS) * mult;
+  if (rng() < chance) {
+    const slot = EQUIP_SLOT_KEYS[Math.floor(rng() * EQUIP_SLOT_KEYS.length)];
+    found.push(createEquipment(slot, rollEquipGrade(equipBaseTier(enc.petId, loc), rng), rng));
+  }
+
+  player.equipInv ??= [];
+  const got = [];
+  const sold = [];
+  let gold = 0;
+  for (const e of found) {
+    if (player.equipInv.length < EQUIP_INV_MAX) {
+      player.equipInv.push(e);
+      got.push(e);
+    } else {
+      const g = equipSellValue(e);
+      player.gold += g;
+      gold += g;
+      sold.push(e);
+    }
+  }
+  return { got, sold, gold };
+}
+
+// 드롭 결과를 안내 글자 줄들로
+function equipDropLines(d) {
+  if (!d) return [];
+  const t = d.got.map((e) => `🎁 **장비 획득!** ${equipLabel(e)} — ${equipStatText(e)}`);
+  for (const e of d.sold) t.push(`📦 가방이 가득 차서 ${equipLabel(e)} 은(는) 자동으로 팔렸어요`);
+  if (d.gold > 0) t.push(`💰 자동 판매 +${d.gold.toLocaleString('ko-KR')}골드`);
+  return t;
+}
+
+// 입고 있는 장비를 전부 벗겨서 가방으로 돌려줘요 (방생 · 거래 · 펫이 쓰러졌을 때). 가방이 가득 차도 돌려줘요.
+function stripEquip(player, inst) {
+  const out = [];
+  if (!inst?.equip) return out;
+  for (const k of EQUIP_SLOT_KEYS) {
+    if (inst.equip[k]) {
+      out.push(inst.equip[k]);
+      inst.equip[k] = null;
+    }
+  }
+  if (out.length) (player.equipInv ??= []).push(...out);
+  return out;
+}
+
+// 장비를 바꿔도 "지금 체력 숫자"는 그대로 유지돼요 (장비로 체력을 공짜로 채우는 꼼수 방지)
+function keepHp(inst, now, fn) {
+  const cur = currentHp(inst, now);
+  fn();
+  if (typeof inst.hp === 'number') setHp(inst, Math.min(cur, maxHp(inst)), now);
+}
+
+const equipBusy = (player, inst) => !!player.exploration?.battle && inst.uid === player.mainPetUid;
+
+// 가방의 장비를 장착해요 (그 칸에 입고 있던 장비는 가방으로 돌아가요)
+function equipItem(player, petUid, equipUid, now = Date.now()) {
+  const inst = player.pets.find((p) => p.uid === petUid);
+  if (!inst) return { kind: 'pet_not_found' };
+  if (equipBusy(player, inst)) return { kind: 'in_battle' };
+  const inv = player.equipInv ?? [];
+  const idx = inv.findIndex((e) => e.uid === equipUid);
+  if (idx < 0) return { kind: 'item_not_found' };
+  const item = inv[idx];
+  inst.equip ??= emptyEquip();
+  const old = inst.equip[item.slot] ?? null;
+  keepHp(inst, now, () => {
+    inv.splice(idx, 1);
+    if (old) inv.push(old);
+    inst.equip[item.slot] = item;
+  });
+  player.equipInv = inv;
+  return { kind: 'equipped', commit: true, item, old };
+}
+
+function unequipSlot(player, petUid, slot, now = Date.now()) {
+  const inst = player.pets.find((p) => p.uid === petUid);
+  if (!inst) return { kind: 'pet_not_found' };
+  if (equipBusy(player, inst)) return { kind: 'in_battle' };
+  const item = inst.equip?.[slot];
+  if (!EQUIP_SLOTS[slot] || !item) return { kind: 'slot_empty' };
+  if ((player.equipInv?.length ?? 0) >= EQUIP_INV_MAX) return { kind: 'inv_full' };
+  keepHp(inst, now, () => {
+    inst.equip[slot] = null;
+    (player.equipInv ??= []).push(item);
+  });
+  return { kind: 'unequipped', commit: true, item };
+}
+
+function unequipAll(player, petUid, now = Date.now()) {
+  const inst = player.pets.find((p) => p.uid === petUid);
+  if (!inst) return { kind: 'pet_not_found' };
+  if (equipBusy(player, inst)) return { kind: 'in_battle' };
+  const n = equippedCount(inst);
+  if (n === 0) return { kind: 'slot_empty' };
+  if ((player.equipInv?.length ?? 0) + n > EQUIP_INV_MAX) return { kind: 'inv_full' };
+  let items = [];
+  keepHp(inst, now, () => {
+    items = stripEquip(player, inst);
+  });
+  return { kind: 'offall', commit: true, count: items.length };
+}
+
+// 칸마다 가장 좋은 장비(점수 기준)로 자동 장착
+function autoEquip(player, petUid, now = Date.now()) {
+  const inst = player.pets.find((p) => p.uid === petUid);
+  if (!inst) return { kind: 'pet_not_found' };
+  if (equipBusy(player, inst)) return { kind: 'in_battle' };
+  inst.equip ??= emptyEquip();
+  const inv = player.equipInv ?? [];
+  const changes = [];
+  keepHp(inst, now, () => {
+    for (const slot of EQUIP_SLOT_KEYS) {
+      const cur = inst.equip[slot] ?? null;
+      let best = cur;
+      for (const e of inv) if (e.slot === slot && (!best || equipScore(e) > equipScore(best))) best = e;
+      if (best && best !== cur) {
+        inv.splice(inv.indexOf(best), 1);
+        if (cur) inv.push(cur);
+        inst.equip[slot] = best;
+        changes.push({ slot, item: best, old: cur });
+      }
+    }
+  });
+  player.equipInv = inv;
+  return { kind: 'auto', commit: changes.length > 0, changes };
+}
+
+// 가방(안 입고 있는 장비)에서 gradeKey 등급 이하를 전부 팔아요
+const EQUIP_SELL_GRADES = ['common', 'uncommon', 'rare', 'epic'];
+function equipSellPreview(player, gradeKey) {
+  const max = EQUIP_GRADE_KEYS.indexOf(gradeKey) + 1;
+  const list = (player.equipInv ?? []).filter((e) => equipGradeOrder(e) <= max);
+  return { count: list.length, gold: list.reduce((n, e) => n + equipSellValue(e), 0) };
+}
+
+function sellEquips(player, gradeKey) {
+  if (!EQUIP_SELL_GRADES.includes(gradeKey)) return { kind: 'unknown' };
+  const max = EQUIP_GRADE_KEYS.indexOf(gradeKey) + 1;
+  const inv = player.equipInv ?? [];
+  const sell = inv.filter((e) => equipGradeOrder(e) <= max);
+  if (sell.length === 0) return { kind: 'sell_none' };
+  const gold = sell.reduce((n, e) => n + equipSellValue(e), 0);
+  player.equipInv = inv.filter((e) => equipGradeOrder(e) > max);
+  player.gold += gold;
+  return { kind: 'sold', commit: true, count: sell.length, gold, total: player.gold };
+}
+
+// ============================================================
 // 도구: 디스코드 응답 (utils/discord.js)
 // ============================================================
 
@@ -1054,13 +1349,14 @@ function expBar(exp, need, size = 10) {
 // 해정펫 계산 도우미 🐾
 
 // 레벨에 따른 능력치 (레벨이 오르면 쑥쑥 강해져요)
-function calcStats(petId, level) {
+function calcStats(petId, level, inst = null) {
   const b = PETS[petId].baseStats;
+  const eq = equipBonus(inst); // 🛡️ 입고 있는 장비 (야생 펫 정보도 같은 모양이에요)
   return {
-    hp: b.hp + level * 6,
-    atk: b.atk + level * 2,
-    def: b.def + level * 2,
-    spd: b.spd + level,
+    hp: b.hp + level * 6 + eq.hp,
+    atk: b.atk + level * 2 + eq.atk,
+    def: b.def + level * 2 + eq.def,
+    spd: b.spd + level + eq.spd,
   };
 }
 
@@ -1074,6 +1370,7 @@ function createPetInstance(petId, level = 1, caughtLoc = null) {
     exp: 0,
     nickname: null,
     caughtAt: Date.now(),
+    equip: emptyEquip(), // 🛡️ 장비 4칸 (무기 · 방어구 · 신발 · 장신구)
     caughtLoc, // 🆕 어디서 잡았는지 (장소 ID, 시작 펫은 'start')
     skills: Array(SLOT_COUNT).fill(null), // 스킬 슬롯 5칸 (1~4번은 레벨 Lv.20/40/100/200, 5번은 상점 개방권)
   };
@@ -1103,7 +1400,7 @@ function petLabel(petInstanceOrId) {
 // ───────── 체력 ❤️ ─────────
 // 펫 정보 카드에 hp(저장된 체력)와 hpAt(저장한 시각)이 없으면 "가득 찬 상태"예요.
 // 시간이 지나면 1분마다 최대 체력의 일부씩 저절로 차올라요.
-const maxHp = (inst) => calcStats(inst.petId, inst.level).hp;
+const maxHp = (inst) => calcStats(inst.petId, inst.level, inst).hp;
 
 function currentHp(inst, now = Date.now()) {
   const max = maxHp(inst);
@@ -1136,6 +1433,7 @@ function buildNewPlayer(userId, username, starterPetId) {
     mainPetUid: starter.uid,
     dex: { [starterPetId]: true }, // 도감: 만난/잡은 펫 기록
     exploration: null, // 지금 하고 있는 탐험 (없으면 null)
+    equipInv: [], // 🛡️ 장비 가방
     autoHunt: false, // 🏃 자동사냥 (켜 두면 자리 비운 사이 대신 /탐험, 보상 -80%)
     createdAt: Date.now(),
   };
@@ -1161,6 +1459,13 @@ function setMainPet(player, uid) {
 // 도감에 없는 펫은 해정볼로 잡기도 해요. 봇은 백그라운드로 못 돌아서 "지금 상태"는 지난 시간으로 계산해서 보여줘요.
 function newAutoHuntReport(locationId, now) {
   return { locationId, startedAt: now, runs: 0, wins: 0, escapes: 0, caught: 0, newPets: 0, balls: 0, gold: 0, trainerExp: 0, petExp: 0, trainerLevels: 0, petLevels: 0, stopReason: null, potions: 0, rests: 0, feed: [] };
+}
+
+// 🎁 자동사냥 중에 얻은 장비를 결과표에 적어요
+function noteAutoDrops(rep, d) {
+  rep.equips = (rep.equips ?? 0) + d.got.length;
+  rep.gold += d.gold;
+  for (const e of d.got) pushAutoFeed(rep, `🎁 ${equipLabel(e)} 획득!`);
 }
 
 function pushAutoFeed(rep, line) {
@@ -1239,9 +1544,15 @@ function stopAutoHunt(player) {
 // 내 펫이 위험해지면(다음 한 대에 쓰러질 수 있으면) 싸움을 멈추고 물러나서 펫이 사라지는 일은 없어요!
 // timeline: 턴마다 [내 체력, 야생 체력] — 진행 화면에서 "지금 몇 턴째"를 보여줄 때 써요
 function autoFight(main, enc, startHp, rng, opts = {}) {
-  const mine = calcStats(main.petId, main.level);
-  const wild = calcStats(enc.petId, enc.level);
+  const mine = calcStats(main.petId, main.level, main);
+  const wild = calcStats(enc.petId, enc.level, enc);
   const fx = GRADE_EFFECTS[PETS[enc.petId].grade];
+  const myEq = equipBonus(main);
+  const wildEq = equipBonus(enc);
+  const myCrit = CRIT_CHANCE + myEq.crit; // 🛡️ 장비 급소·회피
+  const wildCrit = fx.critChance + wildEq.crit;
+  const wildMiss = fx.missChance + wildEq.evade;
+  const myEvade = EVADE_CHANCE + myEq.evade;
   // 야생 펫이 낼 수 있는 최대 한 방 / 내가 낼 수 있는 최대 한 방 (변동 +15% · 급소 ×1.5)
   // 🌈 속성 상성 (첫 번째 속성으로 때려요)
   const myMult = elemClash(petElems(main.petId)[0], { elems: petElems(enc.petId) }).mult;
@@ -1270,7 +1581,7 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
           thrown += 1;
           if (rng() < chance) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('caught', round); }
           if (rng() < fleeChance(thrown)) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('fled', round); }
-          if (rng() >= EVADE_CHANCE) myHp -= calcDamage(wild.atk, mine.def, rng, fx.critChance, wildMult).dmg; // 놓치면 반격!
+          if (rng() >= myEvade) myHp -= calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg; // 놓치면 반격!
         }
       }
     }
@@ -1279,9 +1590,9 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
       for (const who of order) {
         if (wildHp <= 0) break;
         if (who === 'me') {
-          if (rng() >= fx.missChance) wildHp -= calcDamage(mine.atk, wild.def, rng, CRIT_CHANCE, myMult).dmg;
-        } else if (rng() >= EVADE_CHANCE) {
-          myHp -= calcDamage(wild.atk, mine.def, rng, fx.critChance, wildMult).dmg;
+          if (rng() >= wildMiss) wildHp -= calcDamage(mine.atk, wild.def, rng, myCrit, myMult).dmg;
+        } else if (rng() >= myEvade) {
+          myHp -= calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg;
         }
       }
     }
@@ -1443,6 +1754,7 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
       rep.trainerLevels += tr.levelsGained;
       rep.caught += 1;
       if (isNew) rep.newPets += 1;
+      noteAutoDrops(rep, awardEquipDrops(player, enc, loc, 'catch', rng, AUTO_HUNT_REWARD_MULT));
       pushAutoFeed(rep, `🔴 ${tag} 포획 성공!${isNew ? ' ✨NEW' : ''} (볼 ${f.thrown}개)`);
       continue;
     }
@@ -1465,6 +1777,7 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
     const pr = addExp(main, petExp);
     if (pr.levelsGained > 0) setHp(main, maxHp(main), t); // 레벨업 보너스: 체력 가득!
     rep.wins += 1;
+    noteAutoDrops(rep, awardEquipDrops(player, enc, loc, 'win', rng, AUTO_HUNT_REWARD_MULT));
     rep.gold += gold;
     rep.trainerExp += trainerExp;
     rep.petExp += petExp;
@@ -1769,7 +2082,7 @@ const BALL_ID = 'haejeong_ball';
 function rollEncounter(loc, rng = Math.random) {
   const spawn = weightedPick(loc.spawns, (s) => s.weight, rng);
   const petId = spawn.petId;
-  return { petId, level: randInt(spawn.lv[0], spawn.lv[1], rng), skills: rollWildSkills(petId, rng) };
+  return { petId, level: randInt(spawn.lv[0], spawn.lv[1], rng), skills: rollWildSkills(petId, rng), equip: rollWildEquip(petId, loc, rng) };
 }
 
 // 나올 펫이 얼마나 센지에 따른 대기 시간 배수 (등급이 높을수록, 그 장소에서 높은 레벨일수록 커져요)
@@ -2050,6 +2363,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
 
     player.exploration = null;
     return {
+      drops: awardEquipDrops(player, ex.encounter, loc, 'catch', rng), // 🎁 장비 드롭
       kind: 'caught', commit: true, petId, level, isNew, expGain, locationId, trainerBoost, boostsLeft: { ...(player.boosts ?? {}) },
       levelsGained: result.levelsGained, newLevel: player.level, unlocked, ballsLeft: balls - 1,
     };
@@ -2168,14 +2482,16 @@ function context(player, ex) {
     myName: main.nickname ?? myPet.name,
     wildInfo,
     wildPet: PETS[wildInfo.petId],
-    mine: calcStats(main.petId, main.level),
-    wild: calcStats(wildInfo.petId, wildInfo.level),
+    mine: calcStats(main.petId, main.level, main),
+    mineEq: equipBonus(main), // 🛡️ 장비 급소·회피
+    wildEq: equipBonus(wildInfo),
+    wild: calcStats(wildInfo.petId, wildInfo.level, wildInfo),
   };
 }
 
 function myAttack(c, b, log, rng) {
   const fx = GRADE_EFFECTS[c.wildPet.grade];
-  if (rng() < fx.missChance) {
+  if (rng() < fx.missChance + c.wildEq.evade) {
     log.push(
       fx.aura
         ? `😰 위압감에 손이 떨려서 공격이 **빗나갔어요!** (${c.wildPet.emoji} ${c.wildPet.name}에게 데미지 0)`
@@ -2184,18 +2500,18 @@ function myAttack(c, b, log, rng) {
     return;
   }
   const clash = elemClash(effElems(mySideOf(c, b))[0], wildSideOf(c, b));
-  const { dmg, crit } = calcDamage(c.mine.atk, c.wild.def, rng, CRIT_CHANCE, clash.mult);
+  const { dmg, crit } = calcDamage(c.mine.atk, c.wild.def, rng, CRIT_CHANCE + c.mineEq.crit, clash.mult);
   b.wildHp = Math.max(0, b.wildHp - dmg);
   log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${dmg}** 데미지${clash.note}`);
 }
 
 function wildAttack(c, b, log, rng) {
-  if (rng() < EVADE_CHANCE) {
+  if (rng() < EVADE_CHANCE + c.mineEq.evade) {
     log.push(`${c.myPet.emoji} ${c.myName}(이)가 **회피했다!** 공격을 피했어요.`);
     return;
   }
   const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b));
-  const { dmg, crit } = calcDamage(c.wild.atk, c.mine.def, rng, GRADE_EFFECTS[c.wildPet.grade].critChance, clash.mult);
+  const { dmg, crit } = calcDamage(c.wild.atk, c.mine.def, rng, GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, clash.mult);
   b.myHp = Math.max(0, b.myHp - dmg);
   log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${dmg}** 데미지${clash.note}`);
 }
@@ -2325,6 +2641,7 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
 
     player.exploration = null;
     return {
+      drops: awardEquipDrops(player, wildInfo, loc, 'win', rng), // 🎁 장비 드롭
       kind: 'won', commit: true, log, locationId,
       wildPetId: wildInfo.petId, wildLevel: wildInfo.level,
       myPetId: main.petId, myName,
@@ -2339,6 +2656,7 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   // 패배... 탐험 중 전투에서 쓰러진 펫은 그 자리에서 영영 사라져요! (골드는 잃지 않아요)
   if (b.myHp <= 0) {
     const removedPetId = main.petId;
+    const returnedEquip = stripEquip(player, main).length; // 🛡️ 끼고 있던 장비는 가방으로
     player.pets = player.pets.filter((p) => p.uid !== main.uid);
 
     let newStarterId = null;
@@ -2353,7 +2671,7 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
     }
 
     player.exploration = null;
-    return { kind: 'lost', commit: true, log, locationId, wildPetId: wildInfo.petId, myName, removedPetId, newStarterId };
+    return { kind: 'lost', commit: true, log, locationId, wildPetId: wildInfo.petId, myName, removedPetId, newStarterId, returnedEquip };
   }
 
   // 매 턴 끝에 야생 펫이 겁먹고 스스로 도망칠 수도 있어요
@@ -2527,8 +2845,8 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
 
   const c = context(player, ex);
   const log = [];
-  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, crit: CRIT_CHANCE, mana: b.myMana, manaMax: maxMana(main), st: b.mySt, elems: petElems(c.main.petId) };
-  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, crit: GRADE_EFFECTS[c.wildPet.grade].critChance, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt, elems: petElems(c.wildInfo.petId) };
+  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main), st: b.mySt, elems: petElems(c.main.petId) };
+  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, crit: GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt, elems: petElems(c.wildInfo.petId) };
 
   // 1) 내가 스킬을 써요 (기절 중이면 못 써요 — 마나는 그대로예요)
   if (!stunned(b.mySt, c.myName, log)) {
@@ -2703,7 +3021,7 @@ function duelFighter(player, now = Date.now()) {
   const main = getMainPet(player);
   if (!main) return null;
   const pet = PETS[main.petId];
-  const s = calcStats(main.petId, main.level);
+  const s = calcStats(main.petId, main.level, main);
   const max = s.hp;
   return {
     owner: player.name,
@@ -2711,6 +3029,8 @@ function duelFighter(player, now = Date.now()) {
     emoji: pet.emoji,
     grade: pet.grade,
     elements: petElems(main.petId), // 🌈
+    crit: CRIT_CHANCE + equipBonus(main).crit, // 🛡️ 장비
+    evade: EVADE_CHANCE + equipBonus(main).evade,
     level: main.level,
     stats: s,
     max,
@@ -2733,12 +3053,12 @@ function simulateDuel(a, b, rng) {
     for (const atk of order) {
       const def = atk === A ? B : A;
       if (atk.hp <= 0 || def.hp <= 0) break;
-      if (rng() < EVADE_CHANCE) {
+      if (rng() < (def.evade ?? EVADE_CHANCE)) {
         log.push(`${def.emoji} ${def.name}(이)가 **회피!**`);
         continue;
       }
       const clash = elemClash(atk.elements?.[0] ?? 'normal', { elems: def.elements });
-      const { dmg, crit } = calcDamage(atk.stats.atk, def.stats.def, rng, CRIT_CHANCE, clash.mult);
+      const { dmg, crit } = calcDamage(atk.stats.atk, def.stats.def, rng, atk.crit ?? CRIT_CHANCE, clash.mult);
       def.hp = Math.max(0, def.hp - dmg);
       log.push(`${atk.emoji} ${atk.name} → ${def.emoji} ${def.name} ${crit ? '💥' : ''}**${dmg}**${clashShort(clash.mult)} (남은 ❤️ ${def.hp})`);
     }
@@ -2837,6 +3157,8 @@ function executeTrade(a, prefixA, b, prefixB, now = Date.now()) {
   const v = validateTrade(a, instA, b, instB, now);
   if (!v.ok) return { commit: false, value: { kind: 'invalid', msg: v.msg } };
 
+  stripEquip(a, instA); // 🛡️ 끼고 있던 장비는 각자 가방으로
+  stripEquip(b, instB);
   a.pets = a.pets.filter((p) => p.uid !== instA.uid);
   b.pets = b.pets.filter((p) => p.uid !== instB.uid);
   a.pets.push({ ...instB, tradedAt: now });
@@ -2895,28 +3217,31 @@ function releasePet(player, uid) {
   const inst = player.pets.find((p) => p.uid === uid);
   if (!inst) return { kind: 'not_found' };
   if (uid === player.mainPetUid) return { kind: 'is_main' };
+  const returnedEquip = stripEquip(player, inst).length; // 🛡️ 장비는 가방으로
   const gold = releaseValue(inst);
   player.pets = player.pets.filter((p) => p.uid !== uid);
   player.gold += gold;
-  return { kind: 'released', commit: true, petId: inst.petId, nickname: inst.nickname, level: inst.level, gold, total: player.gold };
+  return { kind: 'released', commit: true, petId: inst.petId, nickname: inst.nickname, level: inst.level, gold, total: player.gold, returnedEquip };
 }
 
 // 🆕 여러 마리를 한번에 보내줘요. 대표 펫은 섞여 있어도 자동으로 건너뛰어요.
 function releasePetsBulk(player, uids) {
   let skippedMain = false;
+  let returnedEquip = 0;
   let totalGold = 0;
   const released = [];
   for (const uid of [...new Set(uids)]) {
     if (uid === player.mainPetUid) { skippedMain = true; continue; }
     const inst = player.pets.find((p) => p.uid === uid);
     if (!inst) continue;
+    returnedEquip += stripEquip(player, inst).length; // 🛡️ 장비는 가방으로
     const gold = releaseValue(inst);
     player.pets = player.pets.filter((p) => p.uid !== uid);
     player.gold += gold;
     totalGold += gold;
     released.push({ petId: inst.petId, nickname: inst.nickname, level: inst.level, gold });
   }
-  return { released, totalGold, total: player.gold, skippedMain };
+  return { released, totalGold, total: player.gold, skippedMain, returnedEquip };
 }
 
 // ───────── 훈련 ─────────
@@ -3123,7 +3448,7 @@ function profileView(player, viewerId, isMe, note) {
   let mainText = '없음';
   if (main) {
     const pet = PETS[main.petId];
-    const s = calcStats(main.petId, main.level);
+    const s = calcStats(main.petId, main.level, main);
     const name = main.nickname ?? pet.name;
     mainText =
       `${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** Lv.${main.level} · 🧬 ${elemTags(petElems(main.petId))}\n` +
@@ -3131,7 +3456,7 @@ function profileView(player, viewerId, isMe, note) {
       (main.level >= MAX_LEVEL
         ? '⭐ MAX'
         : `⭐ ${expBar(main.exp, expToNext(main.level))}  ${main.exp}/${expToNext(main.level)}`) +
-      `\n✨ **스킬** (전투 마나 최대 ${maxMana(main)})\n${skillSlotLines(main)}`;
+      `\n🛡️ **장비** ${equipOneLine(main)}\n✨ **스킬** (전투 마나 최대 ${maxMana(main)})\n${skillSlotLines(main)}`;
   }
 
   const dex = dexProgress(player);
@@ -3368,6 +3693,7 @@ function autoHuntReportText(rep) {
     `💰 골드 +${rep.gold.toLocaleString()} · 🎓 트레이너 경험치 +${rep.trainerExp.toLocaleString()} · 🐾 펫 경험치 +${rep.petExp.toLocaleString()}`,
   ];
   if (rep.balls || rep.caught) lines.push(`🔴 포획 **${rep.caught ?? 0}마리**${rep.newPets ? ` (도감 NEW ${rep.newPets})` : ''} · 해정볼 ${rep.balls ?? 0}개 사용`);
+  if (rep.equips) lines.push(`🎁 장비 ${rep.equips}개 획득 (/장비 에서 장착해요!)`);
   if (rep.trainerLevels > 0) lines.push(`⬆️ 트레이너 레벨 +${rep.trainerLevels}`);
   if (rep.petLevels > 0) lines.push(`⬆️ 펫 레벨 +${rep.petLevels}`);
   if (rep.stopReason) lines.push('', autoHuntStopText(rep.stopReason));
@@ -3622,6 +3948,7 @@ function exploreViewEncounter(snap, userId, note) {
         description:
           `${note ? note + '\n\n' : ''}${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}** · 🧬 ${elemTags(petElems(snap.encounter.petId))}` +
           (snap.myPetId ? `\n${matchupText(snap.myPetId, snap.encounter.petId)}` : '') +
+          wildEquipText(snap.encounter) +
           (GRADE_EFFECTS[pet.grade].aura ? `\n\n**${GRADE_EFFECTS[pet.grade].aura}**\n(내 공격이 빗나가기 쉽고, 도망치기도 어려워요!)` : '') +
           catchInfoText(snap),
         color: 0xfee75c,
@@ -3660,6 +3987,7 @@ function exploreViewBattle(snap, userId, note) {
           `${note ? note + '\n\n' : ''}${b.round}턴째 · 약해질수록 **[잡기]** 가 쉬워져요!` +
           `\n🔋 내 마나 **${b.myMana}** / ${maxMana(getMainPetFromSnap(snap))}` +
           `\n${matchupText(b.myPetId, snap.encounter.petId, b.mySt, b.wildSt)}` +
+          wildEquipText(snap.encounter) +
           (GRADE_EFFECTS[wild.grade].aura ? `\n${GRADE_EFFECTS[wild.grade].aura}` : '') +
           catchInfoText(snap),
         color: 0xed4245,
@@ -3967,6 +4295,7 @@ function battleOutcomeView(out, userId) {
       out.petBoost ? `💫 펫 경험치 부스트 +${pct(BOOST_PCT)}% 적용! (남은 ${out.boostsLeft.petExp ?? 0}회)` : null,
       out.petLevelsGained > 0 ? `🎊 **${out.myName} 레벨 업!** → Lv.${out.petNewLevel} (체력 가득!)` : null,
       `❤️ ${out.myName} 체력 ${out.petHp}/${out.petMaxHp}`,
+      ...equipDropLines(out.drops),
       ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
       '\n`/탐험` 으로 계속 모험해요! 체력이 모자라면 `/사용` 으로 회복해요.',
     ].filter((x) => x !== null);
@@ -3981,6 +4310,7 @@ function battleOutcomeView(out, userId) {
       '',
       `${wild.emoji} ${wild.name}에게 지고 말았어요... 골드는 잃지 않았어요.`,
       `💔 ${removed.emoji} **${out.myName}**(이)가 쓰러져서 영영 떠나갔어요.`,
+      ...(out.returnedEquip ? [`🎒 끼고 있던 장비 ${out.returnedEquip}개는 가방으로 돌아왔어요.`] : []),
       out.newStarterId
         ? `\n${PETS[out.newStarterId].emoji} 다행히 새 ${PETS[out.newStarterId].name}(이)가 곁에 남아줬어요! \`/펫\` 으로 확인해보세요.`
         : '\n`/펫` 에서 다른 펫을 대표로 바꿔 계속 모험할 수 있어요!',
@@ -4295,6 +4625,7 @@ async function exploreHandleButton(interaction, args) {
       out.isNew ? '✨ **새로운 도감 등록!**' : null,
       `📍 ${LOCATIONS[out.locationId].emoji} ${LOCATIONS[out.locationId].name}에서 잡았어요`,
       `⭐ 경험치 +${out.expGain}`,
+      ...equipDropLines(out.drops),
       out.trainerBoost ? `🌟 트레이너 경험치 부스트 +${pct(BOOST_PCT)}% 적용! (남은 ${out.boostsLeft.trainerExp ?? 0}회)` : null,
       out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
       ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
@@ -4593,7 +4924,7 @@ const bag = {
               ? `\n\n🚀 **켜둔 부스트** — 🌟 트레이너 ${player.boosts?.trainerExp ?? 0}회 · 💫 펫 ${player.boosts?.petExp ?? 0}회`
               : ''),
           color: EMBED_COLOR,
-          footer: { text: `💰 ${player.gold.toLocaleString('ko-KR')} 골드` },
+          footer: { text: `💰 ${player.gold.toLocaleString('ko-KR')} 골드 · 🛡️ 장비 ${(player.equipInv ?? []).length}개 (/장비)` },
         },
       ],
     });
@@ -4647,13 +4978,13 @@ function petsView(player, userId, page = 0, note) {
 
   const lines = slice.map(({ inst, no }) => {
     const pet = PETS[inst.petId];
-    const s = calcStats(inst.petId, inst.level);
+    const s = calcStats(inst.petId, inst.level, inst);
     const crown = inst.uid === player.mainPetUid ? '👑 ' : '';
     const learned = SLOT_IDX.filter((k) => SKILLS[inst.skills?.[k]]).length;
     return (
       `**${no}.** ${crown}${GRADES[pet.grade].emoji} ${pet.emoji} **${inst.nickname ?? pet.name}** Lv.${inst.level} ${elemIcons(petElems(inst.petId))}\n` +
       `　❤️ ${currentHp(inst)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
-      `　✨ 스킬 ${learned}/${SLOT_COUNT}${inst.slot3 ? '' : ' · 🎫 5번 칸 잠김'}` +
+      `　✨ 스킬 ${learned}/${SLOT_COUNT}${inst.slot3 ? '' : ' · 🎫 5번 칸 잠김'} · 🛡️ 장비 ${equippedCount(inst)}/${EQUIP_SLOT_KEYS.length}` +
       (caughtPlaceText(inst) ? `\n　${caughtPlaceText(inst)}` : '')
     );
   });
@@ -5287,7 +5618,7 @@ const release = {
         embeds: [
           {
             title: '🕊️ 안녕, 잘 지내!',
-            description: `${pet.emoji} **${out.nickname ?? pet.name}** (Lv.${out.level})(이)가 자연으로 돌아갔어요.\n💰 +${out.gold} 골드 (보유 ${out.total.toLocaleString('ko-KR')})`,
+            description: `${pet.emoji} **${out.nickname ?? pet.name}** (Lv.${out.level})(이)가 자연으로 돌아갔어요.\n💰 +${out.gold} 골드 (보유 ${out.total.toLocaleString('ko-KR')})` + (out.returnedEquip ? `\n🎒 끼고 있던 장비 ${out.returnedEquip}개는 가방으로 돌아왔어요.` : ''),
             color: 0x57f287,
           },
         ],
@@ -5332,7 +5663,8 @@ const release = {
             title: '🕊️ 다 같이 안녕, 잘 지내!',
             description:
               `${lines.join('\n')}\n\n💰 받은 골드 합계: **${out.totalGold}** (보유 ${out.total.toLocaleString('ko-KR')})` +
-              (out.skippedMain ? '\n👑 대표 펫은 자동으로 제외했어요.' : ''),
+              (out.skippedMain ? '\n👑 대표 펫은 자동으로 제외했어요.' : '') +
+              (out.returnedEquip ? `\n🎒 끼고 있던 장비 ${out.returnedEquip}개는 가방으로 돌아왔어요.` : ''),
             color: 0x57f287,
           },
         ],
@@ -5723,7 +6055,7 @@ const use = {
 function petPower(inst) {
   const pet = PETS[inst?.petId];
   if (!pet) return 0;
-  const s = calcStats(inst.petId, inst.level ?? 1);
+  const s = calcStats(inst.petId, inst.level ?? 1, inst);
   const base = s.hp * POWER_HP_W + s.atk * POWER_ATK_W + s.def * POWER_DEF_W + s.spd * POWER_SPD_W;
   const gradeMult = 1 + ((GRADES[pet.grade]?.order ?? 1) - 1) * POWER_GRADE_BONUS;
   const opened = Array.isArray(inst.skills) ? inst.skills.filter(Boolean).length : 0;
@@ -6064,6 +6396,15 @@ const help = {
                   `· 받는 펫 레벨은 내 트레이너 레벨 +${TRAIN_LEVEL_CAP_OVER_TRAINER} 까지 · 서로 바꾸는 펫은 등급 차이 ${TRADE_MAX_GRADE_GAP}단계, 레벨 차이 ${TRADE_MAX_LEVEL_GAP} 이내\n` +
                   `· 대표 펫은 불가 · 거래로 받은 펫은 ${fmtCooldown(TRADE_PET_COOLDOWN_MS)} 동안 재거래 불가 · 도감 등록 안 됨\n` +
                   `· 수수료: 보내는 펫 방생 골드의 ${pct(TRADE_FEE_RATE)}% (최소 ${TRADE_FEE_MIN}골드, 각자 부담)`,
+              },
+              {
+                name: '🛡️ 장비',
+                value:
+                  `펫마다 **장비 4칸**(${EQUIP_SLOT_KEYS.map((k) => `${EQUIP_SLOTS[k].emoji}${EQUIP_SLOTS[k].name}`).join(' · ')})을 입힐 수 있어요. \`/장비\` 로 열어서 장착 · 해제 · 🤖 자동 장착 · 💰 판매를 해요.\n` +
+                  `야생 펫을 **쓰러뜨리거나 잡으면** 장비가 떨어져요 (기본 ${pct(EQUIP_DROP_WIN)}~${pct(EQUIP_DROP_CATCH)}%, 센 펫일수록 더 잘 나와요).\n` +
+                  `😈 야생 펫도 가끔 장비를 입고 나와요 (칸마다 ${pct(EQUIP_WILD_SLOT_CHANCE)}%). 입고 있으면 그만큼 더 강하지만, 쓰러뜨리거나 잡으면 그 장비를 떨어뜨릴 수 있어요!\n` +
+                  `등급: ${EQUIP_GRADE_KEYS.map((g) => `${GRADES[g].emoji}${GRADES[g].name}`).join(' › ')} — 높을수록 능력치가 훨씬 좋아요 (일반 ×1 → 초월 ×${EQUIP_GRADE_MULT.divine}). 🔵 희귀부터는 💥 급소 · 🌀 회피도 올라가요.\n` +
+                  `🎒 장비 가방은 최대 ${EQUIP_INV_MAX}개 (가득 차면 새 장비는 자동으로 팔려요). 방생 · 거래 · 펫이 쓰러졌을 때 끼고 있던 장비는 가방으로 돌아와요. 전투 중인 대표 펫은 장비를 못 바꿔요.`,
               },
               {
                 name: '🛒 상점 · 도감 · 가방',
@@ -6411,6 +6752,7 @@ const trade = {
             `**${theirs.name}**님이 보내는 펫\n${tradePetLine(theirInst, now)}\n\n` +
             `💰 수수료: **${mine.name}** ${v.feeA.toLocaleString('ko-KR')}골드 · **${theirs.name}** ${v.feeB.toLocaleString('ko-KR')}골드 (각자 내요)\n` +
             `⚠️ 거래한 펫은 **${fmtCooldown(TRADE_PET_COOLDOWN_MS)}** 동안 다시 거래할 수 없고, **도감에는 등록되지 않아요.**\n` +
+            `🛡️ 끼고 있는 장비는 각자 가방으로 돌아가요.\n` +
             `⏳ ${Math.round(TRADE_TTL_MS / 60000)}분 안에 수락해주세요.`,
           color: 0x3498db,
           footer: { text: `하루 거래 ${TRADE_DAILY_LIMIT}회까지 · 수락하면 되돌릴 수 없어요` },
@@ -6473,7 +6815,282 @@ const trade = {
 // 내보내기: router.js 가 이 목록을 그대로 써요
 // ═════════════════════════════════════════════
 
-const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, trade, rankingCmd, help];
+// ═════════════════════════════════════════════
+// /장비 (+ 버튼 처리)  🛡️
+// ═════════════════════════════════════════════
+
+// 펫이 입고 있는 장비를 한 줄로: ⚔️🔵강철 장검 · 🛡️— · 👟— · 💍—
+function equipOneLine(inst) {
+  return EQUIP_SLOT_KEYS.map((k) => {
+    const e = inst?.equip?.[k];
+    return `${EQUIP_SLOTS[k].emoji}${e ? `${GRADES[e.grade].emoji}${e.name}` : '—'}`;
+  }).join(' · ');
+}
+
+// 야생 펫이 장비를 입고 있으면 만났을 때 · 전투 화면에 보여줘요
+function wildEquipText(enc) {
+  const items = EQUIP_SLOT_KEYS.map((k) => enc?.equip?.[k]).filter(Boolean);
+  if (!items.length) return '';
+  return `\n🎒 **장비 착용 중:** ${items.map((e) => `${GRADES[e.grade].emoji}${e.name}`).join(' · ')} (그만큼 더 강해요! 쓰러뜨리거나 잡으면 떨어뜨릴 수도 있어요)`;
+}
+
+function equipResultNote(out) {
+  switch (out.kind) {
+    case 'pet_not_found': return '그 펫을 찾을 수 없어요 🤔 `/장비` 를 다시 열어주세요!';
+    case 'in_battle': return '⚔️ 전투 중인 대표 펫은 장비를 바꿀 수 없어요!';
+    case 'item_not_found': return '그 장비를 찾을 수 없어요 🤔 (이미 장착했거나 팔았을 수 있어요)';
+    case 'slot_empty': return '벗을 장비가 없어요!';
+    case 'inv_full': return `🎒 장비 가방이 가득 찼어요! (최대 ${EQUIP_INV_MAX}개) 안 쓰는 장비를 먼저 팔아주세요.`;
+    case 'equipped':
+      return `✅ ${equipLabel(out.item)} 을(를) 장착했어요! (${equipStatText(out.item)})` + (out.old ? `\n↩️ ${equipLabel(out.old)} 은(는) 가방으로 돌아갔어요.` : '');
+    case 'unequipped': return `✅ ${equipLabel(out.item)} 을(를) 벗어서 가방에 넣었어요.`;
+    case 'offall': return `✅ 장비 ${out.count}개를 전부 벗어서 가방에 넣었어요.`;
+    case 'auto':
+      return out.changes.length
+        ? `🤖 가장 좋은 장비로 바꿨어요! (${out.changes.length}칸)\n` + out.changes.map((c) => `${EQUIP_SLOTS[c.slot].emoji} ${equipLabel(c.item)}`).join('\n')
+        : '🤖 이미 가장 좋은 장비를 끼고 있어요!';
+    case 'sold': return `💰 장비 ${out.count}개를 팔아서 **${out.gold.toLocaleString('ko-KR')}골드**를 받았어요! (보유 ${out.total.toLocaleString('ko-KR')})`;
+    case 'sell_none': return '팔 수 있는 장비가 없어요!';
+    default: return '지금은 할 수 없어요 🤔';
+  }
+}
+
+function equipSortedInv(player, filter) {
+  return (player.equipInv ?? [])
+    .filter((e) => filter === 'all' || e.slot === filter)
+    .sort((a, b) => equipGradeOrder(b) - equipGradeOrder(a) || equipScore(b) - equipScore(a));
+}
+
+function equipView(player, userId, petUid, filter = 'all', page = 0, note) {
+  const inst = player.pets.find((p) => p.uid === petUid) ?? getMainPet(player);
+  if (!inst) return { content: '펫이 없어요 😢', embeds: [], components: [] };
+  const pet = PETS[inst.petId];
+  const name = inst.nickname ?? pet.name;
+  const base = calcStats(inst.petId, inst.level);
+  const s = calcStats(inst.petId, inst.level, inst);
+  const bonus = equipBonus(inst);
+  const plus = (n) => (n > 0 ? ` (+${n})` : '');
+  const size = Math.max(1, Math.min(25, EQUIP_PAGE_SIZE));
+
+  const slotLines = EQUIP_SLOT_KEYS.map((k) => {
+    const e = inst.equip?.[k];
+    return `${EQUIP_SLOTS[k].emoji} **${EQUIP_SLOTS[k].name}** — ` + (e ? `${GRADES[e.grade].emoji} **${e.name}**\n　${equipStatText(e)}` : '비어 있음');
+  });
+  const extra = [];
+  if (bonus.crit > 0) extra.push(`💥 급소 +${equipPctText(bonus.crit)}`);
+  if (bonus.evade > 0) extra.push(`🌀 회피 +${equipPctText(bonus.evade)}`);
+
+  const list = equipSortedInv(player, filter);
+  const pages = Math.max(1, Math.ceil(list.length / size));
+  const cur = Math.max(0, Math.min(pages - 1, page));
+  const slice = list.slice(cur * size, cur * size + size);
+  const invLines = slice.map((e, i) => {
+    const worn = inst.equip?.[e.slot];
+    const mark = !worn ? '🆕' : equipScore(e) > equipScore(worn) ? '🔼' : equipScore(e) < equipScore(worn) ? '🔽' : '▪️';
+    return `**${cur * size + i + 1}.** ${mark} ${equipLabel(e)}\n　${equipStatText(e)}`;
+  });
+
+  const idTail = `${userId}:${inst.uid}:${filter}:${cur}`;
+  const components = [];
+  if (slice.length) {
+    components.push(
+      row(
+        select({
+          customId: `equip:wear:${idTail}`,
+          placeholder: '🎒 가방에서 장착할 장비를 골라요',
+          options: slice.map((e, i) => ({
+            label: `${cur * size + i + 1}. ${e.name}`.slice(0, 100),
+            value: e.uid,
+            description: `${GRADES[e.grade].name} ${EQUIP_SLOTS[e.slot].name} · ${equipStatText(e)}`.slice(0, 100),
+            emoji: EQUIP_SLOTS[e.slot].emoji,
+          })),
+        }),
+      ),
+    );
+  }
+  components.push(
+    row(
+      select({
+        customId: `equip:filter:${idTail}`,
+        placeholder: '🔎 가방에서 볼 칸을 골라요',
+        options: [
+          { label: '전체', value: 'all', emoji: '🎒', default: filter === 'all' },
+          ...EQUIP_SLOT_KEYS.map((k) => ({ label: EQUIP_SLOTS[k].name, value: k, emoji: EQUIP_SLOTS[k].emoji, default: filter === k })),
+        ],
+      }),
+    ),
+  );
+  const wornSlots = EQUIP_SLOT_KEYS.filter((k) => inst.equip?.[k]);
+  if (wornSlots.length) {
+    components.push(
+      row(
+        select({
+          customId: `equip:off:${idTail}`,
+          placeholder: '🧹 벗을 장비를 골라요',
+          options: wornSlots.map((k) => ({
+            label: `${EQUIP_SLOTS[k].name}: ${inst.equip[k].name}`.slice(0, 100),
+            value: k,
+            description: equipStatText(inst.equip[k]).slice(0, 100),
+            emoji: EQUIP_SLOTS[k].emoji,
+          })),
+        }),
+      ),
+    );
+  }
+  components.push(
+    row(
+      button({ label: '이전', emoji: '◀️', customId: `equip:page:${userId}:${inst.uid}:${filter}:${cur - 1}`, style: 2, disabled: cur <= 0 }),
+      button({ label: `${cur + 1} / ${pages}`, customId: `equip:view:${idTail}`, style: 2, disabled: true }),
+      button({ label: '다음', emoji: '▶️', customId: `equip:page:${userId}:${inst.uid}:${filter}:${cur + 1}`, style: 2, disabled: cur >= pages - 1 }),
+      button({ label: '자동 장착', emoji: '🤖', customId: `equip:auto:${idTail}`, style: 3, disabled: list.length === 0 && wornSlots.length === 0 }),
+      button({ label: '전체 해제', emoji: '🧹', customId: `equip:offall:${idTail}`, style: 2, disabled: wornSlots.length === 0 }),
+    ),
+  );
+  components.push(row(button({ label: '장비 판매', emoji: '💰', customId: `equip:sell:${idTail}`, style: 4, disabled: (player.equipInv ?? []).length === 0 })));
+
+  const filterName = filter === 'all' ? '전체' : EQUIP_SLOTS[filter].name;
+  return {
+    embeds: [
+      {
+        title: `🛡️ ${GRADES[pet.grade].emoji} ${pet.emoji} ${name} Lv.${inst.level} 의 장비`,
+        description:
+          `${note ? note + '\n\n' : ''}${slotLines.join('\n')}\n\n` +
+          `📊 ❤️ ${currentHp(inst)}/${s.hp}${plus(s.hp - base.hp)} · 공격 ${s.atk}${plus(s.atk - base.atk)} · 방어 ${s.def}${plus(s.def - base.def)} · 속도 ${s.spd}${plus(s.spd - base.spd)}` +
+          (extra.length ? `\n${extra.join(' · ')}` : '') +
+          `\n⚔️ 이 펫의 전투력 **${fmtNum(petPower(inst))}**`,
+        color: EMBED_COLOR,
+        fields: [
+          {
+            name: `🎒 장비 가방 — ${filterName} (${list.length}개 / 전체 ${(player.equipInv ?? []).length}/${EQUIP_INV_MAX})`,
+            value: (invLines.length ? invLines.join('\n') : '비어 있어요. 야생 펫을 쓰러뜨리거나 잡으면 장비가 떨어져요!').slice(0, 1024),
+          },
+        ],
+        footer: { text: '🆕 빈 칸 · 🔼 지금 끼고 있는 것보다 좋음 · 🔽 더 나쁨 · 장비는 펫마다 따로 입혀요 (/장비 펫:이름)' },
+      },
+    ],
+    components,
+  };
+}
+
+// 💰 판매 화면: 어느 등급 이하를 팔지 골라요
+function equipSellView(player, userId, petUid, note) {
+  const inv = player.equipInv ?? [];
+  return {
+    embeds: [
+      {
+        title: '💰 장비 판매',
+        description:
+          `${note ? note + '\n\n' : ''}가방에 있는 장비 **${inv.length}개** 중에서, 고른 등급 **이하**를 한꺼번에 팔아요.\n` +
+          '지금 끼고 있는 장비는 팔리지 않아요!\n\n' +
+          EQUIP_SELL_GRADES.map((g) => `${GRADES[g].emoji} ${GRADES[g].name}: 1개당 💰 ${EQUIP_SELL_VALUE[g].toLocaleString('ko-KR')}`).join('\n'),
+        color: 0xfee75c,
+      },
+    ],
+    components: [
+      row(
+        select({
+          customId: `equip:sellpick:${userId}:${petUid}:all:0`,
+          placeholder: '💰 어느 등급 이하를 팔까요?',
+          options: EQUIP_SELL_GRADES.map((g) => {
+            const p = equipSellPreview(player, g);
+            return { label: `${GRADES[g].name} 등급 이하 전부`, value: g, emoji: GRADES[g].emoji, description: `${p.count}개 · 💰 ${p.gold.toLocaleString('ko-KR')}골드` };
+          }),
+        }),
+      ),
+      row(button({ label: '돌아가기', emoji: '◀️', customId: `equip:page:${userId}:${petUid}:all:0`, style: 2 })),
+    ],
+  };
+}
+
+function equipSellConfirmView(player, userId, petUid, gradeKey) {
+  const p = equipSellPreview(player, gradeKey);
+  return {
+    embeds: [
+      {
+        title: `💰 ${GRADES[gradeKey].emoji} ${GRADES[gradeKey].name} 등급 이하 장비를 팔까요?`,
+        description: `장비 **${p.count}개**를 팔아서 💰 **${p.gold.toLocaleString('ko-KR')}골드**를 받아요.\n\n⚠️ 한 번 팔면 되돌릴 수 없어요!`,
+        color: 0xed4245,
+      },
+    ],
+    components: [
+      row(
+        button({ label: `${p.count}개 팔기`, emoji: '💰', customId: `equip:sellgo:${userId}:${petUid}:${gradeKey}`, style: 4 }),
+        button({ label: '취소', emoji: '↩️', customId: `equip:sell:${userId}:${petUid}:all:0`, style: 2 }),
+      ),
+    ],
+  };
+}
+
+async function equipHandleButton(interaction, args) {
+  const [action, ownerId, petUid, filter0, pageStr] = args;
+  const user = getUser(interaction);
+  if (user.id !== ownerId) {
+    return reply({ content: '이 장비창은 연 사람만 쓸 수 있어요 🙅 `/장비` 로 직접 열어보세요!' }, { ephemeral: true });
+  }
+  const filter = filter0 === 'all' || EQUIP_SLOTS[filter0] ? filter0 : 'all';
+  const page = Number(pageStr) || 0;
+  const value = interaction.data.values?.[0];
+
+  // 보기만 하는 동작들
+  if (['view', 'page', 'filter', 'sell', 'sellpick'].includes(action)) {
+    const player = await getPlayer(user.id);
+    if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    if (action === 'filter') return update(equipView(player, user.id, petUid, value === 'all' || EQUIP_SLOTS[value] ? value : 'all', 0));
+    if (action === 'sell') return update(equipSellView(player, user.id, petUid));
+    if (action === 'sellpick') {
+      if (!EQUIP_SELL_GRADES.includes(value)) return reply({ content: '그런 등급은 고를 수 없어요 🤔' }, { ephemeral: true });
+      if (equipSellPreview(player, value).count === 0) return update(equipSellView(player, user.id, petUid, '그 등급 이하 장비가 없어요!'));
+      return update(equipSellConfirmView(player, user.id, petUid, value));
+    }
+    return update(equipView(player, user.id, petUid, filter, page));
+  }
+
+  // 장비를 바꾸는 동작들
+  const ops = {
+    wear: (p) => equipItem(p, petUid, value),
+    off: (p) => unequipSlot(p, petUid, value),
+    auto: (p) => autoEquip(p, petUid),
+    offall: (p) => unequipAll(p, petUid),
+    sellgo: (p) => sellEquips(p, filter0),
+  };
+  if (!Object.hasOwn(ops, action)) return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
+
+  let latest = null;
+  const out = await updatePlayer(user.id, (p) => {
+    const r = ops[action](p);
+    latest = p;
+    return { commit: r.commit === true, value: r };
+  });
+  if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+  const sold = action === 'sellgo';
+  return update(equipView(latest, user.id, petUid, sold ? 'all' : filter, sold ? 0 : page, equipResultNote(out)));
+}
+
+const equipCmd = {
+  data: {
+    name: '장비',
+    description: '펫에게 장비를 입혀요. (펫마다 무기·방어구·신발·장신구 4칸, 가방 관리·자동 장착·판매)',
+    type: 1,
+    options: [PET_OPTION('장비를 볼 펫 (번호나 이름, 비우면 대표 펫)', false)],
+  },
+
+  async autocomplete(interaction) {
+    return petAutocomplete(interaction, '펫');
+  },
+
+  async execute(interaction) {
+    const user = getUser(interaction);
+    const player = await getPlayer(user.id);
+    if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    const inst = resolvePetSelector(player, getOption(interaction, '펫'));
+    if (!inst) return reply({ content: PET_NOT_FOUND }, { ephemeral: true });
+    return reply(equipView(player, user.id, inst.uid));
+  },
+
+  components: { equip: equipHandleButton },
+};
+
+const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, trade, rankingCmd, equipCmd, help];
 
 // ============================================================
 // 관리자 설정 (admin-config.js) [ADMIN-CONFIG]
@@ -6562,8 +7179,19 @@ const admin = createConfigManager({
     ELEM_WEAK: { get: () => ELEM_CFG.weak, set: (v) => { ELEM_CFG.weak = v; }, section: "속성 🌈", desc: "효과가 별로일 때(반감) 데미지 배율 (기본 0.65)" },
     ELEM_STAB: { get: () => ELEM_CFG.stab, set: (v) => { ELEM_CFG.stab = v; }, section: "속성 🌈", desc: "스킬 속성 = 내 펫 속성일 때 데미지 배율 (같은 속성 보너스, 기본 1.2)" },
     ELEM_AFFINITY: { get: () => SKILL_CFG.elemAffinity, set: (v) => { SKILL_CFG.elemAffinity = v; }, section: "속성 🌈", desc: "스킬 슬롯이 열릴 때 내 펫과 같은 속성 스킬이 나올 확률 배수 (1 이면 꺼짐, 기본 2)" },
+    EQUIP_INV_MAX: { get: () => EQUIP_INV_MAX, set: (v) => { EQUIP_INV_MAX = v; }, section: "장비 🛡️", desc: "장비 가방 최대 개수 (가득 차면 새 장비는 자동 판매)" },
+    EQUIP_DROP_WIN: { get: () => EQUIP_DROP_WIN, set: (v) => { EQUIP_DROP_WIN = v; }, section: "장비 🛡️", desc: "승리했을 때 새 장비가 떨어질 기본 확률" },
+    EQUIP_DROP_CATCH: { get: () => EQUIP_DROP_CATCH, set: (v) => { EQUIP_DROP_CATCH = v; }, section: "장비 🛡️", desc: "포획했을 때 새 장비가 떨어질 기본 확률" },
+    EQUIP_DROP_GRADE_BONUS: { get: () => EQUIP_DROP_GRADE_BONUS, set: (v) => { EQUIP_DROP_GRADE_BONUS = v; }, section: "장비 🛡️", desc: "야생 펫 등급이 한 단계 오를 때마다 드롭 확률 증가분 (0.2 = +20%)" },
+    EQUIP_WILD_SLOT_CHANCE: { get: () => EQUIP_WILD_SLOT_CHANCE, set: (v) => { EQUIP_WILD_SLOT_CHANCE = v; }, section: "장비 🛡️", desc: "야생 펫이 칸 하나에 장비를 입고 나올 확률 (4칸 각각)" },
+    EQUIP_WORN_DROP_WIN: { get: () => EQUIP_WORN_DROP_WIN, set: (v) => { EQUIP_WORN_DROP_WIN = v; }, section: "장비 🛡️", desc: "승리 시 야생 펫이 입고 있던 장비를 떨어뜨릴 확률 (칸마다)" },
+    EQUIP_WORN_DROP_CATCH: { get: () => EQUIP_WORN_DROP_CATCH, set: (v) => { EQUIP_WORN_DROP_CATCH = v; }, section: "장비 🛡️", desc: "포획 시 야생 펫이 입고 있던 장비를 떨어뜨릴 확률 (칸마다)" },
+    EQUIP_ROLL_VARIANCE: { get: () => EQUIP_ROLL_VARIANCE, set: (v) => { EQUIP_ROLL_VARIANCE = v; }, section: "장비 🛡️", desc: "장비 능력치 랜덤 편차 (0.15 = ±15%)" },
+    EQUIP_CRIT_CAP: { get: () => EQUIP_CRIT_CAP, set: (v) => { EQUIP_CRIT_CAP = v; }, section: "장비 🛡️", desc: "장비로 올릴 수 있는 급소 확률 상한" },
+    EQUIP_EVADE_CAP: { get: () => EQUIP_EVADE_CAP, set: (v) => { EQUIP_EVADE_CAP = v; }, section: "장비 🛡️", desc: "장비로 올릴 수 있는 회피 확률 상한" },
+    EQUIP_PAGE_SIZE: { get: () => EQUIP_PAGE_SIZE, set: (v) => { EQUIP_PAGE_SIZE = v; }, section: "장비 🛡️", desc: "/장비 가방 한 쪽에 보여줄 개수 (최대 25)" },
   },
-  tables: { GRADES, GRADE_EFFECTS, GRADE_WAIT_MULT, RELEASE_BASE_GOLD, TRADE_GRADE_MIN_LEVEL, CATCH_GRADE_PENALTY, WAIT_TIERS, DEX_REWARD },
+  tables: { GRADES, GRADE_EFFECTS, GRADE_WAIT_MULT, RELEASE_BASE_GOLD, TRADE_GRADE_MIN_LEVEL, CATCH_GRADE_PENALTY, WAIT_TIERS, DEX_REWARD, EQUIP_GRADE_MULT, EQUIP_SELL_VALUE, EQUIP_CRIT_BY_GRADE, EQUIP_EVADE_BY_GRADE },
   entities: { pets: PETS, items: ITEMS, locations: LOCATIONS },
   refresh: refreshDerived,
   store: {
