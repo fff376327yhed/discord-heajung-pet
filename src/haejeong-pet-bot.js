@@ -1312,6 +1312,44 @@ function resolvePetSelector(player, selector) {
   return partial.length === 1 ? ensureSkills(partial[0]) : null;
 }
 
+// 🆕 여러 마리를 한번에 고를 때 쓰는 "목록" 글자를 풀어내요.
+//   "전체" / "all" → 대표 펫을 뺀 전부
+//   "2,4,7-9"      → 콤마로 번호·범위·이름을 섞어 써도 OK (범위는 숫자만)
+// 중복은 한 번만 세고, 못 찾은 항목은 notFound 에 그대로 담아 돌려줘요.
+function resolvePetSelectors(player, text) {
+  const raw = String(text ?? '').trim();
+  if (raw === '') return { insts: [], notFound: [] };
+
+  if (/^(전체|all)$/i.test(raw)) {
+    const insts = player.pets.filter((p) => p.uid !== player.mainPetUid).map((p) => ensureSkills(p));
+    return { insts, notFound: [] };
+  }
+
+  const seen = new Set();
+  const insts = [];
+  const notFound = [];
+
+  for (const token of raw.split(',').map((t) => t.trim()).filter(Boolean)) {
+    const range = token.match(/^(\d+)-(\d+)$/);
+    if (range) {
+      let a = Number(range[1]);
+      let b = Number(range[2]);
+      if (a > b) [a, b] = [b, a];
+      b = Math.min(b, a + 199); // 범위 하나로 최대 200개까지만 (안전장치)
+      for (let i = a; i <= b; i++) {
+        const inst = player.pets[i - 1];
+        if (!inst) { notFound.push(String(i)); continue; }
+        if (!seen.has(inst.uid)) { seen.add(inst.uid); insts.push(ensureSkills(inst)); }
+      }
+      continue;
+    }
+    const inst = resolvePetSelector(player, token);
+    if (!inst) { notFound.push(token); continue; }
+    if (!seen.has(inst.uid)) { seen.add(inst.uid); insts.push(inst); }
+  }
+  return { insts, notFound };
+}
+
 // selector: /펫 목록 번호, 별명/이름, 또는 비우면 대표 펫. qty: 한 번에 몇 개를 쓸지 (기본 1, 한꺼번에 일괄 사용)
 function useItem(player, itemId, selector, qty = 1, now = Date.now()) {
   const item = ITEMS[itemId];
@@ -1346,6 +1384,23 @@ function useItem(player, itemId, selector, qty = 1, now = Date.now()) {
     used,
     left: owned - used,
   };
+}
+
+// 🆕 회복약 한 종류를 여러 마리에게 한번에 먹여요 (/사용 목록:...)
+function useItemMulti(player, itemId, uids, qty, now = Date.now()) {
+  const item = ITEMS[itemId];
+  const results = [];
+  let totalUsed = 0;
+  let totalGained = 0;
+  for (const uid of [...new Set(uids)]) {
+    const r = useItem(player, itemId, uid, qty, now);
+    results.push({ uid, ...r });
+    if (r.kind === 'used') {
+      totalUsed += r.used;
+      totalGained += r.after - r.before;
+    }
+  }
+  return { results, item, totalUsed, totalGained };
 }
 
 // 부스트 1회분을 꺼내 써요 (경험치를 얻을 때 호출). 켜둔 게 있으면 true
@@ -1452,6 +1507,22 @@ function autoHeal(player, selector, now = Date.now(), potionId = null) {
   }
   if (Object.keys(used).length === 0) return { kind: 'none' };
   return { kind: 'healed', commit: true, inst: { ...inst }, before: start, after: currentHp(inst, now), max, used };
+}
+
+// 🆕 여러 마리를 한번에 "알아서 회복" 해요 (/사용 목록:... , 아이템을 안 골랐을 때)
+function autoHealMulti(player, uids, now = Date.now()) {
+  const results = [];
+  const usedTotal = {};
+  let healedCount = 0;
+  for (const uid of [...new Set(uids)]) {
+    const r = autoHeal(player, uid, now);
+    results.push({ uid, ...r });
+    if (r.kind === 'healed') {
+      healedCount += 1;
+      for (const [id, n] of Object.entries(r.used)) usedTotal[id] = (usedTotal[id] ?? 0) + n;
+    }
+  }
+  return { results, usedTotal, healedCount };
 }
 
 // ============================================================
@@ -2513,6 +2584,24 @@ function releasePet(player, uid) {
   return { kind: 'released', commit: true, petId: inst.petId, nickname: inst.nickname, level: inst.level, gold, total: player.gold };
 }
 
+// 🆕 여러 마리를 한번에 보내줘요. 대표 펫은 섞여 있어도 자동으로 건너뛰어요.
+function releasePetsBulk(player, uids) {
+  let skippedMain = false;
+  let totalGold = 0;
+  const released = [];
+  for (const uid of [...new Set(uids)]) {
+    if (uid === player.mainPetUid) { skippedMain = true; continue; }
+    const inst = player.pets.find((p) => p.uid === uid);
+    if (!inst) continue;
+    const gold = releaseValue(inst);
+    player.pets = player.pets.filter((p) => p.uid !== uid);
+    player.gold += gold;
+    totalGold += gold;
+    released.push({ petId: inst.petId, nickname: inst.nickname, level: inst.level, gold });
+  }
+  return { released, totalGold, total: player.gold, skippedMain };
+}
+
 // ───────── 훈련 ─────────
 const trainCost = (level) => TRAIN_BASE_COST + level * TRAIN_COST_PER_LEVEL;
 const trainExp = (level) => Math.max(1, Math.round(expToNext(level) * TRAIN_EXP_RATIO));
@@ -2540,6 +2629,24 @@ function trainPet(player, uid, times, now = Date.now()) {
   if (done === 0) return { kind: stop ?? 'cap' };
   if (inst.level > startLevel) setHp(inst, maxHp(inst), now); // 레벨업 보너스: 체력 가득!
   return { kind: 'trained', commit: true, done, spent, expGained, stop, levelsGained: inst.level - startLevel, newLevel: inst.level };
+}
+
+// 🆕 여러 마리를 한번에 훈련시켜요 (/훈련 목록:...)
+function trainPetsBulk(player, uids, times, now = Date.now()) {
+  const results = [];
+  let totalDone = 0;
+  let totalSpent = 0;
+  let totalExp = 0;
+  for (const uid of [...new Set(uids)]) {
+    const r = trainPet(player, uid, times, now);
+    results.push({ uid, ...r });
+    if (r.kind === 'trained') {
+      totalDone += r.done;
+      totalSpent += r.spent;
+      totalExp += r.expGained;
+    }
+  }
+  return { results, totalDone, totalSpent, totalExp };
 }
 
 // ============================================================
@@ -4467,7 +4574,7 @@ async function petAutocomplete(interaction, optionName) {
   return autocompleteResult(choices);
 }
 
-const PET_OPTION = (description) => ({ type: 3, name: '펫', description, required: true, autocomplete: true });
+const PET_OPTION = (description, required = true) => ({ type: 3, name: '펫', description, required, autocomplete: true });
 const PET_NOT_FOUND = '그 펫을 찾을 수 없어요 🤔 번호나 이름을 다시 확인해주세요! (`/펫` 에서 확인 가능)';
 
 // ═════════════════════════════════════════════
@@ -4521,12 +4628,64 @@ const nickname = {
 
 const nameOf = (inst) => inst.nickname ?? PETS[inst.petId].name;
 
+// 🆕 여러 마리 방생 미리보기 (/방생 목록:...) — 버튼을 누르기 전에 무엇을 얼마에 보내는지 보여줘요
+async function releaseMultiPreview(userId, player, listText) {
+  if (listText.includes(':')) {
+    return reply({ content: '목록에는 `:` 글자를 쓸 수 없어요. 콤마(,)와 번호·범위(예: 2,4,7-9)로 입력해주세요!' }, { ephemeral: true });
+  }
+
+  const { insts, notFound } = resolvePetSelectors(player, listText);
+  const targets = insts.filter((i) => i.uid !== player.mainPetUid);
+  const skippedMain = targets.length !== insts.length;
+
+  if (targets.length === 0) {
+    const extra = notFound.length ? `\n못 찾은 항목: ${notFound.slice(0, 10).join(', ')}${notFound.length > 10 ? ' 외' : ''}` : '';
+    return reply({ content: `${PET_NOT_FOUND}${extra}` }, { ephemeral: true });
+  }
+
+  const totalGold = targets.reduce((sum, inst) => sum + releaseValue(inst), 0);
+  const lines = targets.slice(0, 20).map((inst) => {
+    const pet = PETS[inst.petId];
+    return `${GRADES[pet.grade].emoji} ${pet.emoji} **${nameOf(inst)}** Lv.${inst.level} → 💰${releaseValue(inst)}`;
+  });
+  if (targets.length > 20) lines.push(`...외 ${targets.length - 20}마리`);
+
+  const notes = [];
+  if (skippedMain) notes.push('👑 대표 펫은 자동으로 제외했어요.');
+  if (notFound.length) notes.push(`못 찾은 항목: ${notFound.slice(0, 10).join(', ')}${notFound.length > 10 ? ' 외' : ''}`);
+
+  return reply(
+    {
+      embeds: [
+        {
+          title: `🕊️ ${targets.length}마리를 정말 보내줄까요?`,
+          description:
+            `${lines.join('\n')}\n\n받을 골드 합계: 💰 **${totalGold}**\n` +
+            (notes.length ? `${notes.join('\n')}\n` : '') +
+            `\n⚠️ 한 번 보내면 되돌릴 수 없어요! (도감 기록은 그대로 남아요)`,
+          color: 0xfee75c,
+        },
+      ],
+      components: [
+        row(
+          button({ label: `${targets.length}마리 보내주기`, emoji: '🕊️', customId: `relmulti:yes:${userId}:${listText}`, style: 4 }),
+          button({ label: '취소', emoji: '↩️', customId: `relmulti:no:${userId}:-`, style: 2 }),
+        ),
+      ],
+    },
+    { ephemeral: true },
+  );
+}
+
 const release = {
   data: {
     name: '방생',
     description: '안 쓰는 해정펫을 보내주고 골드를 받아요.',
     type: 1,
-    options: [PET_OPTION('보내줄 펫 (번호나 이름, 입력하면 목록이 떠요)')],
+    options: [
+      PET_OPTION('보내줄 펫 (번호나 이름, 입력하면 목록이 떠요)', false),
+      { type: 3, name: '목록', description: '여러 마리를 한번에: 번호를 콤마·범위로 (예: 2,4,7-9) 또는 "전체" (대표 펫 제외 전부)', required: false, max_length: 60 },
+    ],
   },
 
   async autocomplete(interaction) {
@@ -4537,6 +4696,9 @@ const release = {
     const user = getUser(interaction);
     const player = await getPlayer(user.id);
     if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
+
+    const listText = String(getOption(interaction, '목록') ?? '').trim();
+    if (listText) return releaseMultiPreview(user.id, player, listText);
 
     const inst = resolvePetSelector(player, getOption(interaction, '펫'));
     if (!inst) return reply({ content: PET_NOT_FOUND }, { ephemeral: true });
@@ -4596,6 +4758,51 @@ const release = {
           {
             title: '🕊️ 안녕, 잘 지내!',
             description: `${pet.emoji} **${out.nickname ?? pet.name}** (Lv.${out.level})(이)가 자연으로 돌아갔어요.\n💰 +${out.gold} 골드 (보유 ${out.total.toLocaleString('ko-KR')})`,
+            color: 0x57f287,
+          },
+        ],
+        components: [],
+      });
+    },
+
+    // 🆕 여러 마리 방생 확인 버튼
+    relmulti: async function releaseMultiButton(interaction, args) {
+      const [action, ownerId, ...rest] = args;
+      const listText = rest.join(':'); // 혹시 몰라 다시 이어붙여요 (콜론은 미리 막아뒀어요)
+      const user = getUser(interaction);
+
+      if (user.id !== ownerId) {
+        return reply({ content: '이 버튼은 `/방생`을 쓴 사람만 누를 수 있어요 🙅' }, { ephemeral: true });
+      }
+      if (action === 'no') {
+        return update({ embeds: [{ title: '↩️ 취소했어요', description: '아무 일도 일어나지 않았어요.', color: 0x99aab5 }], components: [] });
+      }
+      if (action !== 'yes') return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
+
+      const out = await updatePlayer(user.id, (p) => {
+        const { insts } = resolvePetSelectors(p, listText);
+        const r = releasePetsBulk(p, insts.map((i) => i.uid));
+        return { commit: r.released.length > 0, value: r };
+      });
+      if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+
+      if (out.released.length === 0) {
+        return update({
+          embeds: [{ title: '🍃 보낼 펫이 없어요', description: '이미 없어졌거나 대표 펫만 골랐을 수 있어요. `/펫` 으로 다시 확인해주세요!', color: 0x99aab5 }],
+          components: [],
+        });
+      }
+
+      const lines = out.released.slice(0, 20).map((r) => `${PETS[r.petId].emoji} ${r.nickname ?? PETS[r.petId].name} Lv.${r.level} → 💰${r.gold}`);
+      if (out.released.length > 20) lines.push(`...외 ${out.released.length - 20}마리`);
+
+      return update({
+        embeds: [
+          {
+            title: '🕊️ 다 같이 안녕, 잘 지내!',
+            description:
+              `${lines.join('\n')}\n\n💰 받은 골드 합계: **${out.totalGold}** (보유 ${out.total.toLocaleString('ko-KR')})` +
+              (out.skippedMain ? '\n👑 대표 펫은 자동으로 제외했어요.' : ''),
             color: 0x57f287,
           },
         ],
@@ -4679,8 +4886,9 @@ const train = {
     description: '골드를 내고 해정펫을 훈련시켜요.',
     type: 1,
     options: [
-      PET_OPTION('훈련시킬 펫 (번호나 이름, 입력하면 목록이 떠요)'),
+      PET_OPTION('훈련시킬 펫 (번호나 이름, 입력하면 목록이 떠요)', false),
       { type: 4, name: '횟수', description: `바로 훈련할 횟수 (최대 ${MAX_TRAIN_AT_ONCE}회, 비우면 훈련장 화면이 열려요)`, required: false, min_value: 1, max_value: MAX_TRAIN_AT_ONCE },
+      { type: 3, name: '목록', description: '여러 마리를 한번에: 번호를 콤마·범위로 (예: 2,4,7-9) 또는 "전체". "횟수"도 함께 입력해주세요', required: false, max_length: 60 },
     ],
   },
 
@@ -4691,6 +4899,50 @@ const train = {
   async execute(interaction) {
     const user = getUser(interaction);
     const times = getOption(interaction, '횟수');
+    const listText = String(getOption(interaction, '목록') ?? '').trim();
+
+    // 🆕 목록을 적었으면 여러 마리를 한번에 훈련해요 (횟수가 꼭 필요해요)
+    if (listText) {
+      if (!times) return reply({ content: '여러 마리를 훈련하려면 `횟수` 도 함께 입력해주세요! (예: 목록:2,4,7-9 횟수:5)' }, { ephemeral: true });
+
+      let notFound = [];
+      const out = await updatePlayer(user.id, (p) => {
+        const resolved = resolvePetSelectors(p, listText);
+        notFound = resolved.notFound;
+        const uids = resolved.insts.map((i) => i.uid);
+        const r = trainPetsBulk(p, uids, times);
+        return { commit: r.totalDone > 0, value: r };
+      });
+      if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+      if (out.results.length === 0) {
+        const extra = notFound.length ? `\n못 찾은 항목: ${notFound.slice(0, 10).join(', ')}${notFound.length > 10 ? ' 외' : ''}` : '';
+        return reply({ content: `${PET_NOT_FOUND}${extra}` }, { ephemeral: true });
+      }
+
+      const latest = await getPlayer(user.id);
+      const lines = out.results.slice(0, 20).map((r) => {
+        const inst = latest?.pets.find((x) => x.uid === r.uid);
+        const label = inst ? `${PETS[inst.petId].emoji} ${inst.nickname ?? PETS[inst.petId].name}` : '???';
+        if (r.kind !== 'trained') {
+          const why = r.kind === 'no_gold' ? '💸 골드 부족' : r.kind === 'cap' ? '🔒 레벨 상한' : r.kind === 'in_battle' ? '⚔️ 전투 중' : '못 함';
+          return `${label}: ${why}`;
+        }
+        const level = r.levelsGained > 0 ? ` 🎊Lv.${r.newLevel}` : '';
+        return `${label}: ${r.done}회 · ⭐+${r.expGained}${level}`;
+      });
+      if (out.results.length > 20) lines.push(`...외 ${out.results.length - 20}마리`);
+      const notFoundNote = notFound.length ? `\n못 찾은 항목: ${notFound.slice(0, 10).join(', ')}${notFound.length > 10 ? ' 외' : ''}` : '';
+
+      return reply({
+        embeds: [
+          {
+            title: '🏋️ 다 같이 훈련 완료!',
+            description: `${lines.join('\n')}\n\n💰 합계 -${out.totalSpent} · ⭐ 합계 +${out.totalExp}${notFoundNote}`,
+            color: EMBED_COLOR,
+          },
+        ],
+      });
+    }
 
     // 횟수를 적었으면 훈련장 화면 없이 바로 훈련해요
     if (times) {
@@ -4771,6 +5023,7 @@ const use = {
         required: false,
         autocomplete: true,
       },
+      { type: 3, name: '목록', description: '여러 마리에게 한번에 회복약 먹이기: 번호를 콤마·범위로 (예: 2,4,7-9) 또는 "전체"', required: false, max_length: 60 },
     ],
   },
 
@@ -4782,6 +5035,61 @@ const use = {
     const target = getOption(interaction, '대상');
     const slot = getOption(interaction, '슬롯');
     const picked = ITEMS[itemId];
+    const listText = String(getOption(interaction, '목록') ?? '').trim();
+
+    // 🆕 목록을 적었으면 여러 마리에게 한번에 회복약을 먹여요 (부스트·포획·스킬 아이템은 지원 안 해요)
+    if (listText) {
+      if (picked && !picked.heal) {
+        return reply({ content: '여러 마리 한번에 쓰기는 **회복약**에만 돼요. 부스트·포획·스킬 아이템은 한 마리씩 `대상` 으로 써주세요!' }, { ephemeral: true });
+      }
+
+      let notFound = [];
+      const out = await updatePlayer(user.id, (p) => {
+        const resolved = resolvePetSelectors(p, listText);
+        notFound = resolved.notFound;
+        const uids = resolved.insts.map((i) => i.uid);
+        if (itemId) {
+          const r = useItemMulti(p, itemId, uids, qty, Date.now());
+          return { commit: r.totalUsed > 0, value: { mode: 'item', ...r } };
+        }
+        const r = autoHealMulti(p, uids, Date.now());
+        return { commit: r.healedCount > 0, value: { mode: 'auto', ...r } };
+      });
+      if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+
+      if (out.results.length === 0) {
+        const extra = notFound.length ? `\n못 찾은 항목: ${notFound.slice(0, 10).join(', ')}${notFound.length > 10 ? ' 외' : ''}` : '';
+        return reply({ content: `${PET_NOT_FOUND}${extra}` }, { ephemeral: true });
+      }
+
+      const latest = await getPlayer(user.id);
+      const petLabel = (uid) => {
+        const inst = latest?.pets.find((x) => x.uid === uid);
+        return inst ? `${PETS[inst.petId].emoji} ${inst.nickname ?? PETS[inst.petId].name}` : '???';
+      };
+      const lines = out.results.slice(0, 20).map((r) => {
+        const label = petLabel(r.uid);
+        if (r.kind === 'full') return `${label}: 체력 가득 (안 씀)`;
+        if (r.kind === 'none') return `${label}: 먹일 약 없음`;
+        if (r.kind === 'in_battle') return `${label}: ⚔️ 전투 중`;
+        if (r.kind !== 'used' && r.kind !== 'healed') return `${label}: 못 함`;
+        const gained = r.after - r.before;
+        return `${label}: ❤️ +${gained} (${r.before}→${r.after}/${r.max})`;
+      });
+      if (out.results.length > 20) lines.push(`...외 ${out.results.length - 20}마리`);
+      const notFoundNote = notFound.length ? `\n못 찾은 항목: ${notFound.slice(0, 10).join(', ')}${notFound.length > 10 ? ' 외' : ''}` : '';
+      const usedSummary = out.mode === 'item' ? `${picked.emoji} ${picked.name} 총 ${out.totalUsed}개 · ❤️ 합계 +${out.totalGained}` : potionSummary(out.usedTotal) || '쓴 약 없음';
+
+      return reply({
+        embeds: [
+          {
+            title: '🧪 다 같이 회복!',
+            description: `${lines.join('\n')}\n\n${usedSummary}${notFoundNote}`,
+            color: EMBED_COLOR,
+          },
+        ],
+      });
+    }
 
     // 🎫 스킬 슬롯 개방권 / 🔄 스킬 변경권 (펫 한 마리를 골라서 써요)
     if (picked?.skillSlot || picked?.skillReroll) {
