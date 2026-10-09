@@ -80,6 +80,9 @@ let AUTO_HUNT_RESUME_RATIO = 0.7; // 펫이 위험해지면 쉬었다가, 체력
 let AUTO_HUNT_CATCH_HP_RATIO = 0.5; // 도감에 없는 펫은 야생 펫 체력이 이 비율 이하가 되면 해정볼을 던져요
 let AUTO_HUNT_MAX_THROWS = 5; // 한 마리에게 던지는 최대 해정볼 수
 let AUTO_HUNT_MIN_CATCH = 0.05; // 포획 확률이 이보다 낮으면 던지지 않고 그냥 싸워요 (볼 낭비 방지)
+let AUTO_HUNT_REST_MS = 60000; // 🛌 펫이 위험할 때 한 번 쉬는 시간 (60000 = 1분)
+let AUTO_HUNT_REST_HEAL = 10; // 🛌 한 번 쉴 때 회복되는 체력 (저절로 차는 양이 더 크면 그 양을 써요)
+let AUTO_HUNT_MAX_DANGER_STREAK = 3; // 🚨 회복약·휴식 뒤에도 연달아 이만큼 위험해서 물러나면 자동사냥을 꺼요
 let AUTO_HUNT_FEED_MAX = 8; // 진행 화면에 보여줄 최근 전투 기록 수
 
 // ───────── 편의 기능 ✨ ─────────
@@ -645,6 +648,58 @@ async function postChannelMessage(channelId, data) {
   }
 }
 
+// 🔔 개인 알림 (DM): 전체방(공개 채널)에서 자동사냥을 켰더라도 나한테만 조용히 가요.
+// 봇은 백그라운드로 못 돌아서, 자동사냥이 꺼진 걸 "정산하는 순간" 이 알림을 같이 보내요.
+const autoHuntNotices = new Map(); // userId → 보낼 알림 글
+const backgroundTasks = new Set(); // 아직 안 끝난 DM 보내기들
+
+async function sendDirectMessage(userId, data) {
+  try {
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` };
+    const dm = await fetch('https://discord.com/api/v10/users/@me/channels', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ recipient_id: userId }),
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!dm.ok) {
+      console.error('DM 방 만들기 실패:', dm.status, await dm.text());
+      return false;
+    }
+    const { id } = await dm.json();
+    const res = await fetch(`https://discord.com/api/v10/channels/${id}/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(data),
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) {
+      // 50007 = 이 사람이 DM 을 막아 둬서 못 보내요
+      console.error('DM 보내기 실패:', res.status, await res.text());
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('DM 보내기 실패(네트워크):', error);
+    return false;
+  }
+}
+
+// 저장이 잘 끝난 뒤에 불러요: 쌓인 알림이 있으면 뒤에서 DM 을 보내요
+function flushAutoHuntNotice(userId) {
+  const content = autoHuntNotices.get(userId);
+  if (!content) return;
+  autoHuntNotices.delete(userId);
+  const task = sendDirectMessage(userId, { content }).finally(() => backgroundTasks.delete(task));
+  backgroundTasks.add(task);
+}
+
+// 응답을 돌려주기 직전에, 보내는 중인 DM 이 있으면 잠깐만 기다려줘요 (서버가 먼저 꺼지지 않게)
+async function waitBackgroundTasks(maxMs) {
+  if (backgroundTasks.size === 0 || maxMs <= 0) return;
+  await Promise.race([Promise.allSettled([...backgroundTasks]), new Promise((resolve) => setTimeout(resolve, maxMs))]);
+}
+
 // 숫자 한 칸짜리 입력창을 띄워요 (버튼을 누르면 뜨고, 제출하면 customId 로 다시 들어와요)
 function numberModal({ customId, title, label, placeholder, maxLength = 3 }) {
   return {
@@ -796,7 +851,9 @@ async function savePlayer(userId, data) {
 function updatePlayer(userId, rawMutate) {
   return withUserLock(userId, async () => {
     try {
-      return await updatePlayerNow(userId, rawMutate);
+      const result = await updatePlayerNow(userId, rawMutate);
+      flushAutoHuntNotice(userId); // 🔔 자동사냥이 위험해서 꺼졌다면 개인 알림(DM)
+      return result;
     } finally {
       playerCache.delete(userId);
     }
@@ -806,6 +863,7 @@ function updatePlayer(userId, rawMutate) {
 async function updatePlayerNow(userId, rawMutate) {
   // 🏃 자리 비운 사이 자동사냥이 한 일을 먼저 정산하고, 원래 하려던 일을 이어서 해요
   const mutate = (player) => {
+    autoHuntNotices.delete(userId);
     const settled = settleAutoHunt(player);
     const out = rawMutate(player);
     if (settled && out && !out.commit) out.commit = true;
@@ -1041,7 +1099,7 @@ function setMainPet(player, uid) {
 // 켜 두면 내가 자리를 비운 동안 고른 장소를 고른 펫이 /탐험 해주고, 다음에 봇을 쓸 때(또는 [새로고침]) 한꺼번에 정산해요 (보상 -80%)
 // 도감에 없는 펫은 해정볼로 잡기도 해요. 봇은 백그라운드로 못 돌아서 "지금 상태"는 지난 시간으로 계산해서 보여줘요.
 function newAutoHuntReport(locationId, now) {
-  return { locationId, startedAt: now, runs: 0, wins: 0, escapes: 0, caught: 0, newPets: 0, balls: 0, gold: 0, trainerExp: 0, petExp: 0, trainerLevels: 0, petLevels: 0, stopReason: null, feed: [] };
+  return { locationId, startedAt: now, runs: 0, wins: 0, escapes: 0, caught: 0, newPets: 0, balls: 0, gold: 0, trainerExp: 0, petExp: 0, trainerLevels: 0, petLevels: 0, stopReason: null, potions: 0, rests: 0, feed: [] };
 }
 
 function pushAutoFeed(rep, line) {
@@ -1169,6 +1227,43 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
   return end('escape', BATTLE_MAX_ROUNDS);
 }
 
+// 🩹 위험한 펫 돌보기 (자동사냥 전용)
+//   ① 회복약이 있으면 먹여요 (모자란 만큼 채워 줄 가장 약한 약부터, 목표 체력이 될 때까지)
+//   ② 약이 없거나 모자라면 쉬어요: 1분(AUTO_HUNT_REST_MS)마다 체력 +10(AUTO_HUNT_REST_HEAL)
+//      (저절로 차는 양이 10보다 크면 그 양을 써요)
+// 목표 체력 = 최대 체력 × AUTO_HUNT_RESUME_RATIO. 지난 시간이 모자라면 쉬는 중으로 남기고 done:false 를 돌려줘요.
+function autoHuntCare(player, main, at, endAt) {
+  const max = maxHp(main);
+  const target = Math.max(1, Math.ceil(AUTO_HUNT_RESUME_RATIO * max));
+  let t = at;
+  let potions = 0;
+  let restMs = 0;
+
+  let guard = 0;
+  while (currentHp(main, t) < target && guard++ < HEAL_FULL_CAP) {
+    const potion = pickPotion(player, target - currentHp(main, t));
+    if (!potion) break;
+    const r = useItem(player, potion.id, main.uid, 1, t);
+    if (r.kind !== 'used') break;
+    potions += r.used;
+  }
+
+  const hp = currentHp(main, t);
+  if (hp < target) {
+    const perMin = Math.max(AUTO_HUNT_REST_HEAL, max * HP_REGEN_PCT_PER_MIN);
+    const wantTimes = Math.ceil((target - hp) / perMin);
+    const canTimes = Math.max(0, Math.floor((endAt - t) / AUTO_HUNT_REST_MS));
+    const times = Math.min(wantTimes, canTimes);
+    if (times > 0) {
+      restMs = times * AUTO_HUNT_REST_MS;
+      t += restMs;
+      setHp(main, hp + perMin * times, t);
+    }
+    if (times < wantTimes) t = Math.max(t, endAt); // 시간이 모자라요 → 남은 시간은 쉬는 중으로 써요
+  }
+  return { t, potions, restMs, done: currentHp(main, t) >= target };
+}
+
 // 🏃 자리 비운 사이에 자동사냥이 한 일을 정산해요. 바뀐 게 있으면 true (저장해야 해요)
 // 한 번 도는 일 = 대기(5~30초) + 전투. 걸린 시간만큼 흘러간 것으로 치고, 지난 시간이 다 쓰일 때까지 반복해요.
 // 아직 안 끝난 한 판은 autoHuntPending 에 담아 두고 다음 정산 때 그대로 이어서 해요 (진행 화면이 이걸 보여줘요).
@@ -1197,6 +1292,8 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
   let pending = player.autoHuntPending ?? null;
   player.autoHuntPending = null;
   rep.resting = false;
+  let forceCare = false; // 물러난 직후엔 체력이 괜찮아 보여도 한 번 돌봐줘요
+  let dangerStreak = 0; // 돌봐줬는데도 연달아 위험했던 횟수
 
   for (let i = 0; i < AUTO_HUNT_MAX_RUNS; i++) {
     const loc = LOCATIONS[getAutoHuntLocId(player)];
@@ -1209,24 +1306,35 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
     if (run && (run.locId !== loc.id || run.petUid !== main.uid)) run = null; // 장소·펫이 바뀌었으면 새로 시작해요
 
     if (!run) {
+      // 🩹 펫이 위험하면 먼저 돌봐줘요: ① 회복약이 있으면 먹이고 ② 없으면 1분씩 쉬어요 (1분에 체력 +10)
+      let cared = false;
+      if (forceCare || currentHp(main, t) / maxHp(main) <= MULTI_STOP_HP_RATIO) {
+        forceCare = false;
+        cared = true;
+        const care = autoHuntCare(player, main, t, end);
+        t = care.t;
+        rep.potions = (rep.potions ?? 0) + care.potions;
+        if (care.restMs > 0) {
+          rep.rests = (rep.rests ?? 0) + 1;
+          rep.restMs = (rep.restMs ?? 0) + care.restMs;
+        }
+        if (care.potions > 0 || care.restMs > 0) {
+          const parts = [];
+          if (care.potions > 0) parts.push(`💊 회복약 ${care.potions}개`);
+          if (care.restMs > 0) parts.push(`🛌 ${Math.round(care.restMs / 60000)}분 휴식`);
+          pushAutoFeed(rep, `🩹 ${parts.join(' + ')} → ❤${currentHp(main, t)}/${maxHp(main)}`);
+        }
+        if (!care.done) { rep.resting = true; break; } // 아직 쉬는 중이에요 (지난 시간이 모자라요)
+      }
       const enc = rollEncounter(loc, rng);
       const waitMs = calcWaitSec(loc, player.level, enc, rng).sec * 1000;
       const fightAt = t + waitMs;
       const hp = currentHp(main, fightAt);
-      if (hp / maxHp(main) <= MULTI_STOP_HP_RATIO) {
-        // 🛌 체력이 위험하면 쉬어요: 저절로 회복되는 시간(체력이 RESUME 비율까지 찰 때까지)만큼 흘러가요
-        const max = maxHp(main);
-        const restMs = Math.ceil(((AUTO_HUNT_RESUME_RATIO * max - hp) / (max * HP_REGEN_PCT_PER_MIN)) * 60000);
-        t = fightAt + restMs;
-        rep.restMs = (rep.restMs ?? 0) + Math.min(restMs, Math.max(0, end - fightAt));
-        if (t >= end) { t = end; rep.resting = true; break; }
-        continue;
-      }
       // 🔴 도감에 없는 펫이고 해정볼이 있으면 잡아 봐요
       const balls = player.inventory?.[BALL_ID] ?? 0;
       const wantCatch = (player.autoHuntCatch ?? true) && balls > 0 && !player.dex?.[enc.petId];
       const fight = autoFight(main, enc, hp, rng, { balls: wantCatch ? balls : 0 });
-      run = { enc, locId: loc.id, petUid: main.uid, fightAt, doneAt: fightAt + fight.rounds * roundMs, fight };
+      run = { enc, locId: loc.id, petUid: main.uid, fightAt, doneAt: fightAt + fight.rounds * roundMs, fight, cared };
     }
     if (run.doneAt > end) { pending = run; break; } // 아직 싸우는 중이에요 → 다음 정산 때 이어서
 
@@ -1243,11 +1351,23 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
     if (used > 0) { player.inventory[BALL_ID] -= used; rep.balls += used; }
 
     if (f.result === 'retreat') {
-      pushAutoFeed(rep, `🩹 ${tag} — 위험해서 물러났어요`);
-      if (f.rounds === 0) { stop('too_strong'); break; } // 가득 찬 체력으로도 위험하면 이 장소는 무리예요
+      dangerStreak += 1;
+      // 돌봐준 직후인데도 첫 턴부터 위험하거나, 돌봐줘도 계속 위험하면 → 이 장소는 무리예요. 끄고 개인 알림!
+      if ((run.cared && f.rounds === 0) || dangerStreak >= AUTO_HUNT_MAX_DANGER_STREAK) {
+        pushAutoFeed(rep, `🚨 ${tag} — 돌봐줘도 위험해서 자동사냥을 껐어요`);
+        stop('danger');
+        autoHuntNotices.set(
+          player.userId,
+          `🚨 **자동사냥이 꺼졌어요!**\n${PETS[main.petId].emoji} **${nameOf(main)}** 가 ${loc.emoji} ${loc.name} 에서 너무 위험해졌어요.\n회복약을 먹이고 쉬어 봤지만 계속 위험해서 멈췄어요.\n\n👉 펫 체력을 채우거나 더 쉬운 장소로 바꾼 뒤 \`/자동사냥\` 으로 다시 켜주세요!`,
+        );
+        break;
+      }
+      pushAutoFeed(rep, `🩹 ${tag} — 위험해서 물러났어요 (회복하고 다시 나가요)`);
       rep.escapes += 1;
-      continue; // 다음 바퀴에서 쉬어요
+      forceCare = true; // 다음 바퀴에서 회복약 → 휴식 순서로 돌봐줘요
+      continue;
     }
+    dangerStreak = 0;
     if (f.result === 'caught') {
       const isNew = !player.dex?.[enc.petId];
       player.pets.push(createPetInstance(enc.petId, enc.level));
@@ -3076,6 +3196,7 @@ const explore = {
 
 const autoHuntStopText = (reason) => ({
   too_strong: '⚠️ 이 장소는 나간 펫에게 너무 위험해서 멈췄어요. 펫을 키우거나 더 쉬운 곳으로 가보세요!',
+  danger: '🚨 회복약을 먹이고 쉬어 봤지만 계속 위험해서 자동사냥을 껐어요. 펫 체력을 채우거나 더 쉬운 곳으로 가보세요!',
   time: `⏰ 최대 ${AUTO_HUNT_MAX_HOURS}시간을 다 채워서 멈췄어요. 다시 켜면 또 해줘요!`,
   location: '🔒 갈 수 있는 장소가 아니라서 멈췄어요.',
   no_pet: '🐾 싸울 펫이 없어서 멈췄어요.',
@@ -3087,7 +3208,7 @@ function autoHuntReportText(rep) {
   const time = mins >= 60 ? `${Math.floor(mins / 60)}시간 ${mins % 60}분` : `${mins}분`;
   const lines = [
     `${loc ? `${loc.emoji} ${loc.name}` : '탐험'} · ${time} 동안 **${rep.runs}번** 대신 탐험했어요`,
-    `⚔️ 승리 ${rep.wins}번 · 💨 놓침/물러남 ${rep.runs - rep.wins - (rep.caught ?? 0)}번` + (rep.restMs ? ` · 🛌 휴식 ${Math.round(rep.restMs / 60000)}분` : ''),
+    `⚔️ 승리 ${rep.wins}번 · 💨 놓침/물러남 ${rep.runs - rep.wins - (rep.caught ?? 0)}번` + (rep.restMs ? ` · 🛌 휴식 ${Math.round(rep.restMs / 60000)}분` : '') + (rep.potions ? ` · 💊 회복약 ${rep.potions}개` : ''),
     `💰 골드 +${rep.gold.toLocaleString()} · 🎓 트레이너 경험치 +${rep.trainerExp.toLocaleString()} · 🐾 펫 경험치 +${rep.petExp.toLocaleString()}`,
   ];
   if (rep.balls || rep.caught) lines.push(`🔴 포획 **${rep.caught ?? 0}마리**${rep.newPets ? ` (도감 NEW ${rep.newPets})` : ''} · 해정볼 ${rep.balls ?? 0}개 사용`);
@@ -3191,7 +3312,7 @@ const autoHuntCmd = {
       if (selector && !inst) return { commit: false, value: { kind: 'pet_not_found' } };
       const r = controlAutoHunt(player, now, { petUid: inst?.uid ?? null, locId: locOpt ?? null, catchOn: catchOpt ?? null });
       if (['on', 'settings', 'status'].includes(r.kind)) {
-        const note = { on: `🏃 **자동사냥 시작!** 보상은 **-${pct(1 - AUTO_HUNT_REWARD_MULT)}%** 예요. (직접 \`/탐험\` 하는 건 그대로)\n최대 ${AUTO_HUNT_MAX_HOURS}시간 · 펫이 위험하면 쉬어요 · 회복약·스킬은 안 써요`, settings: '✅ 설정을 바꿨어요! 새 설정으로 이어서 해요.', status: null }[r.kind];
+        const note = { on: `🏃 **자동사냥 시작!** 보상은 **-${pct(1 - AUTO_HUNT_REWARD_MULT)}%** 예요. (직접 \`/탐험\` 하는 건 그대로)\n최대 ${AUTO_HUNT_MAX_HOURS}시간 · 펫이 위험하면 회복약을 먹거나 쉬어요 (1분에 체력 +${AUTO_HUNT_REST_HEAL}) · 그래도 안 되면 개인 알림(DM)을 보내고 꺼요 · 스킬은 안 써요`, settings: '✅ 설정을 바꿨어요! 새 설정으로 이어서 해요.', status: null }[r.kind];
         r.msg = autoHuntView(player, now, note);
       }
       return { commit: !!r.commit, value: r };
@@ -5987,8 +6108,11 @@ export async function handleInteraction(interaction) {
       );
     }, limitMs);
   });
+  const startedAt = Date.now();
   try {
-    return await Promise.race([handleInteractionInner(interaction), timeout]);
+    const response = await Promise.race([handleInteractionInner(interaction), timeout]);
+    await waitBackgroundTasks(Math.min(500, 2500 - (Date.now() - startedAt))); // 🔔 개인 알림(DM)이 보내지는 중이면 잠깐만 기다려요
+    return response;
   } finally {
     clearTimeout(timer);
   }
