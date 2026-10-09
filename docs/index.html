@@ -41,6 +41,14 @@ main{padding:16px;max-width:1100px;margin:0 auto;display:grid;gap:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
 .card h3{margin:0 0 8px;font-size:15px}
 .hint{color:var(--sub);font-size:13px;margin:0 0 8px}
+details.attrs{margin:0 0 10px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+details.attrs>summary{cursor:pointer;padding:8px 12px;font-weight:600;font-size:13.5px}
+details.attrs dl{margin:0;padding:0 12px 10px;display:grid;grid-template-columns:max-content 1fr;gap:6px 12px;font-size:13px}
+details.attrs dt{font-weight:600}
+details.attrs dt code{color:var(--pri)}
+details.attrs dd{margin:0;color:var(--ink);opacity:.9}
+details.attrs dd small{display:block;color:var(--sub)}
+@media(max-width:560px){details.attrs dl{grid-template-columns:1fr}details.attrs dd{margin-bottom:4px}}
 .row{display:grid;grid-template-columns:1fr 150px 38px;gap:8px;align-items:center;padding:6px 8px;border-radius:8px}
 .row.chg,td.chg{background:var(--chg)}
 .row code,.hint code{color:var(--sub);font-size:12px}
@@ -310,6 +318,31 @@ function tabSettings() {
   return h('div', {}, h('p', { class: 'hint' }, '숫자를 바꾸면 노란색으로 표시돼요. ↺ 를 누르면 처음 값으로 돌아가요. 퍼센트(%)로 쓰는 값은 0.1 = 10% 예요. 바꾼 뒤 위쪽 [저장]을 눌러야 적용돼요.'), q, box);
 }
 
+// ───────── 속성 설명 (펫 · 아이템) ─────────
+const PET_ATTRS = [
+  ['id', '펫의 이름표예요. 영어 소문자·숫자·_ 2~40자이고, 만든 뒤에는 바꿀 수 없어요.'],
+  ['등급', '펫의 센 정도예요. 등급에 따라 도망·급소·기다리는 시간·방생 골드가 달라져요. (등급·표 탭)'],
+  ['체력', '1레벨 기준 기본 체력이에요. 0이 되면 쓰러져요. 레벨이 오를수록 더 늘어나요.'],
+  ['공격', '기본 공격력이에요. 클수록 상대에게 주는 데미지가 커요.'],
+  ['방어', '기본 방어력이에요. 클수록 받는 데미지가 줄어요.'],
+  ['속도', '기본 속도예요. 싸울 때 속도가 높거나 같은 쪽이 먼저 공격해요.'],
+  ['경험치', '이 펫을 이겼을 때 주는 기본 점수(expYield)예요. 경험치와 골드가 이 점수를 기준으로 계산돼요.'],
+  ['잡기쉬움', '0~1 사이예요. 클수록 잘 잡혀요. 0.8이면 쉬운 펫, 0.1이면 아주 어려운 펫이에요.'],
+  ['스타팅', '체크하면 처음 시작할 때 고르는 펫이 돼요. 스타팅 펫은 야생에 나올 수 없어요. 최소 1마리는 있어야 해요.'],
+];
+const ITEM_ATTRS = [
+  ['heal', '숫자', '{"heal":60}', '회복약이에요. 펫 체력을 이만큼 채워줘요. 9999면 사실상 전부 회복(엘릭서)이에요.'],
+  ['boost', '"trainerExp" 또는 "petExp"', '{"boost":"petExp"}', '/사용 으로 켜두는 1회용 경험치 부스트예요. trainerExp는 전투 승리·포획 때 트레이너 경험치, petExp는 전투 승리 때 대표 펫 경험치에 붙어요. 얼마나 늘어나는지는 설정 탭의 "경험치 부스트 효과"를 따라요.'],
+  ['speedup', 'true', '{"speedup":true}', '탐험에서 야생 펫을 기다리는 시간을 줄여줘요 (1개 = 1번). 줄어드는 정도는 설정 탭의 "탐험 시간 단축 효과"를 따라요.'],
+  ['skillSlot', 'true', '{"skillSlot":true}', '고른 펫의 5번째(마지막) 스킬 슬롯을 열고 랜덤 스킬 하나를 배워요. /사용 에서 대상 펫을 골라 써요.'],
+  ['skillReroll', 'true', '{"skillReroll":true}', '고른 펫의 스킬 슬롯 하나를 다른 랜덤 스킬로 다시 뽑아요.'],
+  ['catchItem', '"scanner" · "bait" · "charm" · "net"', '{"catchItem":"bait","catchBonus":0.2}', '야생 펫을 만난 뒤 쓰는 포획 아이템이에요. scanner = 포획 확률·난이도 보기(턴 안 씀) / bait = 이번 만남 동안 포획 확률을 catchBonus만큼 올려요(중첩, 합계 최대치는 설정 탭) / charm = 다음 던지기 1번만 catchBonus만큼 올리고 사라져요 / net = 이번 만남 동안 도망 확률을 줄여요.'],
+  ['catchBonus', '숫자', '{"catchBonus":0.5}', 'bait·charm 이 올려주는 포획 확률이에요. 0.2면 +20%(×1.2), 1이면 +100%(×2)예요. 다른 종류에서는 쓰지 않아요.'],
+  ['short', '짧은 글자', '{"short":"간식"}', '포획 아이템 버튼에 보이는 짧은 이름이에요. 비우면 버튼에 이름이 길게 나올 수 있어요.'],
+  ['scout', 'true', '{"scout":true}', '다음에 나올 펫을 미리 알려주는 "예고" 용이에요. (지금 기본 아이템에는 쓰는 것이 없어요)'],
+];
+const attrBox = (title, rows) => h('details', { class: 'attrs' }, h('summary', {}, title), h('dl', {}, rows.map(([k, ...r]) => [h('dt', {}, h('code', {}, k)), h('dd', {}, ...r)])));
+
 // ───────── 탭: 펫 ─────────
 function tabPets() {
   const q = h('input', { type: 'search', placeholder: '이름·id 검색' });
@@ -344,9 +377,11 @@ function tabPets() {
   q.addEventListener('input', draw); g.addEventListener('change', draw);
   draw();
   const heads = ['id', '이모지', '이름', '등급', '체력', '공격', '방어', '속도', '경험치', '잡기쉬움(0~1)', '스타팅', ''];
+  const tip = (x) => PET_ATTRS.find(([k]) => x.startsWith(k))?.[1];
   return h('div', {}, h('div', { class: 'tools' }, q, g, h('button', { class: 'pri', onclick: add }, '+ 새 펫')),
     h('p', { class: 'hint' }, '기본 펫은 삭제할 수 없어요 (유저 데이터 보호). 지역에서 빼려면 지역 탭에서 비중을 0 으로 하세요.'),
-    h('div', { class: 'wrap' }, h('table', {}, h('thead', {}, h('tr', {}, heads.map((x) => h('th', {}, x)))), body)));
+    attrBox('📖 속성 설명 (펫)', PET_ATTRS),
+    h('div', { class: 'wrap' }, h('table', {}, h('thead', {}, h('tr', {}, heads.map((x) => h('th', { title: tip(x) }, x)))), body)));
 }
 
 // ───────── 탭: 아이템 ─────────
@@ -375,7 +410,8 @@ function tabItems() {
   draw();
   const add = () => { const id = askId('items'); if (id) { cur.items[id] = { id, name: '새 아이템', emoji: '📦', price: 100, description: '' }; draw(); touch(); } };
   return h('div', {}, h('div', { class: 'tools' }, h('button', { class: 'pri', onclick: add }, '+ 새 아이템')),
-    h('p', { class: 'hint' }, '가격을 비우면 상점에서 팔지 않아요. "특수 속성"은 JSON 이에요: heal(회복량), boost(trainerExp/petExp), speedup, scout, catchItem(scanner/bait/charm/net), catchBonus, short.'),
+    h('p', { class: 'hint' }, '가격을 비우면 상점에서 팔지 않아요. "특수 속성"은 JSON 이에요. 아래 [속성 설명]을 펼쳐서 어떤 값을 넣을 수 있는지 확인하세요.'),
+    attrBox('📖 특수 속성 설명 (아이템)', ITEM_ATTRS.map(([k, type, ex, desc]) => [h('span', {}, desc), h('small', {}, `값: ${type} · 예: `, h('code', {}, ex))])),
     h('div', { class: 'wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['id', '이모지', '이름', '가격', '설명', '특수 속성(JSON)', ''].map((x) => h('th', {}, x)))), body)));
 }
 

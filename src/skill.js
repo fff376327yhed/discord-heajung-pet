@@ -12,6 +12,10 @@
 //   bomb [배율,턴] 시한폭탄(방어 무시) · detonate 배율 화상/독/출혈 터뜨리기 · overload 계수 남은 마나 전부 쏟아붓기
 //   revenge 계수 내 체력이 낮을수록 강해짐 · gamble [확률,성공배율,실패반동] 도박 · hitsRange [최소,최대] 랜덤 연타
 //   stealMana 숫자 적 마나 훔치기 · swapHp 서로의 체력 비율 맞바꾸기 · echo 턴 다음 공격 스킬이 메아리침
+//   🌈 속성(상성) 효과 칸:
+//   elem 스킬의 속성 (fire/water/grass/electric/ice/wind/earth/light/dark/poison/normal — 안 적으면 무속성)
+//   weakBonus 비율 상대 속성이 약점일 때 데미지 추가 · ignoreResist 상대가 "효과 별로"여도 반감 무시
+//   convert [속성,턴] 내 속성을 바꿔요 (같은 속성 보너스 · 방어 상성도 같이 바뀌어요) · ward 턴 약점 속성으로 맞아도 추가 피해 없음
 
 export const SKILL_CFG = {
   manaMax: 100, // 마나 최대치 (마나 수정으로 펫마다 더 늘릴 수 있어요)
@@ -25,6 +29,7 @@ export const SKILL_CFG = {
   wildSkillChance: 0.35, // 야생 펫이 매 턴 전용기를 쓸 확률 (마나가 될 때)
   crystalMana: 10, // 마나 수정 1개당 늘어나는 최대 마나
   crystalMaxBonus: 100, // 마나 수정으로 늘릴 수 있는 최대치
+  elemAffinity: 2, // 🌈 슬롯이 열릴 때 "내 펫과 같은 속성" 스킬이 뽑힐 확률 배수 (1 이면 꺼짐, 2 면 같은 등급 안에서 2배 잘 나와요)
 };
 // 슬롯이 열릴 때 "등급(★)"이 뽑힐 확률 무게예요. 합이 100이라서 숫자가 곧 퍼센트(%)예요!
 // 등급을 먼저 뽑고, 그 등급 안에서는 모든 스킬이 똑같은 확률이에요 (스킬을 새로 추가해도 등급 확률은 안 변해요).
@@ -32,12 +37,109 @@ export const SKILL_CFG = {
 export const TIER_WEIGHT = { 1: 40, 2: 33, 3: 20, 4: 6, 5: 1 };
 const TIER_COST = { 1: 10, 2: 20, 3: 35, 4: 50, 5: 70 }; // 등급별 기본 마나 (스킬마다 따로 고칠 수 있어요)
 
+// ───────── 🌈 속성 (상성) ─────────
+// 펫과 스킬은 속성을 가져요. 공격 속성이 상대 속성에게 "잘 먹히면" 약점(데미지 ×strong), "잘 안 먹히면" 반감(데미지 ×weak)!
+// 두 가지 속성을 가진 펫은 두 속성의 배율이 곱해져요 (예: 약점 ×1.5 × 약점 ×1.5 = ×2.25).
+// 스킬이 내 펫의 속성과 같으면 같은 속성 보너스(×stab)! 기본 공격은 내 펫의 첫 번째 속성으로 나가요.
+export const ELEMENTS = {
+  normal: { name: '무속성', emoji: '⚪' },
+  fire: { name: '불', emoji: '🔥' },
+  water: { name: '물', emoji: '💧' },
+  grass: { name: '풀', emoji: '🌿' },
+  electric: { name: '전기', emoji: '⚡' },
+  ice: { name: '얼음', emoji: '❄️' },
+  wind: { name: '바람', emoji: '🌪️' },
+  earth: { name: '땅', emoji: '⛰️' },
+  light: { name: '빛', emoji: '✨' },
+  dark: { name: '어둠', emoji: '🌑' },
+  poison: { name: '독', emoji: '☠️' },
+};
+export const ELEM_CFG = {
+  strong: 1.5, // 약점을 찔렀을 때 데미지 배율
+  weak: 0.65, // 효과가 별로일 때 데미지 배율 (반감)
+  stab: 1.2, // 스킬 속성 = 내 펫 속성일 때 데미지 배율 (같은 속성 보너스)
+};
+// 공격 속성 → { strong: 잘 먹히는 방어 속성들, weak: 잘 안 먹히는 방어 속성들 }
+export const ELEM_CHART = {
+  normal: { strong: [], weak: [] },
+  fire: { strong: ['grass', 'ice', 'poison'], weak: ['water', 'earth', 'fire'] },
+  water: { strong: ['fire', 'earth'], weak: ['grass', 'electric', 'water'] },
+  grass: { strong: ['water', 'earth', 'electric'], weak: ['fire', 'ice', 'poison', 'wind', 'grass'] },
+  electric: { strong: ['water', 'wind'], weak: ['earth', 'grass', 'electric'] },
+  ice: { strong: ['grass', 'wind', 'earth'], weak: ['fire', 'water', 'ice'] },
+  wind: { strong: ['grass', 'poison'], weak: ['electric', 'ice'] },
+  earth: { strong: ['fire', 'electric', 'poison'], weak: ['grass', 'wind'] },
+  light: { strong: ['dark', 'poison'], weak: ['light', 'fire'] },
+  dark: { strong: ['light', 'wind'], weak: ['dark', 'earth'] },
+  poison: { strong: ['grass', 'water'], weak: ['earth', 'poison', 'dark'] },
+};
+// 펫마다 속성 1~2개 (맨 앞이 "첫 번째 속성" = 기본 공격 속성). 여기에 없는 펫은 무속성이에요.
+export const PET_ELEMENTS = {
+  pyro_cat: ['fire'], aqua_pup: ['water'], leaf_bun: ['grass'],
+  slime: ['water'], mouse: ['electric'], bee: ['wind', 'poison'], rabbit: ['normal'], ladybug: ['grass'], butterfly: ['grass', 'wind'],
+  owl: ['wind', 'dark'], fox: ['fire'], treant: ['grass', 'earth'], deer: ['grass', 'light'], squirrel: ['grass'], mushroom: ['grass', 'poison'], wolf: ['dark'],
+  clover_fairy: ['grass', 'light'], boar: ['earth'], unicorn: ['light', 'grass'],
+  bat: ['dark', 'wind'], golem: ['earth'], spider: ['poison'], scorpion: ['poison', 'earth'], crystal: ['earth', 'light'], skeleton: ['dark'], ghost: ['dark'],
+  crab: ['water', 'earth'], shark: ['water', 'dark'], pufferfish: ['water', 'poison'], octopus: ['water'], whale: ['water'], turtle: ['water', 'earth'], mermaid: ['water', 'light'],
+  baby_dragon: ['fire'], phoenix: ['fire', 'light'], magma_slime: ['fire', 'earth'], salamander: ['fire'], flame_lord: ['fire', 'dark'], fire_dragon: ['fire', 'wind'],
+  frog: ['water', 'poison'], snake: ['poison'], croc: ['water', 'dark'], wisp: ['fire', 'dark'], witch: ['poison', 'dark'],
+  camel: ['earth'], cactus: ['grass', 'earth'], scarab: ['earth'], lion: ['fire'], mummy: ['dark', 'earth'], sandworm: ['earth', 'poison'],
+  penguin: ['ice', 'water'], bear: ['ice'], yeti: ['ice', 'earth'], ice_spirit: ['ice'], frost_dragon: ['ice', 'wind'], ice_queen: ['ice', 'light'],
+  cloud_sheep: ['wind'], parrot: ['wind'], thunder_bird: ['electric', 'wind'], pegasus: ['wind', 'light'], wyvern: ['wind', 'poison'], angel: ['light'], sun_god: ['light', 'fire'],
+  shadow: ['dark'], void_eye: ['dark'], star_whale: ['water', 'light'], comet: ['ice', 'light'], void_dragon: ['dark'], chaos_lord: ['dark', 'fire'], creator: ['light', 'dark'],
+};
+export const petElementsOf = (petId) => PET_ELEMENTS[petId] ?? ['normal'];
+
+export const elemTag = (e) => `${(ELEMENTS[e] ?? ELEMENTS.normal).emoji} ${(ELEMENTS[e] ?? ELEMENTS.normal).name}`; // "🔥 불"
+export const elemIcons = (elems) => (elems?.length ? elems : ['normal']).map((e) => (ELEMENTS[e] ?? ELEMENTS.normal).emoji).join(''); // "🌿🌪️"
+export const elemTags = (elems) => (elems?.length ? elems : ['normal']).map(elemTag).join(' + '); // "🌿 풀 + 🌪️ 바람"
+// 전투 중인 한쪽(X)의 "지금 속성" — 속성 변환(convert) 중이면 바뀐 속성이에요
+export const effElems = (X) => (X?.st?.convert ? [X.st.convert.elem] : X?.elems?.length ? X.elems : ['normal']);
+
+// 상성 계산: atkElem 으로 defender 를 때렸을 때의 배율과 안내 글자
+export function elemClash(atkElem, defender, { ignoreResist = false } = {}) {
+  const row = ELEM_CHART[atkElem] ?? ELEM_CHART.normal;
+  let mult = 1;
+  for (const d of effElems(defender)) {
+    if (row.strong.includes(d)) mult *= ELEM_CFG.strong;
+    else if (row.weak.includes(d)) mult *= ELEM_CFG.weak;
+  }
+  let ignored = false;
+  let warded = false;
+  if (ignoreResist && mult < 1) { mult = 1; ignored = true; }
+  if (mult > 1 && defender?.st?.ward) { mult = 1; warded = true; }
+  let note = '';
+  if (ignored) note = ' (🔓 상성 반감을 무시했어요!)';
+  else if (warded) note = ' (🔮 속성 방벽이 약점을 막아냈어요!)';
+  else if (mult >= 2) note = ' 🌟 **약점 적중!!** (효과가 아주 굉장해요)';
+  else if (mult >= 1.1) note = ' ✨ **효과가 굉장했다!**';
+  else if (mult <= 0.5) note = ' 💨 효과가 거의 없는 듯하다…';
+  else if (mult <= 0.9) note = ' 💧 효과가 별로인 듯하다…';
+  return { mult, note, ignored, warded };
+}
+// 상성 한 줄 요약 (확인창 · 전투 화면용)
+export function clashLabel(mult) {
+  if (mult >= 2) return `🌟 약점! 아주 굉장해요 (×${+mult.toFixed(2)})`;
+  if (mult >= 1.1) return `✨ 효과가 굉장해요 (×${+mult.toFixed(2)})`;
+  if (mult <= 0.5) return `💨 효과가 거의 없어요 (×${+mult.toFixed(2)})`;
+  if (mult <= 0.9) return `💧 효과가 별로예요 (×${+mult.toFixed(2)})`;
+  return '보통 (×1)';
+}
+export const skillElement = (sk) => sk?.elem ?? 'normal';
+
 export const SKILLS = {};
 const add = (id, name, emoji, tier, fx, extra = {}) => {
   SKILLS[id] = { id, name, emoji, tier, cost: TIER_COST[tier], ...fx, ...extra };
 };
 const G = (id, name, emoji, tier, fx) => add(id, name, emoji, tier, fx); // 일반 스킬 (모든 펫)
-const P = (pet, id, name, emoji, tier, fx, flavor) => add(id, name, emoji, tier, fx, { pet, flavor }); // 전용기
+const sigCount = {};
+const P = (pet, id, name, emoji, tier, fx, flavor) => {
+  // 🌈 전용기의 속성은 펫의 속성을 따라가요 (속성이 2개인 펫은 첫 번째 전용기 = 첫 속성, 두 번째 전용기 = 둘째 속성)
+  const el = petElementsOf(pet);
+  const idx = sigCount[pet] ?? 0;
+  sigCount[pet] = idx + 1;
+  add(id, name, emoji, tier, fx, { pet, flavor, elem: el[idx % el.length] });
+}; // 전용기
 const U = (id, name, emoji, tier, fx, flavor) => add(id, name, emoji, tier, fx, { flavor, unique: true }); // 🆕 독창 스킬 (모든 펫, 특이한 규칙)
 
 // ───────── 일반 스킬: 속성 공격 (속성마다 ★1 · ★3 · ★5) ─────────
@@ -266,6 +368,48 @@ U('doomsday_clock', '종말의 시계', '🕰️', 5, { bomb: [5.5, 4], defDown:
 U('mana_nova', '마나 초신성', '🌟', 5, { pow: 1.2, overload: 0.035, pierce: 0.3, cost: 30 }, '쌓아둔 마나가 별처럼 폭발해요. 방어도 뚫어요!');
 U('devil_dice', '악마의 주사위', '😈', 5, { pow: 1.8, gamble: [0.3, 5.0, 0.3] }, '30%의 기적에 나를 걸어요. 실패하면 많이 아파요.');
 
+
+// ───────── 🌈 속성 상성 스킬 (약점 노리기 · 반감 무시 · 방벽 · 속성 변환) ─────────
+G('weak_point', '약점 찌르기', '🎯', 2, { pow: 1.2, weakBonus: 0.5 });
+G('keen_eye', '약점 간파', '👁️', 3, { pow: 1.6, weakBonus: 0.8 });
+G('adapt_strike', '적응 타격', '🧬', 3, { pow: 1.6, ignoreResist: true });
+G('resist_breaker', '상성 파괴', '🔓', 4, { pow: 2.0, ignoreResist: true, weakBonus: 0.3 });
+G('prism_crash', '프리즘 파열', '🌈', 4, { pow: 1.8, ignoreResist: true, weakBonus: 0.5 });
+G('elem_collapse', '속성 붕괴', '💠', 5, { pow: 2.6, ignoreResist: true, weakBonus: 0.8, pierce: 0.2 });
+G('elem_ward', '속성 방벽', '🔮', 2, { ward: 3 });
+G('prism_barrier', '프리즘 방벽', '🪩', 4, { ward: 4, shield: 0.2 });
+// 속성 변환: 몇 턴 동안 내 펫이 그 속성으로 변해요 (같은 속성 스킬 보너스 + 방어 상성도 같이 바뀌어요)
+const ATTUNE = {
+  fire: ['불꽃 변신', '🔥', '온몸이 활활! 불의 기운을 두른다.'],
+  water: ['물결 변신', '💧', '몸이 찰랑찰랑 물처럼 흘러요.'],
+  grass: ['숲의 변신', '🌿', '덩굴과 잎사귀가 온몸을 감싸요.'],
+  electric: ['번개 변신', '⚡', '털끝이 파직파직 곤두서요.'],
+  ice: ['서리 변신', '❄️', '숨결이 하얗게 얼어붙어요.'],
+  wind: ['바람 변신', '🌪️', '몸이 깃털처럼 가벼워져요.'],
+  earth: ['대지 변신', '⛰️', '몸이 바위처럼 단단해져요.'],
+  light: ['빛의 변신', '✨', '온몸이 눈부시게 반짝여요.'],
+  dark: ['그림자 변신', '🌑', '그림자 속으로 스르륵 스며들어요.'],
+  poison: ['독안개 변신', '☠️', '보라색 안개가 몸을 감싸요.'],
+};
+for (const [e, [name, emoji, flavor]] of Object.entries(ATTUNE)) add(`attune_${e}`, name, emoji, 2, { convert: [e, 3] }, { elem: e, flavor });
+// 속성별 새 공격·보조 스킬
+G('sunbeam', '햇살화살', '🌅', 1, { pow: 1.35, heal: 0.05 });
+G('aurora', '오로라', '🌌', 3, { pow: 1.7, cleanse: true });
+G('starfall', '별똥비', '🌠', 4, { pow: 0.9, hits: 3, pierce: 0.2 });
+G('nightmare', '악몽', '😈', 2, { pow: 1.2, stun: 0.25 });
+G('abyss_maw', '심연의 아가리', '🕳️', 4, { pow: 2.3, exec: 1.6, drain: 0.2 });
+G('toxic_spore', '독포자', '🍄', 1, { pow: 1.1, dot: ['poison', 0.04, 3, 0.5] });
+G('acid_rain', '산성비', '🌧️', 4, { pow: 1.3, hits: 2, defDown: [0.25, 3], dot: ['poison', 0.05, 3, 0.6] });
+G('rockslide', '낙석', '🪨', 2, { pow: 0.8, hits: 3 });
+G('tremor', '지진파', '📳', 4, { pow: 2.2, defDown: [0.2, 3] });
+G('chain_lightning', '연쇄번개', '🔗', 4, { pow: 1.1, hits: 3, stun: 0.2 });
+G('ice_wall', '얼음벽', '🧊', 2, { guard: [0.4, 2], defUp: [0.2, 2] });
+G('tailwind', '순풍', '🍃', 2, { atkUp: [0.3, 3], evade: 1 });
+G('purify_water', '정화수', '🫗', 3, { heal: 0.2, cleanse: true });
+G('photosynth', '광합성', '🌱', 2, { heal: 0.15, regen: [0.05, 3] });
+G('wildfire', '들불', '🔥', 4, { pow: 1.2, hits: 2, dot: ['burn', 0.07, 3, 0.8] });
+
+
 // ───────── 전용기 (그 펫만 배울 수 있어요 · 같은 마나의 일반 스킬보다 세요) ─────────
 // 스타팅
 P('pyro_cat', 'sig_pyro_cat', '불꽃 발톱', '🐾', 2, { pow: 2.1, dot: ['burn', 0.06, 3, 0.6] }, '꼬리 끝 불꽃을 발톱에 모아 할퀴어요.');
@@ -372,6 +516,27 @@ P('chaos_lord', 'sig_chaos_lord2', '군주의 오만', '👿', 5, { atkUp: [1.0,
 P('creator', 'sig_creator', '천지창조', '🌌', 5, { pow: 4.2, pierce: 0.6, stun: 0.4 }, '별이 태어나는 순간의 폭발.');
 P('creator', 'sig_creator2', '태초의 숨결', '✨', 5, { heal: 0.8, cleanse: true, mana: 50, regen: [0.1, 4] }, '모든 것이 처음으로 돌아가요.');
 
+// 스킬 속성 배정 (여기에 없는 스킬은 무속성이에요 · 전용기는 펫 속성을 따라가요)
+const ELEM_SKILLS = {
+  fire: ['fire_spark', 'fireball', 'inferno', 'ember_jab', 'flame_wheel', 'sear', 'blazing_kick', 'magma_burst', 'ember_curse', 'ember_brand', 'scorch', 'hot_potato', 'time_bomb', 'fireworks', 'wildfire', 'berserk'],
+  water: ['water_gun', 'tidal_wave', 'tsunami', 'bubble_burst', 'tide_crash', 'geyser', 'whirlpool', 'dew_drop', 'rain_mend', 'spring_water', 'hot_spring', 'bubble_dome', 'coral_guard', 'mana_flood', 'purify_water', 'shell_hide'],
+  grass: ['vine_whip', 'thorn_storm', 'thorn_lash', 'root_crush', 'spore_cloud', 'pollen_storm', 'moss_cure', 'regen_seed', 'oak_bark', 'nectar', 'photosynth', 'honey_heal', 'thick_fur'],
+  electric: ['spark', 'thunder', 'thunderstorm', 'lightning_fang', 'static_field', 'thunder_hammer', 'ion_burst', 'chain_lightning', 'adrenaline'],
+  ice: ['frost_touch', 'ice_shard', 'blizzard', 'ice_fang', 'frozen_spike', 'hail_storm', 'glacier_crush', 'ice_armor', 'frostbite', 'ice_wall'],
+  wind: ['gust', 'wind_blade', 'tornado', 'gale_slash', 'cyclone', 'feather_dart', 'talon_dive', 'gale_wing', 'feather_veil', 'tickle', 'tailwind', 'echo_burst', 'dodge_stance', 'echo_chamber'],
+  earth: ['pebble', 'earthquake', 'meteor_fall', 'boulder_toss', 'stone_fist', 'quake_stomp', 'sand_blast', 'dune_crush', 'stone_skin', 'mud_wall', 'sand_cloak', 'shard_storm', 'rockslide', 'tremor', 'piggy_bank', 'bone_plate', 'iron_wall', 'harden'],
+  light: ['flash', 'holy_ray', 'judgement', 'solar_beam', 'healing_light', 'sanctuary', 'phoenix_tears', 'blessing', 'sun_blessing', 'prism_ray', 'lunar_rest', 'fairy_dust', 'sunshade', 'sunbeam', 'aurora', 'starfall', 'confetti', 'dance_battle', 'mana_nova', 'crystal_shield', 'adamant', 'prism_crash', 'prism_barrier', 'elem_ward'],
+  dark: ['shadow_claw', 'shadow_bite', 'dark_pulse', 'night_slash', 'soul_strike', 'eclipse_ray', 'void_collapse', 'void_shot', 'spirit_siphon', 'soul_feast', 'shadow_step', 'curse', 'terror_gaze', 'vampire_bite', 'life_drain', 'blood_pact', 'nightmare', 'abyss_maw', 'mana_thief', 'ghost_prank', 'mana_vampire', 'last_gasp', 'fate_swap', 'doomsday_clock', 'devil_dice', 'all_in_gamble', 'mana_burn', 'intimidate'],
+  poison: ['poison_sting', 'toxic_fog', 'plague', 'acid_spit', 'hex_bolt', 'toxic_mist', 'venom_fang', 'soul_curse', 'corrode', 'toxic_spore', 'acid_rain', 'chain_reaction', 'pufferburst'],
+};
+for (const [e, ids] of Object.entries(ELEM_SKILLS)) {
+  for (const id of ids) {
+    if (SKILLS[id]) SKILLS[id].elem = e;
+    else console.warn(`[skill.js] 속성 배정: 없는 스킬이에요 → ${id}`);
+  }
+}
+for (const sk of Object.values(SKILLS)) sk.elem ??= 'normal';
+
 // ───────── 설명 글자 (효과 칸으로 자동 만들어요 → 관리자에서 효과를 바꿔도 설명이 같이 바뀌어요) ─────────
 const P100 = (x) => `${Math.round(x * 100)}%`;
 const DOT = { burn: '🔥 화상', poison: '☠️ 독', bleed: '🩸 출혈' };
@@ -409,19 +574,23 @@ export function skillEffectLines(sk) {
   if (sk.stealMana) t.push(`적 마나를 ${sk.stealMana}만큼 훔쳐서 내 마나로`);
   if (sk.swapHp) t.push('내 체력 비율이 더 낮으면 서로의 체력 비율을 맞바꿔요 (적은 최소 1은 남아요 · 내가 더 건강하면 아무 일도 안 일어나요)');
   if (sk.echo) t.push(`${sk.echo}턴 안에 쓰는 다음 공격 스킬이 한 번 더 울려요 (위력 75%, 마나 0)`);
+  if (sk.weakBonus) t.push(`🎯 상대 속성이 **약점**이면 데미지 +${P100(sk.weakBonus)} 추가`);
+  if (sk.ignoreResist) t.push('🔓 상대 속성이 "효과 별로"여도 반감 없이 정상 데미지');
+  if (sk.convert) t.push(`🧬 ${sk.convert[1]}턴 동안 내 속성이 **${elemTag(sk.convert[0])}** 으로 변해요 (그 속성 스킬 보너스 · 방어 상성도 같이 바뀌어요)`);
+  if (sk.ward) t.push(`🔮 ${sk.ward}턴 동안 속성 약점으로 맞아도 추가 피해를 안 받아요`);
   if (sk.cleanse) t.push('내 상태이상(화상·독·출혈·약화) 제거');
   return t;
 }
 
 export function describeSkill(sk) {
-  return (sk.flavor ? `*${sk.flavor}*\n` : '') + (skillEffectLines(sk).join(' · ') || '효과 없음');
+  return (sk.flavor ? `*${sk.flavor}*\n` : '') + `${elemTag(skillElement(sk))} 속성 · ` + (skillEffectLines(sk).join(' · ') || '효과 없음');
 }
 
 export const tierStars = (t) => '★'.repeat(Math.max(1, Math.min(5, t)));
 export function skillCategory(sk) {
   if (sk.pet) return '전용기';
   if (sk.pow || sk.bomb || sk.detonate) return '공격';
-  if (sk.atkUp || sk.defUp || sk.mana || sk.echo) return '강화';
+  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward) return '강화';
   if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp) return '약화';
   return '회복·방어';
 }
@@ -471,6 +640,15 @@ export function rollSkill(inst, rng = Math.random, exclude = []) {
   let tier = tiers[tiers.length - 1];
   for (const t of tiers) { r -= TIER_WEIGHT[t]; if (r < 0) { tier = t; break; } }
   const same = pool.filter((s) => s.tier === tier);
+  // 🌈 내 펫과 같은 속성의 스킬은 elemAffinity 배만큼 더 잘 나와요 (1 이면 모두 똑같은 확률)
+  const aff = SKILL_CFG.elemAffinity ?? 1;
+  if (aff !== 1 && inst.petId) {
+    const mine = petElementsOf(inst.petId).filter((e) => e !== 'normal');
+    const w = same.map((s) => (mine.includes(skillElement(s)) ? aff : 1));
+    let r2 = rng() * w.reduce((n, x) => n + x, 0);
+    for (let i = 0; i < same.length; i++) { r2 -= w[i]; if (r2 < 0) return same[i].id; }
+    return same[same.length - 1].id;
+  }
   return same[Math.floor(rng() * same.length)].id;
 }
 
@@ -516,8 +694,24 @@ export function castSkill(sk, A, B, rng, log) {
   log.push(`✨ ${A.emoji} ${A.name}의 ${sk.emoji} **${sk.name}**!`);
   let dealt = 0;
 
+  // 🌈 속성 상성: 약점(×1.5) / 반감(×0.65) / 같은 속성 보너스(×1.2)
+  const skElem = skillElement(sk);
+  let elemMul = 1;
+  if (sk.pow || sk.bomb) {
+    const clash = elemClash(skElem, B, { ignoreResist: sk.ignoreResist });
+    elemMul = clash.mult;
+    if (sk.weakBonus && clash.mult > 1) elemMul *= 1 + sk.weakBonus;
+    const stab = skElem !== 'normal' && effElems(A).includes(skElem) ? ELEM_CFG.stab : 1;
+    elemMul *= stab;
+    const tags = [];
+    if (clash.note) tags.push(clash.note.trim());
+    if (sk.weakBonus && clash.mult > 1) tags.push(`🎯 약점 공략! (+${P100(sk.weakBonus)})`);
+    if (stab > 1) tags.push(`🔰 같은 속성 보너스! (×${ELEM_CFG.stab})`);
+    if (tags.length) log.push(`　${elemTag(skElem)} 속성 → ${effElems(B).map(elemTag).join(' + ')}: ${tags.join(' ')}`);
+  }
+
   // 🆕 독창 스킬: 이번 한 번의 데미지 배율 (마나 쏟아붓기 · 오기/발악 · 도박이 여기에 곱해져요)
-  let mult = 1;
+  let mult = elemMul;
   if (sk.overload) {
     const spent = Math.round(A.mana);
     mult *= 1 + spent * sk.overload;
@@ -572,6 +766,8 @@ export function castSkill(sk, A, B, rng, log) {
   if (sk.evade) { A.st.evade = (A.st.evade ?? 0) + sk.evade; log.push(`　🌀 다음 공격 ${A.st.evade}번 회피`); }
   if (sk.atkUp) { A.st.atkUp = { pct: sk.atkUp[0], turns: sk.atkUp[1] }; log.push(`　💪 ${sk.atkUp[1]}턴 동안 공격력 +${P100(sk.atkUp[0])}`); }
   if (sk.defUp) { A.st.defUp = { pct: sk.defUp[0], turns: sk.defUp[1] }; log.push(`　🧱 ${sk.defUp[1]}턴 동안 방어력 +${P100(sk.defUp[0])}`); }
+  if (sk.convert) { A.st.convert = { elem: sk.convert[0], turns: sk.convert[1] }; log.push(`　🧬 ${sk.convert[1]}턴 동안 ${A.name}의 속성이 **${elemTag(sk.convert[0])}** 으로 변했어요!`); }
+  if (sk.ward) { A.st.ward = { turns: sk.ward }; log.push(`　🔮 ${sk.ward}턴 동안 속성 약점을 막아주는 방벽이 쳐졌어요`); }
   if (sk.mana) { const n = Math.min(sk.mana, SKILL_CFG.manaMax + 1000); A.mana += n; log.push(`　🔋 마나 +${n}`); }
   if (sk.cleanse) { A.st.dots = []; delete A.st.atkDown; delete A.st.defDown; delete A.st.stun; log.push('　✨ 나쁜 상태가 사라졌어요'); }
   // 🆕 독창 스킬: 상태이상 터뜨리기 (새 상태이상을 걸기 전에 먼저 터뜨려요)
@@ -600,7 +796,7 @@ export function castSkill(sk, A, B, rng, log) {
   }
   if (B.hp > 0) {
     if (sk.bomb) {
-      B.st.bomb = { dmg: Math.max(1, Math.round(effAtk(A) * sk.bomb[0])), turns: sk.bomb[1] };
+      B.st.bomb = { dmg: Math.max(1, Math.round(effAtk(A) * sk.bomb[0] * elemMul)), turns: sk.bomb[1] };
       log.push(`　💣 ${B.name}에게 **시한폭탄**을 달았어요! (${sk.bomb[1]}턴 뒤 폭발)`);
     }
     if (sk.stealMana) {
@@ -624,7 +820,7 @@ export function castSkill(sk, A, B, rng, log) {
   if (A.st.echo && sk.pow && !sk.echoed && A.hp > 0 && B.hp > 0) {
     delete A.st.echo;
     log.push('　🔊 메아리가 울려 퍼져요!');
-    castSkill({ id: sk.id, name: `${sk.name} (메아리)`, emoji: sk.emoji, tier: sk.tier, cost: 0, pow: sk.pow * 0.75, hits: sk.hits, hitsRange: sk.hitsRange, pierce: sk.pierce, crit: sk.crit, exec: sk.exec, echoed: true }, A, B, rng, log);
+    castSkill({ id: sk.id, name: `${sk.name} (메아리)`, emoji: sk.emoji, tier: sk.tier, cost: 0, pow: sk.pow * 0.75, hits: sk.hits, hitsRange: sk.hitsRange, pierce: sk.pierce, crit: sk.crit, exec: sk.exec, elem: sk.elem, weakBonus: sk.weakBonus, ignoreResist: sk.ignoreResist, echoed: true }, A, B, rng, log);
   }
   A.mana = Math.min(A.mana, A.manaMax);
 }
@@ -654,7 +850,7 @@ export function tickSide(X, log, gainMana = true) {
     if (n) log.push(`🌱 ${X.name} 체력 +${n}`);
     if (--st.regen.turns <= 0) delete st.regen;
   }
-  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo']) {
+  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward']) {
     if (st[k] && --st[k].turns <= 0) delete st[k];
   }
   if (gainMana) X.mana = Math.min(X.manaMax, X.mana + SKILL_CFG.manaPerTurn);
@@ -686,6 +882,11 @@ export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
     if (foeRatio <= 0.3 && (sk.exec || (sk.pow ?? 0) >= 2)) s += 5; // 상대가 빈사면 마무리기 우선
     if (sk.stun || sk.atkDown || sk.defDown || sk.dot) s += 2; // 방해 효과는 언제나 쓸모 있어요
     if (sk.pow) s += sk.pow; // 순수 세기도 반영
+    if (sk.pow) { // 🌈 상성이 좋은 스킬을 더 골라요 (약점이면 +2.5, 반감이면 -2)
+      const cl = elemClash(skillElement(sk), me, { ignoreResist: sk.ignoreResist });
+      if (cl.mult >= 1.1) s += 2.5;
+      else if (cl.mult <= 0.9) s -= 2;
+    }
     if (sk.cost > wild.mana * 0.8) s -= 1; // 너무 비싸면 살짝 아껴요
     return s;
   };
@@ -708,6 +909,8 @@ export function statusText(st = {}) {
   if (st.regen) t.push(`🌱 재생 ${st.regen.turns}턴`);
   if (st.bomb) t.push(`💣 시한폭탄 ${st.bomb.turns}턴`);
   if (st.echo) t.push(`🔊 메아리 ${st.echo.turns}턴`);
+  if (st.convert) t.push(`🧬 ${elemTag(st.convert.elem)} 변신 ${st.convert.turns}턴`);
+  if (st.ward) t.push(`🔮 속성방벽 ${st.ward.turns}턴`);
   return t.join(' · ');
 }
 

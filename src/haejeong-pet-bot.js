@@ -22,6 +22,17 @@ import {
   skillCategory,
   tierStars,
   SLOT_COUNT,
+  // 🌈 속성 (상성) — 규칙은 skill.js 에 있어요
+  ELEM_CFG,
+  ELEM_CHART,
+  PET_ELEMENTS,
+  elemTag,
+  elemTags,
+  elemIcons,
+  elemClash,
+  clashLabel,
+  effElems,
+  skillElement,
 } from './skill.js';
 
 const SLOT_IDX = Array.from({ length: SLOT_COUNT }, (_, i) => i); // 스킬 슬롯 번호들 (0~4)
@@ -316,6 +327,32 @@ const PETS = {
 };
 
 const STARTER_IDS = Object.values(PETS).filter((p) => p.starter).map((p) => p.id);
+
+// ───────── 🌈 속성 도우미 ─────────
+// 펫의 속성은 skill.js 의 PET_ELEMENTS 에 적혀 있어요. (PETS 에 elements: ['fire', 'wind'] 처럼 직접 적으면 그게 우선이에요!)
+// 첫 번째 속성이 "기본 공격 속성"이고, 속성이 2개면 상대에게 맞을 때 두 속성의 배율이 곱해져요.
+const petElems = (petId) => PETS[petId]?.elements ?? PET_ELEMENTS[petId] ?? ['normal'];
+function syncPetElements() {
+  for (const p of Object.values(PETS)) if (Array.isArray(p.elements) && p.elements.length) PET_ELEMENTS[p.id] = p.elements;
+}
+syncPetElements();
+// 전투 중 내 쪽 / 야생 쪽을 "속성 + 상태" 묶음으로 만들어요 (속성 변환·방벽 상태까지 반영)
+const mySideOf = (c, b) => ({ elems: petElems(c.main.petId), st: b.mySt });
+const wildSideOf = (c, b) => ({ elems: petElems(c.wildInfo.petId), st: b.wildSt });
+// 두 펫의 상성 두 줄 요약 (전투 화면 · 만났을 때 화면용)
+function matchupText(myId, wildId, mySt = {}, wildSt = {}) {
+  const me = { elems: petElems(myId), st: mySt };
+  const wd = { elems: petElems(wildId), st: wildSt };
+  const out = elemClash(effElems(me)[0], wd).mult;
+  const inn = elemClash(effElems(wd)[0], me).mult;
+  return (
+    `🧬 **속성 상성**\n` +
+    `　내 ${elemTags(effElems(me))} → 상대 ${elemTags(effElems(wd))}: ${clashLabel(out)}\n` +
+    `　상대 ${elemTags(effElems(wd))} → 나: ${clashLabel(inn)}`
+  );
+}
+// 대결 기록용 짧은 상성 표시
+const clashShort = (m) => (m >= 2 ? ' 🌟약점!!' : m >= 1.1 ? ' ✨약점' : m <= 0.5 ? ' 💨거의없음' : m <= 0.9 ? ' 💧별로' : '');
 
 // ============================================================
 // 데이터: 아이템 (data/items.js)
@@ -1051,7 +1088,7 @@ function ensureSkills(inst) {
 function petLabel(petInstanceOrId) {
   const id = typeof petInstanceOrId === 'string' ? petInstanceOrId : petInstanceOrId.petId;
   const pet = PETS[id];
-  return `${GRADES[pet.grade].emoji} ${pet.emoji} ${pet.name}`;
+  return `${GRADES[pet.grade].emoji} ${pet.emoji} ${pet.name} ${elemIcons(petElems(id))}`;
 }
 
 // ───────── 체력 ❤️ ─────────
@@ -1197,8 +1234,11 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
   const wild = calcStats(enc.petId, enc.level);
   const fx = GRADE_EFFECTS[PETS[enc.petId].grade];
   // 야생 펫이 낼 수 있는 최대 한 방 / 내가 낼 수 있는 최대 한 방 (변동 +15% · 급소 ×1.5)
-  const worstHit = Math.round(Math.max(wild.atk * 0.25, wild.atk - mine.def * 0.5) * 1.15 * 1.5);
-  const myMaxHit = Math.round(Math.max(mine.atk * 0.25, mine.atk - wild.def * 0.5) * 1.15 * 1.5);
+  // 🌈 속성 상성 (첫 번째 속성으로 때려요)
+  const myMult = elemClash(petElems(main.petId)[0], { elems: petElems(enc.petId) }).mult;
+  const wildMult = elemClash(petElems(enc.petId)[0], { elems: petElems(main.petId) }).mult;
+  const worstHit = Math.round(Math.max(wild.atk * 0.25, wild.atk - mine.def * 0.5) * 1.15 * 1.5 * wildMult);
+  const myMaxHit = Math.round(Math.max(mine.atk * 0.25, mine.atk - wild.def * 0.5) * 1.15 * 1.5 * myMult);
   const balls = opts.balls ?? 0;
   let myHp = startHp;
   let wildHp = wild.hp;
@@ -1221,7 +1261,7 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
           thrown += 1;
           if (rng() < chance) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('caught', round); }
           if (rng() < fleeChance(thrown)) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('fled', round); }
-          if (rng() >= EVADE_CHANCE) myHp -= calcDamage(wild.atk, mine.def, rng, fx.critChance).dmg; // 놓치면 반격!
+          if (rng() >= EVADE_CHANCE) myHp -= calcDamage(wild.atk, mine.def, rng, fx.critChance, wildMult).dmg; // 놓치면 반격!
         }
       }
     }
@@ -1230,9 +1270,9 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
       for (const who of order) {
         if (wildHp <= 0) break;
         if (who === 'me') {
-          if (rng() >= fx.missChance) wildHp -= calcDamage(mine.atk, wild.def, rng).dmg;
+          if (rng() >= fx.missChance) wildHp -= calcDamage(mine.atk, wild.def, rng, CRIT_CHANCE, myMult).dmg;
         } else if (rng() >= EVADE_CHANCE) {
-          myHp -= calcDamage(wild.atk, mine.def, rng, fx.critChance).dmg;
+          myHp -= calcDamage(wild.atk, mine.def, rng, fx.critChance, wildMult).dmg;
         }
       }
     }
@@ -1899,6 +1939,7 @@ function snapshot(player, now = Date.now()) {
       chance: exCatchChance(player, ex),
       rawChance: exCatchRaw(player, ex),
       items: catchItemState(player, ex),
+      myPetId: main?.petId ?? null, // 🌈 만났을 때 화면에서 속성 상성을 보여줄 때 써요
     };
     if (b) {
       snap.battle = {
@@ -2097,11 +2138,12 @@ function attemptCatchMulti(player, id, now = Date.now(), rng = Math.random, time
 
 
 // 데미지 = 공격력 - 방어력의 절반 (최소 공격력의 25%) × 랜덤(0.85~1.15), 가끔 급소(×1.5)
-function calcDamage(atk, def, rng = Math.random, critChance = CRIT_CHANCE) {
+// 🌈 mult: 속성 상성 배율 (약점 ×1.5 · 반감 ×0.65 …)
+function calcDamage(atk, def, rng = Math.random, critChance = CRIT_CHANCE, mult = 1) {
   const base = Math.max(atk * 0.25, atk - def * 0.5);
   const variance = 0.85 + rng() * 0.3;
   const crit = rng() < critChance;
-  return { dmg: Math.max(1, Math.round(base * variance * (crit ? 1.5 : 1))), crit };
+  return { dmg: Math.max(1, Math.round(base * variance * (crit ? 1.5 : 1) * mult)), crit };
 }
 
 // 이번 전투에 필요한 정보를 한곳에 모아요
@@ -2130,9 +2172,10 @@ function myAttack(c, b, log, rng) {
     );
     return;
   }
-  const { dmg, crit } = calcDamage(c.mine.atk, c.wild.def, rng);
+  const clash = elemClash(effElems(mySideOf(c, b))[0], wildSideOf(c, b));
+  const { dmg, crit } = calcDamage(c.mine.atk, c.wild.def, rng, CRIT_CHANCE, clash.mult);
   b.wildHp = Math.max(0, b.wildHp - dmg);
-  log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${dmg}** 데미지`);
+  log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${dmg}** 데미지${clash.note}`);
 }
 
 function wildAttack(c, b, log, rng) {
@@ -2140,9 +2183,10 @@ function wildAttack(c, b, log, rng) {
     log.push(`${c.myPet.emoji} ${c.myName}(이)가 **회피했다!** 공격을 피했어요.`);
     return;
   }
-  const { dmg, crit } = calcDamage(c.wild.atk, c.mine.def, rng, GRADE_EFFECTS[c.wildPet.grade].critChance);
+  const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b));
+  const { dmg, crit } = calcDamage(c.wild.atk, c.mine.def, rng, GRADE_EFFECTS[c.wildPet.grade].critChance, clash.mult);
   b.myHp = Math.max(0, b.myHp - dmg);
-  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${dmg}** 데미지`);
+  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${dmg}** 데미지${clash.note}`);
 }
 
 // 🆕 기절 상태면 이번 행동을 건너뛰고(한 번만) 상태를 풀어줘요. true 를 돌려주면 행동을 못 한 거예요.
@@ -2390,8 +2434,8 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
 
   const c = context(player, ex);
   const log = [];
-  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, crit: CRIT_CHANCE, mana: b.myMana, manaMax: maxMana(main), st: b.mySt };
-  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, crit: GRADE_EFFECTS[c.wildPet.grade].critChance, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt };
+  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, crit: CRIT_CHANCE, mana: b.myMana, manaMax: maxMana(main), st: b.mySt, elems: petElems(c.main.petId) };
+  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, crit: GRADE_EFFECTS[c.wildPet.grade].critChance, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt, elems: petElems(c.wildInfo.petId) };
 
   // 1) 내가 스킬을 써요 (기절 중이면 못 써요 — 마나는 그대로예요)
   if (!stunned(b.mySt, c.myName, log)) {
@@ -2573,6 +2617,7 @@ function duelFighter(player, now = Date.now()) {
     name: main.nickname ?? pet.name,
     emoji: pet.emoji,
     grade: pet.grade,
+    elements: petElems(main.petId), // 🌈
     level: main.level,
     stats: s,
     max,
@@ -2599,9 +2644,10 @@ function simulateDuel(a, b, rng) {
         log.push(`${def.emoji} ${def.name}(이)가 **회피!**`);
         continue;
       }
-      const { dmg, crit } = calcDamage(atk.stats.atk, def.stats.def, rng, CRIT_CHANCE);
+      const clash = elemClash(atk.elements?.[0] ?? 'normal', { elems: def.elements });
+      const { dmg, crit } = calcDamage(atk.stats.atk, def.stats.def, rng, CRIT_CHANCE, clash.mult);
       def.hp = Math.max(0, def.hp - dmg);
-      log.push(`${atk.emoji} ${atk.name} → ${def.emoji} ${def.name} ${crit ? '💥' : ''}**${dmg}** (남은 ❤️ ${def.hp})`);
+      log.push(`${atk.emoji} ${atk.name} → ${def.emoji} ${def.name} ${crit ? '💥' : ''}**${dmg}**${clashShort(clash.mult)} (남은 ❤️ ${def.hp})`);
     }
   }
 
@@ -2942,7 +2988,7 @@ const ticketCount = (player) => player.inventory?.[TICKET_ID] ?? 0;
 function skillSlotLines(inst) {
   return SLOT_IDX.map((i) => {
     const sk = SKILLS[inst.skills?.[i]];
-    if (sk) return `　${i + 1}번 ${sk.emoji} **${sk.name}** (마나 ${sk.cost}) ${tierStars(sk.tier)}`;
+    if (sk) return `　${i + 1}번 ${sk.emoji} **${sk.name}** ${elemIcons([skillElement(sk)])} (마나 ${sk.cost}) ${tierStars(sk.tier)}`;
     return `　${i + 1}번 🔒 ${SLOT_HINT()[i]}`;
   }).join('\n');
 }
@@ -2987,7 +3033,7 @@ function profileView(player, viewerId, isMe, note) {
     const s = calcStats(main.petId, main.level);
     const name = main.nickname ?? pet.name;
     mainText =
-      `${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** Lv.${main.level}\n` +
+      `${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** Lv.${main.level} · 🧬 ${elemTags(petElems(main.petId))}\n` +
       `❤️ ${currentHp(main)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
       (main.level >= MAX_LEVEL
         ? '⭐ MAX'
@@ -3391,7 +3437,7 @@ function scoutText(snap) {
   if (!snap.scout) return '';
   const pet = PETS[snap.scout.petId];
   const aura = GRADE_EFFECTS[pet.grade].aura;
-  return `\n\n🔭 **예고!** ${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}** (Lv.${snap.scout.level}) 이(가) 나올 것 같아요!${aura ? `\n${aura}` : ''}`;
+  return `\n\n🔭 **예고!** ${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}** ${elemIcons(petElems(snap.scout.petId))} (Lv.${snap.scout.level}) 이(가) 나올 것 같아요!${aura ? `\n${aura}` : ''}`;
 }
 
 // 🔬 분석기 결과 + ✨ 적용 중인 포획 아이템 안내 글자
@@ -3481,7 +3527,8 @@ function exploreViewEncounter(snap, userId, note) {
       {
         title: `❗ 야생의 ${pet.emoji} ${pet.name}(이)가 나타났다!`,
         description:
-          `${note ? note + '\n\n' : ''}${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}**` +
+          `${note ? note + '\n\n' : ''}${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}** · 🧬 ${elemTags(petElems(snap.encounter.petId))}` +
+          (snap.myPetId ? `\n${matchupText(snap.myPetId, snap.encounter.petId)}` : '') +
           (GRADE_EFFECTS[pet.grade].aura ? `\n\n**${GRADE_EFFECTS[pet.grade].aura}**\n(내 공격이 빗나가기 쉽고, 도망치기도 어려워요!)` : '') +
           catchInfoText(snap),
         color: 0xfee75c,
@@ -3519,12 +3566,13 @@ function exploreViewBattle(snap, userId, note) {
         description:
           `${note ? note + '\n\n' : ''}${b.round}턴째 · 약해질수록 **[잡기]** 가 쉬워져요!` +
           `\n🔋 내 마나 **${b.myMana}** / ${maxMana(getMainPetFromSnap(snap))}` +
+          `\n${matchupText(b.myPetId, snap.encounter.petId, b.mySt, b.wildSt)}` +
           (GRADE_EFFECTS[wild.grade].aura ? `\n${GRADE_EFFECTS[wild.grade].aura}` : '') +
           catchInfoText(snap),
         color: 0xed4245,
         fields: [
-          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
-          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
+          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIcons(effElems({ elems: petElems(b.myPetId), st: b.mySt }))}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
+          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIcons(effElems({ elems: petElems(snap.encounter.petId), st: b.wildSt }))}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
           { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개`, inline: false },
         ],
       },
@@ -3556,22 +3604,32 @@ function exploreViewSkillConfirm(snap, userId, slot) {
   const enough = b.myMana >= sk.cost;
   const after = Math.max(0, b.myMana - sk.cost);
   const effects = skillEffectLines(sk);
+  // 🌈 지금 상대에게 이 스킬이 얼마나 잘 먹히는지 미리 보여줘요
+  let clashLine = '';
+  if (sk.pow || sk.bomb) {
+    const el = skillElement(sk);
+    const cl = elemClash(el, { elems: petElems(snap.encounter.petId), st: b.wildSt }, { ignoreResist: sk.ignoreResist });
+    let m = cl.mult;
+    if (sk.weakBonus && cl.mult > 1) m *= 1 + sk.weakBonus;
+    const stab = el !== 'normal' && effElems({ elems: petElems(b.myPetId), st: b.mySt }).includes(el);
+    clashLine = `\n🧬 **지금 상대(${elemTags(petElems(snap.encounter.petId))})에게:** ${clashLabel(m)}${stab ? ` · 🔰 같은 속성 보너스 ×${ELEM_CFG.stab}` : ''}\n`;
+  }
   return {
     embeds: [
       {
         title: `✨ ${sk.emoji} ${sk.name} — 이 스킬을 쓸까요?`,
         description:
-          `${tierStars(sk.tier)} · ${skillCategory(sk)}${sk.pet ? ` · ${mine.emoji} ${b.myName} 전용기` : ''} · ${slot + 1}번 슬롯\n` +
+          `${tierStars(sk.tier)} · ${elemTag(skillElement(sk))} 속성 · ${skillCategory(sk)}${sk.pet ? ` · ${mine.emoji} ${b.myName} 전용기` : ''} · ${slot + 1}번 슬롯\n` +
           (sk.flavor ? `*${sk.flavor}*\n` : '') +
-          `\n**📖 스킬 효과**\n${effects.length ? effects.map((t) => `• ${t}`).join('\n') : '• 효과 없음'}\n\n` +
+          `\n**📖 스킬 효과**\n${effects.length ? effects.map((t) => `• ${t}`).join('\n') : '• 효과 없음'}${clashLine}\n\n` +
           `🔋 마나 **${sk.cost}** 소모 (지금 ${b.myMana} → 사용 후 ${after} / 최대 ${maxM})\n` +
           `⏱️ 스킬을 쓰면 **이번 턴이 끝나고** ${wild.emoji} ${wild.name}(이)가 반격해요. 스킬을 쓴 턴에는 마나가 차지 않아요! (기본 공격을 해야 마나 +${SKILL_CFG.manaPerTurn})\n` +
           `💫 기절 중이면 스킬이 나가지 않아요 (마나는 그대로).` +
           (enough ? '' : `\n\n⚠️ **마나가 모자라요!** (필요 ${sk.cost} / 현재 ${b.myMana})`),
         color: 0x5865f2,
         fields: [
-          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
-          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
+          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIcons(effElems({ elems: petElems(b.myPetId), st: b.mySt }))}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
+          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIcons(effElems({ elems: petElems(snap.encounter.petId), st: b.wildSt }))}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
         ],
       },
     ],
@@ -4467,7 +4525,7 @@ function petsView(player, userId, page = 0, note) {
     const crown = inst.uid === player.mainPetUid ? '👑 ' : '';
     const learned = SLOT_IDX.filter((k) => SKILLS[inst.skills?.[k]]).length;
     return (
-      `**${no}.** ${crown}${GRADES[pet.grade].emoji} ${pet.emoji} **${inst.nickname ?? pet.name}** Lv.${inst.level}\n` +
+      `**${no}.** ${crown}${GRADES[pet.grade].emoji} ${pet.emoji} **${inst.nickname ?? pet.name}** Lv.${inst.level} ${elemIcons(petElems(inst.petId))}\n` +
       `　❤️ ${currentHp(inst)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
       `　✨ 스킬 ${learned}/${SLOT_COUNT}${inst.slot3 ? '' : ' · 🎫 5번 칸 잠김'}`
     );
@@ -4483,7 +4541,7 @@ function petsView(player, userId, page = 0, note) {
           return {
             label: `${no}. ${inst.nickname ?? pet.name} Lv.${inst.level}`,
             value: inst.uid,
-            description: `${GRADES[pet.grade].name} 등급`,
+            description: `${GRADES[pet.grade].name} 등급 · ${elemTags(petElems(inst.petId))}`,
             emoji: pet.emoji,
             default: inst.uid === player.mainPetUid,
           };
@@ -4729,7 +4787,7 @@ function dexView(player, userId, chapterId, note) {
   const found = player.dex ?? {};
   const entry = (id) => {
     const pet = PETS[id];
-    return found[id] ? `${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}**` : '❔ ???';
+    return found[id] ? `${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}** ${elemIcons(petElems(id))}` : '❔ ???';
   };
 
   const chapters = dexChapters();
@@ -5798,6 +5856,18 @@ const help = {
                   `\`/내정보\` 에서 대표 펫의 스킬 칸을 확인해요.`,
               },
               {
+                name: '🌈 속성 · 상성',
+                value:
+                  `펫과 스킬마다 **속성**이 있어요 (펫은 1~2개). 공격 속성이 상대 속성에게 잘 먹히면 **약점 ×${ELEM_CFG.strong}**, 잘 안 먹히면 **효과 별로 ×${ELEM_CFG.weak}**!\n` +
+                  `속성이 2개인 펫은 배율이 곱해져요 (약점 두 개면 ×${+(ELEM_CFG.strong ** 2).toFixed(2)}). 기본 공격은 내 펫의 **첫 번째 속성**으로 나가요.\n` +
+                  `🔰 스킬 속성이 내 펫 속성과 같으면 **같은 속성 보너스 ×${ELEM_CFG.stab}**. 슬롯이 열릴 때도 내 펫과 같은 속성 스킬이 더 잘 나와요 (×${SKILL_CFG.elemAffinity}).\n` +
+                  `🎯 **약점 공략 스킬** · 🔓 **상성 무시 스킬** · 🔮 **속성 방벽**(약점 방어) · 🧬 **속성 변신**(내 속성 바꾸기)도 있어요.\n` +
+                  Object.entries(ELEM_CHART)
+                    .filter(([, r]) => r.strong.length || r.weak.length)
+                    .map(([e, r]) => `${elemIcons([e])} → 굉장 ${elemIcons(r.strong)} · 별로 ${elemIcons(r.weak)}`)
+                    .join('\n'),
+              },
+              {
                 name: '🍖 포획 아이템',
                 value:
                   '야생 펫을 만난 뒤(싸우는 중에도) 탐험 화면 맨 아래 **아이템 버튼**이나 `/사용` 으로 써요. 다음 펫을 만나면 효과가 사라져요.\n' +
@@ -5993,7 +6063,7 @@ const dexReward = {
 
 function duelFighterLine(f) {
   return (
-    `${GRADES[f.grade].emoji} ${f.emoji} **${f.name}** Lv.${f.level}\n` +
+    `${GRADES[f.grade].emoji} ${f.emoji} **${f.name}** Lv.${f.level} ${elemIcons(f.elements)}\n` +
     `❤️ ${f.hp}/${f.max} · 공격 ${f.stats.atk} · 방어 ${f.stats.def} · 속도 ${f.stats.spd}`
   );
 }
@@ -6293,6 +6363,7 @@ function refreshDerived() {
   fill(USABLE_ITEMS, [...POTIONS, ...items.filter((i) => i.boost || i.speedup || i.catchItem)]);
   fill(SHOP_ITEMS, items.filter((i) => i.price));
   WILD_COUNT = Object.values(PETS).filter((p) => !p.starter).length;
+  syncPetElements();
 }
 
 const CONFIG_DOC = ['config', 'game'];
@@ -6360,6 +6431,10 @@ const admin = createConfigManager({
     CATCH_ITEM_COSTS_TURN: { get: () => CATCH_ITEM_COSTS_TURN, set: (v) => { CATCH_ITEM_COSTS_TURN = v; }, section: "포획 아이템 🍖", desc: "전투 중에 간식·꿀·부적·그물을 쓰면 한 턴을 써요 (야생 펫이 반격!) / 분석기는 공짜" },
     CATCH_NEG_FLOOR: { get: () => CATCH_NEG_FLOOR, set: (v) => { CATCH_NEG_FLOOR = v; }, section: "포획 아이템 🍖", desc: "고등급 포획 확률 계산값의 하한 (-30%)" },
     CATCH_MIN_CHANCE: { get: () => CATCH_MIN_CHANCE, set: (v) => { CATCH_MIN_CHANCE = v; }, section: "포획 아이템 🍖", desc: "낮은 등급(깎이는 값이 0인 등급)의 최소 포획 확률" },
+    ELEM_STRONG: { get: () => ELEM_CFG.strong, set: (v) => { ELEM_CFG.strong = v; }, section: "속성 🌈", desc: "약점을 찔렀을 때 데미지 배율 (기본 1.5)" },
+    ELEM_WEAK: { get: () => ELEM_CFG.weak, set: (v) => { ELEM_CFG.weak = v; }, section: "속성 🌈", desc: "효과가 별로일 때(반감) 데미지 배율 (기본 0.65)" },
+    ELEM_STAB: { get: () => ELEM_CFG.stab, set: (v) => { ELEM_CFG.stab = v; }, section: "속성 🌈", desc: "스킬 속성 = 내 펫 속성일 때 데미지 배율 (같은 속성 보너스, 기본 1.2)" },
+    ELEM_AFFINITY: { get: () => SKILL_CFG.elemAffinity, set: (v) => { SKILL_CFG.elemAffinity = v; }, section: "속성 🌈", desc: "스킬 슬롯이 열릴 때 내 펫과 같은 속성 스킬이 나올 확률 배수 (1 이면 꺼짐, 기본 2)" },
   },
   tables: { GRADES, GRADE_EFFECTS, GRADE_WAIT_MULT, RELEASE_BASE_GOLD, TRADE_GRADE_MIN_LEVEL, CATCH_GRADE_PENALTY, WAIT_TIERS, DEX_REWARD },
   entities: { pets: PETS, items: ITEMS, locations: LOCATIONS },
