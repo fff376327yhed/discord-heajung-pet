@@ -115,6 +115,7 @@ let AUTO_HUNT_FEED_MAX = 8; // 진행 화면에 보여줄 최근 전투 기록 �
 let HEAL_FULL_CAP = 99; // [회복 가득] / /사용 자동 모드에서 한 번에 쓸 수 있는 약 개수 상한
 let MULTI_TURNS = 3; // [공격 ×3] 이 한 번에 진행하는 턴 수
 let MULTI_THROWS = 3; // [잡기 ×3] 이 한 번에 던지는 해정볼 수
+let DANGER_HITS = 2; // 🆕 야생 펫에게 이 횟수만 맞아도 쓰러질 것 같으면, 공격 전에 "정말 공격할까요?" 확인창을 띄워요
 let MULTI_STOP_HP_RATIO = 0.3; // 연속 행동 중 내 펫 체력이 이 비율 이하가 되면 자동으로 멈춰요 (펫이 사라지지 않게!)
 let MAX_BUY_AT_ONCE = 999; // 한 번에 살 수 있는 최대 개수
 let MAX_TRAIN_AT_ONCE = 100; // 한 번에 할 수 있는 최대 훈련 횟수
@@ -426,7 +427,7 @@ const ITEMS = {
     emoji: '🎫',
     price: 2500,
     skillSlot: true,
-    description: '고른 펫의 5번째(마지막) 스킬 슬롯을 열고, 랜덤 스킬 하나를 바로 배워요 (1개 = 펫 1마리). `/사용` · `/펫` · `/내정보` 에서 쓸 수 있어요.',
+    description: '고른 펫의 5번째(마지막) 스킬 슬롯을 열고, 랜덤 스킬 하나를 바로 배워요 (1개 = 펫 1마리). `/사용` · `/펫` · `/정보` 에서 쓸 수 있어요.',
   },
   skill_reroll_ticket: {
     id: 'skill_reroll_ticket',
@@ -1064,7 +1065,7 @@ function calcStats(petId, level) {
 }
 
 // 내가 가진 펫 한 마리의 "정보 카드" 만들기
-function createPetInstance(petId, level = 1) {
+function createPetInstance(petId, level = 1, caughtLoc = null) {
   if (!PETS[petId]) throw new Error(`없는 펫이에요: ${petId}`);
   const inst = {
     uid: randomUUID(),
@@ -1073,6 +1074,7 @@ function createPetInstance(petId, level = 1) {
     exp: 0,
     nickname: null,
     caughtAt: Date.now(),
+    caughtLoc, // 🆕 어디서 잡았는지 (장소 ID, 시작 펫은 'start')
     skills: Array(SLOT_COUNT).fill(null), // 스킬 슬롯 5칸 (1~4번은 레벨 Lv.20/40/100/200, 5번은 상점 개방권)
   };
   grantSkills(inst); // 이미 열려 있는 슬롯이 있으면 바로 채워요
@@ -1083,6 +1085,13 @@ function createPetInstance(petId, level = 1) {
 function ensureSkills(inst) {
   grantSkills(inst); // 옛 3칸 펫은 여기서 5칸으로 옮겨져요
   return inst;
+}
+
+// 🆕 "어디서 잡았는지" 한 줄 (옛 펫처럼 기록이 없으면 null)
+function caughtPlaceText(inst) {
+  if (inst?.caughtLoc === 'start') return '🎁 모험을 시작할 때 만났어요';
+  const loc = LOCATIONS[inst?.caughtLoc];
+  return loc ? `📍 ${loc.emoji} ${loc.name}에서 잡았어요` : null;
 }
 
 function petLabel(petInstanceOrId) {
@@ -1115,7 +1124,7 @@ function setHp(inst, hp, now = Date.now()) {
 // 플레이어(트레이너) 만들기 🧑‍🎤
 
 function buildNewPlayer(userId, username, starterPetId) {
-  const starter = createPetInstance(starterPetId, 1);
+  const starter = createPetInstance(starterPetId, 1, 'start');
   return {
     userId,
     name: username,
@@ -1426,7 +1435,7 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
     dangerStreak = 0;
     if (f.result === 'caught') {
       const isNew = !player.dex?.[enc.petId];
-      player.pets.push(createPetInstance(enc.petId, enc.level));
+      player.pets.push(createPetInstance(enc.petId, enc.level, getAutoHuntLocId(player)));
       player.dex = { ...(player.dex ?? {}), [enc.petId]: true };
       const exp = Math.max(1, Math.round((Math.round(pet.expYield * loc.expMultiplier * 1.5) + (isNew ? 25 : 0)) * AUTO_HUNT_REWARD_MULT));
       const tr = addExp(player, exp);
@@ -2005,6 +2014,8 @@ function lookAround(player, id, now = Date.now(), rng = Math.random) {
   delete ex.scouted;
   player.visited = { ...(player.visited ?? {}), [ex.locationId]: true }; // 이 장소는 이제 "가 본 곳"이에요
   ex.catchTries = 0; // 새 야생 펫이라서 던진 횟수를 0으로 되돌려요
+  delete ex.dupOk; // 🆕 새 만남이니까 "이미 있는 펫" 확인도 처음부터
+  delete ex.dangerOk; // 🆕 "위험해요" 확인도 처음부터
   return { kind: 'appeared', snap: snapshot(player, now), commit: true };
 }
 
@@ -2026,7 +2037,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
 
   if (rng() < chance) {
     const isNew = !player.dex?.[petId];
-    player.pets.push(createPetInstance(petId, level));
+    player.pets.push(createPetInstance(petId, level, locationId));
     player.dex = { ...(player.dex ?? {}), [petId]: true };
 
     const loc = LOCATIONS[ex.locationId];
@@ -2187,6 +2198,88 @@ function wildAttack(c, b, log, rng) {
   const { dmg, crit } = calcDamage(c.wild.atk, c.mine.def, rng, GRADE_EFFECTS[c.wildPet.grade].critChance, clash.mult);
   b.myHp = Math.max(0, b.myHp - dmg);
   log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${dmg}** 데미지${clash.note}`);
+}
+
+// 🆕 야생 펫의 한 방이 최대 얼마나 아플지 (급소 제외, 랜덤 최대치 기준) — 확인창 판단용이에요
+function wildHitEstimate(player, ex) {
+  const c = context(player, ex);
+  const b = ex.battle;
+  const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b));
+  const base = Math.max(c.wild.atk * 0.25, c.wild.atk - c.mine.def * 0.5);
+  return Math.max(1, Math.round(base * 1.15 * clash.mult));
+}
+
+// 🆕 지금 내 펫이 야생 펫에게 DANGER_HITS 번만 맞아도 쓰러질 상태인지
+function inDanger(player, ex) {
+  if (!ex?.battle || !ex.encounter || !getMainPet(player)) return null;
+  const hit = wildHitEstimate(player, ex);
+  return ex.battle.myHp > 0 && ex.battle.myHp <= hit * DANGER_HITS ? { hit } : null;
+}
+
+// 🆕 이미 가진 같은 종류 펫 중 제일 높은 레벨 (없으면 0)
+function ownedBestLevel(player, petId) {
+  return (player.pets ?? []).filter((p) => p.petId === petId).reduce((m, p) => Math.max(m, p.level), 0);
+}
+
+// 🆕 "이미 있는 펫인데 잡을까요?" 를 물어야 하나요? (만남당 1번, 야생 펫 레벨이 내가 가진 것보다 높으면 안 물어요)
+function dupAskNeeded(player, ex) {
+  if (!ex?.encounter || ex.dupOk) return null;
+  const best = ownedBestLevel(player, ex.encounter.petId);
+  if (best <= 0 || ex.encounter.level > best) return null;
+  return { best };
+}
+
+// 🆕 확인창 두 개 (이미 있는 펫 / 체력이 위험할 때)
+function exploreViewDupConfirm(snap, userId, best) {
+  const pet = PETS[snap.encounter.petId];
+  const back = snap.state === 'battle' ? '전투로 돌아가기' : '돌아가기';
+  return {
+    embeds: [
+      {
+        title: `${pet.emoji} ${pet.name}(은)는 이미 가지고 있어요!`,
+        description:
+          `내가 가진 ${pet.emoji} **${pet.name}** 중 제일 높은 레벨은 **Lv.${best}**, 지금 만난 건 **Lv.${snap.encounter.level}** 이에요.\n` +
+          `그래도 잡을까요? ${BALL.emoji} ${BALL.name}이(가) 하나 쓰여요.` +
+          (snap.state === 'battle' ? '\n⏱️ 전투 중에는 잡기도 한 턴을 써요!' : '') +
+          `\n\n(이번 만남에서는 한 번만 물어봐요.)`,
+        color: 0xfee75c,
+      },
+    ],
+    components: [
+      row(
+        button({ label: '그래도 잡기', emoji: BALL.emoji, customId: `explore:dupyes:${userId}:${snap.id}`, style: 3 }),
+        button({ label: back, emoji: '↩️', customId: `explore:dupno:${userId}:${snap.id}`, style: 2 }),
+      ),
+    ],
+  };
+}
+
+function exploreViewDangerConfirm(snap, userId, hit) {
+  const b = snap.battle;
+  const wild = PETS[snap.encounter.petId];
+  const mine = PETS[b.myPetId];
+  return {
+    embeds: [
+      {
+        title: `⚠️ ${mine.emoji} ${b.myName}(이)가 위험해요!`,
+        description:
+          `${wild.emoji} ${wild.name}에게 **${DANGER_HITS}대만** 맞아도 쓰러질 수 있어요! (한 대에 최대 약 **${hit}** 데미지)\n` +
+          `쓰러지면 이 펫은 **영영 사라져요** 😢\n\n` +
+          `그래도 공격할까요? **[회복]** 이나 **[교체]** 가 더 안전할 수 있어요.\n(체력이 다시 회복되기 전까지는 한 번만 물어봐요.)`,
+        color: 0xed4245,
+        fields: [
+          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}`, inline: true },
+          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}`, inline: true },
+        ],
+      },
+    ],
+    components: [
+      row(
+        button({ label: '그래도 공격', emoji: '⚔️', customId: `explore:dngyes:${userId}:${snap.id}`, style: 4 }),
+        button({ label: '돌아가기', emoji: '↩️', customId: `explore:dngno:${userId}:${snap.id}`, style: 2 }),
+      ),
+    ],
+  };
 }
 
 // 🆕 기절 상태면 이번 행동을 건너뛰고(한 번만) 상태를 풀어줘요. true 를 돌려주면 행동을 못 한 거예요.
@@ -2905,7 +2998,7 @@ const start = {
     const user = getUser(interaction);
 
     if (await getPlayer(user.id)) {
-      return reply({ content: '이미 모험을 시작했어요! `/내정보` 로 확인해보세요 😊' }, { ephemeral: true });
+      return reply({ content: '이미 모험을 시작했어요! `/정보` 로 확인해보세요 😊' }, { ephemeral: true });
     }
 
     const lines = STARTER_IDS.map((id) => {
@@ -2952,7 +3045,7 @@ const start = {
       const player = buildNewPlayer(user.id, user.global_name ?? user.username, petId);
       const created = await createPlayer(user.id, player);
       if (!created) {
-        return reply({ content: '이미 모험을 시작했어요! `/내정보` 를 써보세요 😊' }, { ephemeral: true });
+        return reply({ content: '이미 모험을 시작했어요! `/정보` 를 써보세요 😊' }, { ephemeral: true });
       }
 
       const pet = PETS[petId];
@@ -2963,7 +3056,7 @@ const start = {
             description:
               `${pet.emoji} **${pet.name}** (${GRADES[pet.grade].name})와(과) 함께하게 됐어요!\n\n` +
               `🔴 해정볼 5개와 💰 1000 골드를 선물로 받았어요.\n` +
-              `\`/내정보\` 로 내 모습을, \`/장소\` 로 갈 수 있는 곳을 확인해보세요.`,
+              `\`/정보\` 로 내 모습을, \`/장소\` 로 갈 수 있는 곳을 확인해보세요.`,
             color: 0x57f287,
           },
         ],
@@ -2974,11 +3067,11 @@ const start = {
 };
 
 // ═════════════════════════════════════════════
-// /내정보
+// /정보
 // ═════════════════════════════════════════════
 
 // ═════════════════════════════════════════════
-// 🎫 스킬 슬롯 개방권 — /내정보 · /펫 에서 쓰는 공용 도우미
+// 🎫 스킬 슬롯 개방권 — /정보 · /펫 에서 쓰는 공용 도우미
 // ═════════════════════════════════════════════
 
 const TICKET_ID = 'skill_slot_ticket';
@@ -3080,7 +3173,7 @@ function profileView(player, viewerId, isMe, note) {
 
 const profile = {
   data: {
-    name: '내정보',
+    name: '정보',
     description: '내 레벨, 재화, 해정펫 정보를 볼 수 있어요.',
     type: 1,
     options: [
@@ -3109,7 +3202,7 @@ const profile = {
       const user = getUser(interaction);
 
       if (user.id !== ownerId) {
-        return reply({ content: '이 버튼은 연 사람만 쓸 수 있어요 🙅 `/내정보` 로 직접 열어보세요!' }, { ephemeral: true });
+        return reply({ content: '이 버튼은 연 사람만 쓸 수 있어요 🙅 `/정보` 로 직접 열어보세요!' }, { ephemeral: true });
       }
 
       const player = await getPlayer(user.id);
@@ -3959,6 +4052,27 @@ async function exploreHandleButton(interaction, args) {
     action = extra === 'attack' ? 'attackN' : extra === 'catch' ? 'catchN' : 'healN';
   }
 
+  // 🆕 확인창에서 [돌아가기] — 아무것도 안 하고 원래 화면으로
+  if (action === 'dupno' || action === 'dngno') {
+    const player = await getPlayer(user.id);
+    const ex = player?.exploration;
+    if (!ex || ex.id !== id || !ex.encounter) return exploreViewExpired();
+    return update(exploreViewSnap(snapshot(player, Date.now()), user.id));
+  }
+
+  // 🆕 확인창에서 [그래도 잡기] / [그래도 공격] — 이번 만남에서는 다시 안 물어보게 표시하고 원래 동작으로 이어가요
+  if (action === 'dupyes' || action === 'dngyes') {
+    const flag = action === 'dupyes' ? 'dupOk' : 'dangerOk';
+    const ok = await updatePlayer(user.id, (p) => {
+      const e = p.exploration;
+      if (!e || e.id !== id || !e.encounter) return { commit: false, value: false };
+      e[flag] = true;
+      return { commit: true, value: true };
+    });
+    if (!ok) return exploreViewExpired();
+    action = action === 'dupyes' ? 'catch' : 'attack';
+  }
+
   if (action === 'fight') {
     const out = await updatePlayer(user.id, (p) => {
       const r = battleSys.startBattle(p, id, Date.now());
@@ -4085,10 +4199,18 @@ async function exploreHandleButton(interaction, args) {
   };
   if (Object.hasOwn(BATTLE_ACTIONS, action)) {
     const out = await updatePlayer(user.id, (p) => {
+      // 🆕 공격은 내 펫이 위험하면(DANGER_HITS 대만 맞아도 쓰러질 것 같으면) 먼저 물어봐요. 체력이 회복되면 다시 물어볼 수 있게 표시를 지워요.
+      if (action.startsWith('attack')) {
+        const e = p.exploration?.id === id ? p.exploration : null;
+        const danger = e ? inDanger(p, e) : null;
+        if (e && !danger) delete e.dangerOk;
+        if (danger && !e.dangerOk) return { commit: false, value: { kind: 'ask_danger', hit: danger.hit, snap: snapshot(p, Date.now()) } };
+      }
       const r = BATTLE_ACTIONS[action](p);
       return { commit: r.commit === true, value: r };
     });
     if (!out || out.kind === 'expired') return exploreViewExpired();
+    if (out.kind === 'ask_danger') return update(exploreViewDangerConfirm(out.snap, user.id, out.hit));
     if (out.kind === 'no_battle') {
       return reply({ content: '아직 전투가 시작되지 않았어요! **[싸우기]** 를 먼저 눌러요 ⚔️' }, { ephemeral: true });
     }
@@ -4133,6 +4255,8 @@ async function exploreHandleButton(interaction, args) {
 
   if (action === 'catch' || action === 'catch3' || action === 'catchN') {
     const out = await updatePlayer(user.id, (p) => {
+      const ask = dupAskNeeded(p, p.exploration?.id === id ? p.exploration : null);
+      if (ask) return { commit: false, value: { kind: 'ask_dup', best: ask.best, snap: snapshot(p, Date.now()) } };
       const r =
         action === 'catch3' || action === 'catchN'
           ? exploreSys.attemptCatchMulti(p, id, Date.now(), Math.random, action === 'catchN' ? count : MULTI_THROWS)
@@ -4140,6 +4264,7 @@ async function exploreHandleButton(interaction, args) {
       return { commit: r.commit === true, value: r };
     });
     if (!out || out.kind === 'expired') return exploreViewExpired();
+    if (out.kind === 'ask_dup') return update(exploreViewDupConfirm(out.snap, user.id, out.best)); // 🆕 이미 있는 펫이라 먼저 물어봐요
 
     if (out.kind === 'no_ball') {
       return reply({ content: `${BALL.emoji} ${BALL.name}이(가) 없어요 😭 \`/상점\` 에서 사올 수 있어요!` }, { ephemeral: true });
@@ -4168,6 +4293,7 @@ async function exploreHandleButton(interaction, args) {
     const lines = [
       `${GRADES[pet.grade].emoji} ${pet.emoji} **${pet.name}** (Lv.${out.level}) 을(를) 잡았어요!`,
       out.isNew ? '✨ **새로운 도감 등록!**' : null,
+      `📍 ${LOCATIONS[out.locationId].emoji} ${LOCATIONS[out.locationId].name}에서 잡았어요`,
       `⭐ 경험치 +${out.expGain}`,
       out.trainerBoost ? `🌟 트레이너 경험치 부스트 +${pct(BOOST_PCT)}% 적용! (남은 ${out.boostsLeft.trainerExp ?? 0}회)` : null,
       out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
@@ -4527,7 +4653,8 @@ function petsView(player, userId, page = 0, note) {
     return (
       `**${no}.** ${crown}${GRADES[pet.grade].emoji} ${pet.emoji} **${inst.nickname ?? pet.name}** Lv.${inst.level} ${elemIcons(petElems(inst.petId))}\n` +
       `　❤️ ${currentHp(inst)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
-      `　✨ 스킬 ${learned}/${SLOT_COUNT}${inst.slot3 ? '' : ' · 🎫 5번 칸 잠김'}`
+      `　✨ 스킬 ${learned}/${SLOT_COUNT}${inst.slot3 ? '' : ' · 🎫 5번 칸 잠김'}` +
+      (caughtPlaceText(inst) ? `\n　${caughtPlaceText(inst)}` : '')
     );
   });
 
@@ -5814,7 +5941,7 @@ const help = {
             fields: [
               {
                 name: '🐣 시작',
-                value: '`/시작` 으로 스타팅 펫을 고르고 모험을 시작해요. `/내정보` 로 내 상태를 확인해요.',
+                value: '`/시작` 으로 스타팅 펫을 고르고 모험을 시작해요. `/정보` 로 내 상태를 확인해요.',
               },
               {
                 name: '🌿 탐험',
@@ -5849,11 +5976,11 @@ const help = {
                 name: '✨ 스킬 · 🔋 마나',
                 value:
                   `전투 시작 시 마나 **${SKILL_CFG.manaStart}** 로 시작하고, **기본 공격**을 할 때만 **+${SKILL_CFG.manaPerTurn}** 씩 차요 (스킬·회복·교체 턴에는 안 차요, 최대 ${SKILL_CFG.manaMax}).\n` +
-                  `스킬 칸은 총 **${SLOT_COUNT}칸**이에요. **Lv.${SKILL_CFG.slot1Level}** · **Lv.${SKILL_CFG.slot2Level}** · **Lv.${SKILL_CFG.slot3Level}** · **Lv.${SKILL_CFG.slot4Level}** 에 1~4번이 열리고, 5번은 상점의 🎫 **스킬 슬롯 개방권**으로 열어요 (\`/사용\` · \`/펫\` · \`/내정보\` 에서 쓸 수 있어요).\n` +
+                  `스킬 칸은 총 **${SLOT_COUNT}칸**이에요. **Lv.${SKILL_CFG.slot1Level}** · **Lv.${SKILL_CFG.slot2Level}** · **Lv.${SKILL_CFG.slot3Level}** · **Lv.${SKILL_CFG.slot4Level}** 에 1~4번이 열리고, 5번은 상점의 🎫 **스킬 슬롯 개방권**으로 열어요 (\`/사용\` · \`/펫\` · \`/정보\` 에서 쓸 수 있어요).\n` +
                   `열린 칸에는 랜덤 스킬이 들어와요. 펫마다 **전용기**가 있고, 그 펫만 배울 수 있어요. 전용기는 같은 마나의 일반 스킬보다 세요.\n` +
                   `🔄 스킬은 상점의 **스킬 변경권**(\`/사용\`)으로 다시 뽑을 수 있어요.\n` +
                   `전투에서 스킬 버튼을 누르면 **스킬 설명과 사용 확인창**이 먼저 떠요.\n` +
-                  `\`/내정보\` 에서 대표 펫의 스킬 칸을 확인해요.`,
+                  `\`/정보\` 에서 대표 펫의 스킬 칸을 확인해요.`,
               },
               {
                 name: '🌈 속성 · 상성',
@@ -6489,7 +6616,7 @@ export async function handleInteraction(interaction) {
       resolve(
         isAuto
           ? autocompleteResult([])
-          : reply({ content: '⏳ 서버가 조금 느려요. 잠시 후 다시 한 번 시도해주세요! (이미 처리됐을 수도 있으니 `/내정보` 로 확인해보세요)' }, { ephemeral: true }),
+          : reply({ content: '⏳ 서버가 조금 느려요. 잠시 후 다시 한 번 시도해주세요! (이미 처리됐을 수도 있으니 `/정보` 로 확인해보세요)' }, { ephemeral: true }),
       );
     }, limitMs);
   });
