@@ -80,6 +80,21 @@ let AUTO_HUNT_RESUME_RATIO = 0.7; // 펫이 위험해지면 쉬었다가, 체력
 let AUTO_HUNT_CATCH_HP_RATIO = 0.5; // 도감에 없는 펫은 야생 펫 체력이 이 비율 이하가 되면 해정볼을 던져요
 let AUTO_HUNT_MAX_THROWS = 5; // 한 마리에게 던지는 최대 해정볼 수
 let AUTO_HUNT_MIN_CATCH = 0.05; // 포획 확률이 이보다 낮으면 던지지 않고 그냥 싸워요 (볼 낭비 방지)
+// ⚔️ 전투력 (펫 1마리) = (체력×0.5 + 공격×3 + 방어×2 + 속도×1.5) × 등급 보너스 × 스킬 보너스
+let POWER_HP_W = 0.5; // 체력 1당 전투력
+let POWER_ATK_W = 3; // 공격 1당 전투력
+let POWER_DEF_W = 2; // 방어 1당 전투력
+let POWER_SPD_W = 1.5; // 속도 1당 전투력
+let POWER_GRADE_BONUS = 0.1; // 등급이 한 단계 오를 때마다 +10% (일반 ×1.0 → 초월 ×1.6)
+let POWER_SKILL_BONUS = 0.03; // 열린 스킬 1칸마다 +3%
+// ⚔️ 내 전투력 = 가장 센 펫 N마리의 전투력 합 + 트레이너 레벨 × 가중치
+let POWER_TOP_PETS = 5; // 합칠 펫 수 (가장 센 순서대로)
+let POWER_TRAINER_LEVEL_W = 20; // 트레이너 레벨 1당 전투력
+// 🏆 랭킹 화면
+let RANK_PAGE_SIZE = 10; // 한 쪽에 보여줄 사람 수
+let RANK_CACHE_MS = 60000; // 랭킹은 이 시간(1분) 동안 다시 계산하지 않고 재사용해요 (DB 읽기 절약)
+let RANK_FORCE_MIN_MS = 10000; // [새로고침]을 눌러도 최소 이 시간(10초)은 기다려요
+let RANK_MAX_PLAYERS = 3000; // 랭킹에 올리는 최대 인원 수 (서버 보호용)
 let AUTO_HUNT_REST_MS = 60000; // 🛌 펫이 위험할 때 한 번 쉬는 시간 (60000 = 1분)
 let AUTO_HUNT_REST_HEAL = 10; // 🛌 한 번 쉴 때 회복되는 체력 (저절로 차는 양이 더 크면 그 양을 써요)
 let AUTO_HUNT_MAX_DANGER_STREAK = 3; // 🚨 회복약·휴식 뒤에도 연달아 이만큼 위험해서 물러나면 자동사냥을 꺼요
@@ -3008,6 +3023,7 @@ function profileView(player, viewerId, isMe, note) {
           { name: `${BALL.emoji} ${BALL.name}`, value: `${player.inventory?.[BALL.id] ?? 0}개`, inline: true },
           { name: '📖 도감', value: `${dex.found} / ${dex.total}`, inline: true },
           { name: '🐾 보유 펫', value: `${player.pets.length}마리`, inline: true },
+          { name: '⚔️ 전투력', value: fmtNum(playerPower(player).total), inline: true },
           { name: '👑 대표 펫', value: mainText },
         ],
       },
@@ -5441,6 +5457,199 @@ const use = {
 // /도움말
 // ═════════════════════════════════════════════
 
+// ============================================================
+// 시스템: 전투력 · 랭킹 (systems/ranking.js)
+// ============================================================
+
+// 전투력 ⚔️ — 펫이 얼마나 센지, 내가 얼마나 센지를 "숫자 하나"로 보여줘요.
+//   펫 1마리 = (체력×0.5 + 공격×3 + 방어×2 + 속도×1.5) × 등급 보너스 × 스킬 보너스
+//   내 전투력 = 가장 센 펫 5마리의 전투력 합 + 트레이너 레벨 × 20
+function petPower(inst) {
+  const pet = PETS[inst?.petId];
+  if (!pet) return 0;
+  const s = calcStats(inst.petId, inst.level ?? 1);
+  const base = s.hp * POWER_HP_W + s.atk * POWER_ATK_W + s.def * POWER_DEF_W + s.spd * POWER_SPD_W;
+  const gradeMult = 1 + ((GRADES[pet.grade]?.order ?? 1) - 1) * POWER_GRADE_BONUS;
+  const opened = Array.isArray(inst.skills) ? inst.skills.filter(Boolean).length : 0;
+  return Math.round(base * gradeMult * (1 + opened * POWER_SKILL_BONUS));
+}
+
+function playerPower(player) {
+  const list = (player.pets ?? [])
+    .filter((p) => PETS[p.petId])
+    .map((inst) => ({ inst, power: petPower(inst) }))
+    .sort((a, b) => b.power - a.power);
+  const petsPower = list.slice(0, POWER_TOP_PETS).reduce((sum, x) => sum + x.power, 0);
+  const trainerPower = (player.level ?? 1) * POWER_TRAINER_LEVEL_W;
+  return { total: petsPower + trainerPower, petsPower, trainerPower, best: list[0] ?? null };
+}
+
+const RANK_KINDS = {
+  power: { label: '전투력', emoji: '⚔️' },
+  level: { label: '트레이너 레벨', emoji: '⭐' },
+  dex: { label: '도감', emoji: '📖' },
+};
+
+// 모든 플레이어를 읽어와요 (필요한 칸만 골라서 읽어요)
+async function loadAllPlayers() {
+  if (useMemory()) return [...memoryStore.entries()].map(([id, p]) => ({ ...p, userId: p.userId ?? id }));
+  const snap = await players().select('name', 'level', 'exp', 'pets', 'mainPetUid', 'dex').limit(RANK_MAX_PLAYERS).get();
+  return snap.docs.map((d) => ({ ...d.data(), userId: d.id }));
+}
+
+const fmtNum = (n) => Number(n ?? 0).toLocaleString('ko-KR');
+
+// 펫 한 마리를 한 줄로: 🔵 🐲 용이 Lv.50 (⚔️ 5,000)
+function rankPetText(inst) {
+  const pet = PETS[inst.petId];
+  return `${GRADES[pet.grade].emoji} ${pet.emoji} ${nameOf(inst)} Lv.${inst.level} (⚔️ ${fmtNum(petPower(inst))})`;
+}
+
+// 사람 한 명 → 랭킹 줄 정보
+function buildRankRow(p) {
+  const pw = playerPower(p);
+  const main = (p.pets ?? []).find((x) => x.uid === p.mainPetUid && PETS[x.petId]) ?? null;
+  const dex = dexProgress(p);
+  return {
+    userId: p.userId,
+    name: p.name ?? '이름 없음',
+    level: p.level ?? 1,
+    exp: p.exp ?? 0,
+    power: pw.total,
+    petCount: (p.pets ?? []).length,
+    dexFound: dex.found,
+    dexTotal: dex.total,
+    mainText: main ? `👑 ${rankPetText(main)}` : '👑 대표 펫 없음',
+    bestText: pw.best && pw.best.inst.uid !== main?.uid ? rankPetText(pw.best.inst) : null,
+  };
+}
+
+// 1분 동안은 같은 결과를 재사용해요 (여러 명이 눌러도 DB 는 한 번만 읽어요)
+let rankCache = null;
+let rankLoading = null;
+async function getRankRows(force = false) {
+  const age = rankCache ? Date.now() - rankCache.at : Infinity;
+  if (rankCache && age < (force ? RANK_FORCE_MIN_MS : RANK_CACHE_MS)) return rankCache.rows;
+  rankLoading ??= (async () => {
+    try {
+      const rows = (await loadAllPlayers()).map(buildRankRow);
+      rankCache = { at: Date.now(), rows };
+      return rows;
+    } finally {
+      rankLoading = null;
+    }
+  })();
+  return rankLoading;
+}
+
+function sortRankRows(rows, kind) {
+  const by = {
+    power: (a, b) => b.power - a.power || b.level - a.level || b.exp - a.exp,
+    level: (a, b) => b.level - a.level || b.exp - a.exp || b.power - a.power,
+    dex: (a, b) => b.dexFound - a.dexFound || b.power - a.power || b.level - a.level,
+  }[kind];
+  return [...rows].sort((a, b) => by(a, b) || String(a.userId).localeCompare(String(b.userId)));
+}
+
+// 랭킹 화면 만들기. page: 0부터 시작하는 쪽 번호 또는 'me'(내가 있는 쪽)
+function rankingView(allRows, kind, page, viewerId) {
+  const rows = sortRankRows(allRows, kind);
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / RANK_PAGE_SIZE));
+  const myIdx = rows.findIndex((r) => r.userId === viewerId);
+  const pg = page === 'me' ? (myIdx >= 0 ? Math.floor(myIdx / RANK_PAGE_SIZE) : 0) : Math.max(0, Math.min(pages - 1, Number(page) || 0));
+  const k = RANK_KINDS[kind];
+  const medals = ['🥇', '🥈', '🥉'];
+
+  const lines = rows.slice(pg * RANK_PAGE_SIZE, (pg + 1) * RANK_PAGE_SIZE).map((r, i) => {
+    const rank = pg * RANK_PAGE_SIZE + i + 1;
+    const head = rank <= 3 ? `${medals[rank - 1]} **${rank}위**` : `**${rank}위**`;
+    return (
+      `${head} · **${r.name}** · ⭐ Lv.${r.level} · ⚔️ ${fmtNum(r.power)}\n` +
+      `└ ${r.mainText}\n` +
+      (r.bestText ? `└ 🏅 최강 펫 ${r.bestText}\n` : '') +
+      `└ 🐾 ${r.petCount}마리 · 📖 도감 ${r.dexFound}/${r.dexTotal}`
+    );
+  });
+
+  const me = myIdx >= 0 ? rows[myIdx] : null;
+  const meLine = me
+    ? `🙋 내 순위 **${myIdx + 1}위** / 전체 ${total}명 · ⚔️ ${fmtNum(me.power)} · ⭐ Lv.${me.level} · 📖 ${me.dexFound}/${me.dexTotal}`
+    : '🙋 `/시작` 으로 모험을 시작하면 랭킹에 올라가요!';
+
+  const id = (action, kk, n) => `rank:${action}:${kk}:${n}:${viewerId}`;
+  return {
+    embeds: [
+      {
+        title: `🏆 해정펫 랭킹 — ${k.emoji} ${k.label} 순`,
+        description: [meLine, '', lines.length ? lines.join('\n\n') : '아직 아무도 없어요 🥲'].join('\n'),
+        color: 0xf1c40f,
+        footer: {
+          text: `${pg + 1} / ${pages} 쪽 · 전체 ${total}명 · 전투력 = 가장 센 펫 ${POWER_TOP_PETS}마리 + 트레이너 레벨 × ${POWER_TRAINER_LEVEL_W} · 약 ${Math.round(RANK_CACHE_MS / 60000)}분마다 갱신`,
+        },
+      },
+    ],
+    components: [
+      row(
+        button({ label: '이전', emoji: '◀️', customId: id('page', kind, pg - 1), style: 2, disabled: pg <= 0 }),
+        button({ label: '다음', emoji: '▶️', customId: id('page', kind, pg + 1), style: 2, disabled: pg >= pages - 1 }),
+        button({ label: '내 순위', emoji: '📍', customId: id('me', kind, 0), style: 1, disabled: myIdx < 0 }),
+        button({ label: '새로고침', emoji: '🔄', customId: id('refresh', kind, pg), style: 2 }),
+      ),
+      row(
+        ...Object.entries(RANK_KINDS).map(([kk, v]) =>
+          button({ label: v.label, emoji: v.emoji, customId: id('kind', kk, 0), style: kk === kind ? 3 : 2, disabled: kk === kind }),
+        ),
+      ),
+    ],
+  };
+}
+
+// ═════════════════════════════════════════════
+// /랭킹
+// ═════════════════════════════════════════════
+
+const rankingCmd = {
+  data: {
+    name: '랭킹',
+    description: '전투력 랭킹을 봐요. 레벨·펫·도감도 같이 보여줘요!',
+    type: 1,
+    options: [
+      {
+        type: 3,
+        name: '종류',
+        description: '무엇으로 줄 세울까요? (기본: 전투력)',
+        required: false,
+        choices: [
+          { name: '전투력', value: 'power' },
+          { name: '트레이너 레벨', value: 'level' },
+          { name: '도감', value: 'dex' },
+        ],
+      },
+    ],
+  },
+
+  async execute(interaction) {
+    const user = getUser(interaction);
+    const kind = RANK_KINDS[getOption(interaction, '종류')] ? getOption(interaction, '종류') : 'power';
+    const rows = await getRankRows();
+    return reply(rankingView(rows, kind, 0, user.id));
+  },
+
+  components: {
+    rank: async function rankHandleButton(interaction, args) {
+      const [action, kind0, page0, ownerId] = args;
+      const user = getUser(interaction);
+      if (user.id !== ownerId) {
+        return reply({ content: '이 버튼은 연 사람만 쓸 수 있어요 🙅 `/랭킹` 으로 직접 열어보세요!' }, { ephemeral: true });
+      }
+      const kind = RANK_KINDS[kind0] ? kind0 : 'power';
+      const rows = await getRankRows(action === 'refresh');
+      return update(rankingView(rows, kind, action === 'me' ? 'me' : Number(page0), user.id));
+    },
+  },
+};
+
 const help = {
   data: {
     name: '도움말',
@@ -5545,6 +5754,14 @@ const help = {
                 value:
                   `\`/출석\` 은 하루(한국 시간 0시 기준)에 한 번, 🔴 해정볼 ${ATTENDANCE_BALLS}개와 💰 ${ATTENDANCE_GOLD}골드를 줘요.\n` +
                   '한 챕터(장소)의 도감을 모두 채우면 `/도감보상` 으로 큰 보상을 받아요! 챕터가 올라갈수록 보상도 커져요. (진행 상황은 `/도감보상` 에서 확인)',
+              },
+              {
+                name: '⚔️ 전투력 · 🏆 랭킹',
+                value:
+                  `**전투력**은 얼마나 센지를 숫자 하나로 보여줘요.\n` +
+                  `🐾 펫 1마리 = (체력×${POWER_HP_W} + 공격×${POWER_ATK_W} + 방어×${POWER_DEF_W} + 속도×${POWER_SPD_W}) × 등급 보너스(단계마다 +${pct(POWER_GRADE_BONUS)}%) × 스킬 보너스(칸마다 +${pct(POWER_SKILL_BONUS)}%)\n` +
+                  `👤 내 전투력 = 가장 센 펫 **${POWER_TOP_PETS}마리**의 합 + 트레이너 레벨 × **${POWER_TRAINER_LEVEL_W}**\n` +
+                  '`/랭킹` 으로 전투력 순서대로 사람들의 레벨·대표 펫·최강 펫·도감을 볼 수 있어요. **[전투력] [트레이너 레벨] [도감]** 버튼으로 줄 세우는 기준을 바꾸고, **[내 순위]** 로 내 쪽으로 바로 가요!',
               },
               {
                 name: '🥊 유저 대결',
@@ -5970,7 +6187,7 @@ const trade = {
 // 내보내기: router.js 가 이 목록을 그대로 써요
 // ═════════════════════════════════════════════
 
-const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, trade, help];
+const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, trade, rankingCmd, help];
 
 // ============================================================
 // 관리자 설정 (admin-config.js) [ADMIN-CONFIG]
