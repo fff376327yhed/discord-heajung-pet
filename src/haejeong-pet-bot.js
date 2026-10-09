@@ -354,6 +354,14 @@ function matchupText(myId, wildId, mySt = {}, wildSt = {}) {
 }
 // 대결 기록용 짧은 상성 표시
 const clashShort = (m) => (m >= 2 ? ' 🌟약점!!' : m >= 1.1 ? ' ✨약점' : m <= 0.5 ? ' 💨거의없음' : m <= 0.9 ? ' 💧별로' : '');
+// 전투 화면용 짧은 상성 한 줄 (만났을 때 화면은 matchupText 그대로 써요)
+function matchupTextShort(myId, wildId, mySt = {}, wildSt = {}) {
+  const me = { elems: petElems(myId), st: mySt };
+  const wd = { elems: petElems(wildId), st: wildSt };
+  const out = elemClash(effElems(me)[0], wd).mult;
+  const inn = elemClash(effElems(wd)[0], me).mult;
+  return `🧬 상성 나→상대${clashShort(out) || ' 보통'} · 상대→나${clashShort(inn) || ' 보통'}`;
+}
 
 // ============================================================
 // 데이터: 아이템 (data/items.js)
@@ -3984,18 +3992,17 @@ function exploreViewBattle(snap, userId, note) {
       {
         title: `⚔️ ${mine.emoji} ${b.myName} VS ${wild.emoji} ${wild.name}`,
         description:
-          `${note ? note + '\n\n' : ''}${b.round}턴째 · 약해질수록 **[잡기]** 가 쉬워져요!` +
-          `\n🔋 내 마나 **${b.myMana}** / ${maxMana(getMainPetFromSnap(snap))}` +
-          `\n${matchupText(b.myPetId, snap.encounter.petId, b.mySt, b.wildSt)}` +
-          wildEquipText(snap.encounter) +
+          `${note ? note + '\n\n' : ''}${b.round}턴째 · 🔋 마나 ${b.myMana}/${maxMana(getMainPetFromSnap(snap))}` +
+          `\n${matchupTextShort(b.myPetId, snap.encounter.petId, b.mySt, b.wildSt)}` +
+          wildEquipTextShort(snap.encounter) +
           (GRADE_EFFECTS[wild.grade].aura ? `\n${GRADE_EFFECTS[wild.grade].aura}` : '') +
           catchInfoText(snap),
         color: 0xed4245,
         fields: [
           { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIcons(effElems({ elems: petElems(b.myPetId), st: b.mySt }))}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
           { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIcons(effElems({ elems: petElems(snap.encounter.petId), st: b.wildSt }))}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
-          { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개`, inline: false },
         ],
+        footer: { text: `${BALL.emoji} 해정볼 ${snap.balls}개 · 약해질수록 잡기가 쉬워져요!` },
       },
     ],
     components: [
@@ -6832,6 +6839,13 @@ function wildEquipText(enc) {
   const items = EQUIP_SLOT_KEYS.map((k) => enc?.equip?.[k]).filter(Boolean);
   if (!items.length) return '';
   return `\n🎒 **장비 착용 중:** ${items.map((e) => `${GRADES[e.grade].emoji}${e.name}`).join(' · ')} (그만큼 더 강해요! 쓰러뜨리거나 잡으면 떨어뜨릴 수도 있어요)`;
+}
+
+// 야생 펫 장비 착용 중이면 전투 화면엔 짧게만 보여줘요 (만났을 때 화면은 wildEquipText 그대로 써요)
+function wildEquipTextShort(enc) {
+  const items = EQUIP_SLOT_KEYS.map((k) => enc?.equip?.[k]).filter(Boolean);
+  if (!items.length) return '';
+  return `\n🎒 ${items.map((e) => `${GRADES[e.grade].emoji}${e.name}`).join(' · ')} 장착 중`;
 }
 
 function equipResultNote(out) {
