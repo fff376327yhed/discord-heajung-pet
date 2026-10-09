@@ -1116,10 +1116,10 @@ function getAutoHuntPet(player) {
 // 자동사냥 장소: 직접 고른 장소 (없으면 마지막으로 탐험한 장소)
 const getAutoHuntLocId = (player) => player.autoHuntLocId ?? player.lastLocationId;
 
-// 켜기 / 설정 바꾸기 / 상태 보기. opts: { petUid, locId, catchOn } (안 준 건 그대로)
+// 켜기 / 설정 바꾸기 / 상태 보기. opts: { petUid, locId, catchOn, potionOn } (안 준 건 그대로)
 // 이미 켜져 있으면 끄지 않아요 → 끄는 건 [종료] 버튼 (stopAutoHunt)
 function controlAutoHunt(player, now = Date.now(), opts = {}) {
-  const { petUid = null, locId = null, catchOn = null } = opts;
+  const { petUid = null, locId = null, catchOn = null, potionOn = null } = opts;
 
   // 1) 먼저 다 확인해요 (하나라도 틀리면 아무것도 안 바꿔요)
   const pick = petUid ? player.pets.find((p) => p.uid === petUid) : null;
@@ -1129,13 +1129,14 @@ function controlAutoHunt(player, now = Date.now(), opts = {}) {
   if (wantLoc && player.level < wantLoc.minLevel) return { kind: 'locked', minLevel: wantLoc.minLevel };
 
   // 2) 바꾸기 (진행 중이던 한 판은 취소돼요)
-  const changed = !!(pick || wantLoc || catchOn !== null);
+  const changed = !!(pick || wantLoc || catchOn !== null || potionOn !== null);
   if (pick) player.autoHuntPetUid = pick.uid;
   if (wantLoc) {
     player.autoHuntLocId = wantLoc.id;
     if (player.autoHuntReport) player.autoHuntReport.locationId = wantLoc.id; // 결과에는 가장 마지막 장소가 보여요
   }
   if (catchOn !== null) player.autoHuntCatch = !!catchOn;
+  if (potionOn !== null) player.autoHuntPotion = !!potionOn; // 💊 위험할 때 회복약을 쓸지 (기본: 켜짐)
   if (changed) player.autoHuntPending = null;
 
   if (player.autoHunt) return { kind: changed ? 'settings' : 'status', commit: changed };
@@ -1232,7 +1233,7 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
 //   ② 약이 없거나 모자라면 쉬어요: 1분(AUTO_HUNT_REST_MS)마다 체력 +10(AUTO_HUNT_REST_HEAL)
 //      (저절로 차는 양이 10보다 크면 그 양을 써요)
 // 목표 체력 = 최대 체력 × AUTO_HUNT_RESUME_RATIO. 지난 시간이 모자라면 쉬는 중으로 남기고 done:false 를 돌려줘요.
-function autoHuntCare(player, main, at, endAt) {
+function autoHuntCare(player, main, at, endAt, usePotion = true) {
   const max = maxHp(main);
   const target = Math.max(1, Math.ceil(AUTO_HUNT_RESUME_RATIO * max));
   let t = at;
@@ -1240,7 +1241,7 @@ function autoHuntCare(player, main, at, endAt) {
   let restMs = 0;
 
   let guard = 0;
-  while (currentHp(main, t) < target && guard++ < HEAL_FULL_CAP) {
+  while (usePotion && currentHp(main, t) < target && guard++ < HEAL_FULL_CAP) {
     const potion = pickPotion(player, target - currentHp(main, t));
     if (!potion) break;
     const r = useItem(player, potion.id, main.uid, 1, t);
@@ -1311,7 +1312,7 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
       if (forceCare || currentHp(main, t) / maxHp(main) <= MULTI_STOP_HP_RATIO) {
         forceCare = false;
         cared = true;
-        const care = autoHuntCare(player, main, t, end);
+        const care = autoHuntCare(player, main, t, end, player.autoHuntPotion ?? true);
         t = care.t;
         rep.potions = (rep.potions ?? 0) + care.potions;
         if (care.restMs > 0) {
@@ -1358,7 +1359,7 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
         stop('danger');
         autoHuntNotices.set(
           player.userId,
-          `🚨 **자동사냥이 꺼졌어요!**\n${PETS[main.petId].emoji} **${nameOf(main)}** 가 ${loc.emoji} ${loc.name} 에서 너무 위험해졌어요.\n회복약을 먹이고 쉬어 봤지만 계속 위험해서 멈췄어요.\n\n👉 펫 체력을 채우거나 더 쉬운 장소로 바꾼 뒤 \`/자동사냥\` 으로 다시 켜주세요!`,
+          `🚨 **자동사냥이 꺼졌어요!**\n${PETS[main.petId].emoji} **${nameOf(main)}** 가 ${loc.emoji} ${loc.name} 에서 너무 위험해졌어요.\n${(player.autoHuntPotion ?? true) ? '회복약을 먹이고 ' : ''}쉬어 봤지만 계속 위험해서 멈췄어요.\n\n👉 펫 체력을 채우거나 더 쉬운 장소로 바꾼 뒤 \`/자동사냥\` 으로 다시 켜주세요!`,
         );
         break;
       }
@@ -3256,6 +3257,7 @@ function autoHuntView(player, now, note = null) {
   lines.push(
     `${PETS[pet.petId].emoji} **${nameOf(pet)}** Lv.${pet.level} ❤${currentHp(pet, now)}/${maxHp(pet)} · ${loc.emoji} ${loc.name}`,
     `🔴 포획 ${(player.autoHuntCatch ?? true) ? '켜짐 (도감에 없는 펫만)' : '꺼짐'} · 해정볼 ${balls}개`,
+    `💊 위험할 때 회복약 ${(player.autoHuntPotion ?? true) ? '먹이기 켜짐' : '꺼짐 (쉬기만 해요)'}`,
     '',
     autoHuntLiveText(player, pet, loc, now),
     '',
@@ -3285,6 +3287,7 @@ const autoHuntCmd = {
       { type: 3, name: '장소', description: '대신 탐험할 장소 (비우면 지난번에 고른 장소, 없으면 마지막으로 간 장소)', required: false, autocomplete: true },
       { type: 3, name: '펫', description: '대신 싸울 펫 (비우면 지난번에 고른 펫, 없으면 대표 펫)', required: false, autocomplete: true },
       { type: 5, name: '포획', description: '도감에 없는 펫을 해정볼로 잡을지 (기본: 켜짐)', required: false },
+      { type: 5, name: '회복약', description: '펫이 위험할 때 회복약을 먹일지 (기본: 켜짐, 끄면 쉬기만 해요)', required: false },
     ],
   },
 
@@ -3305,12 +3308,13 @@ const autoHuntCmd = {
     const selector = getOption(interaction, '펫');
     const locOpt = getOption(interaction, '장소');
     const catchOpt = getOption(interaction, '포획');
+    const potionOpt = getOption(interaction, '회복약');
     const now = Date.now();
 
     const out = await updatePlayer(user.id, (player) => {
       const inst = selector ? resolvePetSelector(player, selector) : null;
       if (selector && !inst) return { commit: false, value: { kind: 'pet_not_found' } };
-      const r = controlAutoHunt(player, now, { petUid: inst?.uid ?? null, locId: locOpt ?? null, catchOn: catchOpt ?? null });
+      const r = controlAutoHunt(player, now, { petUid: inst?.uid ?? null, locId: locOpt ?? null, catchOn: catchOpt ?? null, potionOn: potionOpt ?? null });
       if (['on', 'settings', 'status'].includes(r.kind)) {
         const note = { on: `🏃 **자동사냥 시작!** 보상은 **-${pct(1 - AUTO_HUNT_REWARD_MULT)}%** 예요. (직접 \`/탐험\` 하는 건 그대로)\n최대 ${AUTO_HUNT_MAX_HOURS}시간 · 펫이 위험하면 회복약을 먹거나 쉬어요 (1분에 체력 +${AUTO_HUNT_REST_HEAL}) · 그래도 안 되면 개인 알림(DM)을 보내고 꺼요 · 스킬은 안 써요`, settings: '✅ 설정을 바꿨어요! 새 설정으로 이어서 해요.', status: null }[r.kind];
         r.msg = autoHuntView(player, now, note);
