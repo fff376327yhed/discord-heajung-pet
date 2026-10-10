@@ -34,6 +34,9 @@ import {
   elemClash,
   clashLabel,
   effElems,
+  elemIconsOf, // 🆕 배치 6: 전속성이면 🌈 한 글자로
+  elemTagsOf,
+  isAllElemAtk,
   skillElement,
   mitigate,
   afterHit,
@@ -353,12 +356,12 @@ const wildSideOf = (c, b) => ({ elems: petElems(c.wildInfo.petId), st: b.wildSt 
 function matchupText(myId, wildId, mySt = {}, wildSt = {}) {
   const me = { elems: petElems(myId), st: mySt };
   const wd = { elems: petElems(wildId), st: wildSt };
-  const out = elemClash(effElems(me)[0], wd).mult;
-  const inn = elemClash(effElems(wd)[0], me).mult;
+  const out = elemClash(effElems(me)[0], wd, { attacker: me }).mult;
+  const inn = elemClash(effElems(wd)[0], me, { attacker: wd }).mult;
   return (
     `🧬 **속성 상성**\n` +
-    `　내 ${elemTags(effElems(me))} → 상대 ${elemTags(effElems(wd))}: ${clashLabel(out)}\n` +
-    `　상대 ${elemTags(effElems(wd))} → 나: ${clashLabel(inn)}`
+    `　내 ${elemTagsOf(me)} → 상대 ${elemTagsOf(wd)}: ${clashLabel(out)}\n` +
+    `　상대 ${elemTagsOf(wd)} → 나: ${clashLabel(inn)}`
   );
 }
 // 대결 기록용 짧은 상성 표시
@@ -367,8 +370,8 @@ const clashShort = (m) => (m >= 2 ? ' 🌟약점!!' : m >= 1.1 ? ' ✨약점' : 
 function matchupTextShort(myId, wildId, mySt = {}, wildSt = {}) {
   const me = { elems: petElems(myId), st: mySt };
   const wd = { elems: petElems(wildId), st: wildSt };
-  const out = elemClash(effElems(me)[0], wd).mult;
-  const inn = elemClash(effElems(wd)[0], me).mult;
+  const out = elemClash(effElems(me)[0], wd, { attacker: me }).mult;
+  const inn = elemClash(effElems(wd)[0], me, { attacker: wd }).mult;
   return `⚔️ 내 공격 ×${+out.toFixed(2)} · 받는 공격 ×${+inn.toFixed(2)}`;
 }
 
@@ -2535,8 +2538,20 @@ function context(player, ex) {
   };
 }
 
+// 🎭 누구게?: 때리는 쪽이 헷갈려서 자기 자신을 때려요 (기본 공격 전용 — 스킬 타격은 skill.js castSkill 안에서 처리)
+function whoIsSelfHit(atkName, atkEmoji, atkStat, defStat, selfSt, rng, log) {
+  const { dmg: raw } = calcDamage(atkStat, defStat, rng, 0, 1);
+  const hit = mitigate({ st: selfSt }, raw, rng);
+  log.push(`🎭 **누구게?** ${atkEmoji} ${atkName}(이)가 헷갈려서 **자기 자신**을 때렸어요! **${hit.dmg}** 데미지${hit.note}`);
+  return hit.dmg;
+}
+
 function myAttack(c, b, log, rng) {
   const fx = GRADE_EFFECTS[c.wildPet.grade];
+  if (b.wildSt.whoIs && rng() < b.wildSt.whoIs.pct) { // 🎭 상대가 "누구게?"를 걸었어요
+    b.myHp = Math.max(0, b.myHp - whoIsSelfHit(c.myName, c.myPet.emoji, c.mine.atk, c.mine.def, b.mySt, rng, log));
+    return;
+  }
   if (rng() < fx.missChance + c.wildEq.evade) {
     log.push(
       fx.aura
@@ -2545,7 +2560,7 @@ function myAttack(c, b, log, rng) {
     );
     return;
   }
-  const clash = elemClash(effElems(mySideOf(c, b))[0], wildSideOf(c, b));
+  const clash = elemClash(effElems(mySideOf(c, b))[0], wildSideOf(c, b), { attacker: mySideOf(c, b) });
   const dv = !!b.mySt.devil; // 😈 악마의 거래 중: 확정 급소 + 약점 확정
   const weak = dv && clash.mult < ELEM_CFG.strong;
   const { dmg: raw, crit } = calcDamage(c.mine.atk, c.wild.def, rng, dv ? 1 : CRIT_CHANCE + c.mineEq.crit, weak ? ELEM_CFG.strong : clash.mult);
@@ -2556,11 +2571,15 @@ function myAttack(c, b, log, rng) {
 }
 
 function wildAttack(c, b, log, rng) {
+  if (b.mySt.whoIs && rng() < b.mySt.whoIs.pct) { // 🎭 내가 건 "누구게?" — 야생 펫이 자기 자신을 때려요
+    b.wildHp = Math.max(0, b.wildHp - whoIsSelfHit(c.wildPet.name, c.wildPet.emoji, c.wild.atk, c.wild.def, b.wildSt, rng, log));
+    return;
+  }
   if (rng() < EVADE_CHANCE + c.mineEq.evade) {
     log.push(`${c.myPet.emoji} ${c.myName}(이)가 **회피했다!** 공격을 피했어요.`);
     return;
   }
-  const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b));
+  const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b), { attacker: wildSideOf(c, b) });
   const dv = !!b.wildSt.devil; // 😈 야생 펫이 악마와 거래했다면 똑같이 확정 급소 + 약점
   const weak = dv && clash.mult < ELEM_CFG.strong;
   const { dmg: raw, crit } = calcDamage(c.wild.atk, c.mine.def, rng, dv ? 1 : GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, weak ? ELEM_CFG.strong : clash.mult);
@@ -2574,7 +2593,7 @@ function wildAttack(c, b, log, rng) {
 function wildHitEstimate(player, ex) {
   const c = context(player, ex);
   const b = ex.battle;
-  const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b));
+  const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b), { attacker: wildSideOf(c, b) });
   const base = Math.max(c.wild.atk * 0.25, c.wild.atk - c.mine.def * 0.5);
   return Math.max(1, Math.round(base * 1.15 * clash.mult));
 }
@@ -2916,7 +2935,7 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
   const sk = SKILLS[mySkills[slot]];
   if (!sk) return { kind: 'no_skill' };
 
-  if (b.mySt.sealed) return { kind: 'sealed', left: b.mySt.sealed.turns }; // 🔒 조커 카드를 받아서 스킬 봉인
+  if (b.mySt.sealed) return { kind: 'sealed', left: b.mySt.sealed.turns, perm: !!b.mySt.sealed.perm }; // 🔒 조커 카드를 받아서 스킬 봉인
   if (b.myMana < sk.cost) return { kind: 'no_mana', need: sk.cost, have: b.myMana };
   if (cdLeft(b.mySt, sk.id) > 0) return { kind: 'cooldown', name: sk.name, left: cdLeft(b.mySt, sk.id) }; // ⏳ 쿨타임 중
   if (sk.joker && b.jokerUsed) return { kind: 'joker_used' }; // 🃏 조커는 전투당 1번
@@ -4086,8 +4105,8 @@ function exploreViewBattle(snap, userId, note) {
           catchInfoText(snap),
         color: 0xed4245,
         fields: [
-          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIcons(effElems({ elems: petElems(b.myPetId), st: b.mySt }))}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
-          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIcons(effElems({ elems: petElems(snap.encounter.petId), st: b.wildSt }))}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
+          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIconsOf({ elems: petElems(b.myPetId), st: b.mySt })}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
+          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIconsOf({ elems: petElems(snap.encounter.petId), st: b.wildSt })}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
         ],
         footer: { text: `${BALL.emoji} 해정볼 ${snap.balls}개 · 약해질수록 잡기가 쉬워져요!` },
       },
@@ -4127,11 +4146,11 @@ function exploreViewSkillConfirm(snap, userId, slot) {
   let clashLine = '';
   if (sk.pow || sk.bomb) {
     const el = skillElement(sk);
-    const cl = elemClash(el, { elems: petElems(snap.encounter.petId), st: b.wildSt }, { ignoreResist: sk.ignoreResist });
+    const cl = elemClash(el, { elems: petElems(snap.encounter.petId), st: b.wildSt }, { ignoreResist: sk.ignoreResist, attacker: { elems: petElems(b.myPetId), st: b.mySt } });
     let m = cl.mult;
     if (sk.weakBonus && cl.mult > 1) m *= 1 + sk.weakBonus;
-    const stab = el !== 'normal' && effElems({ elems: petElems(b.myPetId), st: b.mySt }).includes(el);
-    clashLine = `\n🧬 **지금 상대(${elemTags(petElems(snap.encounter.petId))})에게:** ${clashLabel(m)}${stab ? ` · 🔰 같은 속성 보너스 ×${ELEM_CFG.stab}` : ''}\n`;
+    const stab = el !== 'normal' && (effElems({ elems: petElems(b.myPetId), st: b.mySt }).includes(el) || isAllElemAtk({ st: b.mySt }));
+    clashLine = `\n🧬 **지금 상대(${elemTagsOf({ elems: petElems(snap.encounter.petId), st: b.wildSt })})에게:** ${clashLabel(m)}${stab ? ` · 🔰 같은 속성 보너스 ×${ELEM_CFG.stab}` : ''}\n`;
   }
   return {
     embeds: [
@@ -4146,12 +4165,12 @@ function exploreViewSkillConfirm(snap, userId, slot) {
           `💫 기절 중이면 스킬이 나가지 않아요 (마나는 그대로).` +
           (enough ? '' : `\n\n⚠️ **마나가 모자라요!** (필요 ${sk.cost} / 현재 ${b.myMana})`) +
           (cdn > 0 ? `\n\n⏳ **쿨타임 ${cdn}턴 남았어요!** (쿨 ${cdn}턴 뒤에 다시 쓸 수 있어요)` : '') +
-          (sealed ? `\n\n🔒 **스킬이 봉인됐어요!** (${b.mySt.sealed.turns}턴 동안 스킬을 못 써요)` : '') +
+          (sealed ? `\n\n🔒 **스킬이 봉인됐어요!** (${b.mySt.sealed.perm ? '이번 전투 내내' : `${b.mySt.sealed.turns}턴 동안`} 스킬을 못 써요)` : '') +
           (jokerUsed ? '\n\n🃏 **조커는 이번 전투에서 이미 썼어요!** (전투당 1번)' : ''),
         color: 0x5865f2,
         fields: [
-          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIcons(effElems({ elems: petElems(b.myPetId), st: b.mySt }))}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
-          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIcons(effElems({ elems: petElems(snap.encounter.petId), st: b.wildSt }))}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
+          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIconsOf({ elems: petElems(b.myPetId), st: b.mySt })}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
+          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIconsOf({ elems: petElems(snap.encounter.petId), st: b.wildSt })}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
         ],
       },
     ],
@@ -4590,7 +4609,7 @@ async function exploreHandleButton(interaction, args) {
       return reply({ content: `⏳ **${out.name}** 은(는) 아직 쿨타임이에요! (${out.left}턴 남음)` }, { ephemeral: true });
     }
     if (out.kind === 'sealed') {
-      return reply({ content: `🔒 조커 카드의 저주로 **스킬이 봉인**됐어요! (${out.left}턴 남음) 기본 공격이나 아이템은 쓸 수 있어요.` }, { ephemeral: true });
+      return reply({ content: `🔒 **스킬이 봉인**됐어요! (${out.perm ? '이번 전투 내내' : `${out.left}턴 남음`}) 기본 공격이나 아이템은 쓸 수 있어요.` }, { ephemeral: true });
     }
     if (out.kind === 'joker_used') {
       return reply({ content: '🃏 조커는 이번 전투에서 이미 썼어요! (전투당 1번)' }, { ephemeral: true });

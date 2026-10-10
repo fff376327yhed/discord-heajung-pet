@@ -38,6 +38,10 @@
 //   catchPro [포획률+,연장턴] 포획 전문가: 유효 14턴(★5 는 15턴, CATCH_PRO_CFG) 동안 야생 펫이 도망치려 하면 확정으로 붙잡고(처음 붙잡을 때 전투 제한 턴 +연장턴), 포획률 +N%p (st.catchPro · ex.battle.extraRounds)
 //   fightBuff { catch, flee, exp, gold, petExp, equip } 전투 중 버프 — 이번 전투가 끝날 때까지 유지, 겹치면 쌓여요 (FIGHT_BUFF_CAP 한도) (st.fightBuff = ex.battle.mySt.fightBuff)
 //     catch 포획률 +%p · flee 도망 확률 -%p · exp 트레이너 경험치 · gold 돈 · petExp 펫 경험치 · equip 장비 획득 확률 (모두 +%)
+//   🆕 6차 확장 효과 칸 (배치 6):
+//   allElem [모드,턴] 속성 전체 부여 (st.allElem) — 모드: 'attack' 모든 속성으로 공격(약점은 살리고 "효과 별로"는 없애요) · 'defend' 몸에 모든 속성이 깃들어 받는 상성이 전부 곱해져요 · 'both' 둘 다 (ALL_ELEM_CFG 로 배율 상한/하한)
+//   whoIs [확률,턴] "누구게?" — 턴 동안 상대가 나를 때리는 공격(스킬 타격 · 기본 공격)이 확률로 상대 자신에게 들어가요 (st.whoIs)
+//   lockSkills true 상대의 스킬을 이번 전투 동안 영구 봉인 (st.sealed.perm · 야생 펫은 못 써요)
 
 export const SKILL_CFG = {
   manaMax: 100, // 마나 최대치 (마나 수정으로 펫마다 더 늘릴 수 있어요)
@@ -118,16 +122,29 @@ export const elemTag = (e) => `${(ELEMENTS[e] ?? ELEMENTS.normal).emoji} ${(ELEM
 export const elemIcons = (elems) => (elems?.length ? elems : ['normal']).map((e) => (ELEMENTS[e] ?? ELEMENTS.normal).emoji).join(''); // "🌿🌪️"
 export const elemTags = (elems) => (elems?.length ? elems : ['normal']).map(elemTag).join(' + '); // "🌿 풀 + 🌪️ 바람"
 // 전투 중인 한쪽(X)의 "지금 속성" — 속성 변환(convert) 중이면 바뀐 속성이에요
-export const effElems = (X) => (X?.st?.convert ? [X.st.convert.elem] : X?.elems?.length ? X.elems : ['normal']);
+// 🌈 속성 전체 부여(allElem): 공격 쪽이면 모든 속성으로 때리고, 방어 쪽이면 몸에 모든 속성이 깃들어요
+export const ALL_ELEMS = Object.keys(ELEMENTS).filter((e) => e !== 'normal');
+export const ALL_ELEM_CFG = { maxMult: 3, minMult: 0.4 }; // 전속성이 얽힌 상성 배율의 상한/하한 (곱셈이 너무 커지거나 작아지지 않게)
+const allElemMode = (X) => X?.st?.allElem?.mode;
+export const isAllElemAtk = (X) => allElemMode(X) === 'attack' || allElemMode(X) === 'both';
+export const isAllElemDef = (X) => allElemMode(X) === 'defend' || allElemMode(X) === 'both';
+export const effElems = (X) => (isAllElemDef(X) ? ALL_ELEMS : X?.st?.convert ? [X.st.convert.elem] : X?.elems?.length ? X.elems : ['normal']);
+// 화면용: 전속성이면 한 글자로 짧게 보여줘요
+export const elemIconsOf = (X) => (isAllElemDef(X) ? '🌈' : elemIcons(effElems(X)));
+export const elemTagsOf = (X) => (isAllElemDef(X) ? '🌈 전속성' : elemTags(effElems(X)));
 
 // 상성 계산: atkElem 으로 defender 를 때렸을 때의 배율과 안내 글자
-export function elemClash(atkElem, defender, { ignoreResist = false } = {}) {
+// attacker 를 넘기면 공격 쪽의 속성 전체 부여(allElem)도 반영해요 (모든 속성으로 때려서 약점은 살리고 반감은 없어요)
+export function elemClash(atkElem, defender, { ignoreResist = false, attacker = null } = {}) {
   const row = ELEM_CHART[atkElem] ?? ELEM_CHART.normal;
+  const allAtk = isAllElemAtk(attacker);
   let mult = 1;
   for (const d of effElems(defender)) {
-    if (row.strong.includes(d)) mult *= ELEM_CFG.strong;
+    if (allAtk) { if (ALL_ELEMS.some((e) => ELEM_CHART[e].strong.includes(d))) mult *= ELEM_CFG.strong; }
+    else if (row.strong.includes(d)) mult *= ELEM_CFG.strong;
     else if (row.weak.includes(d)) mult *= ELEM_CFG.weak;
   }
+  if (allAtk || isAllElemDef(defender)) mult = clamp(mult, ALL_ELEM_CFG.minMult, ALL_ELEM_CFG.maxMult);
   let ignored = false;
   let warded = false;
   if (ignoreResist && mult < 1) { mult = 1; ignored = true; }
@@ -491,6 +508,17 @@ U('growth_bless', '성장의 축복', '🐾', 2, { fightBuff: { petExp: 0.3 } },
 U('treasure_sense', '보물 감각', '🎁', 3, { fightBuff: { equip: 0.5 } }, '떨어진 장비가 눈에 쏙 들어와요.');
 U('hunter_blessing', '사냥꾼의 가호', '🏹', 4, { fightBuff: { catch: 0.1, flee: 0.1, exp: 0.15, gold: 0.15, petExp: 0.15, equip: 0.2 } }, '사냥에 도움이 되는 모든 행운이 조금씩.');
 
+// ───────── 🆕 6차 확장 (배치 6): 속성 전체 부여 · 누구게? · 영구 잠금 ─────────
+// 속성 전체 부여: 공격 = 모든 속성으로 때려요(약점만 살고 반감 없음) / 방어 = 몸에 모든 속성이 깃들어요(받는 상성 전부 적용)
+U('all_elem_strike', '만능 속성 공격', '🌈', 3, { allElem: ['attack', 3], cost: 30 }, '모든 속성을 한꺼번에 두르고 때려요. 약점은 정확히 찌르고, 반감은 사라져요.');
+U('all_elem_body', '만물의 몸', '🪩', 3, { allElem: ['defend', 3], cost: 30 }, '온갖 속성이 몸에 깃들어요. 받는 속성 상성이 전부 한꺼번에 적용돼요.');
+U('prism_avatar', '프리즘 화신', '🔆', 5, { allElem: ['both', 4], cost: 55, cd: 6, elem: 'light' }, '모든 속성의 화신이 돼요. 때릴 땐 약점만 남고, 맞을 땐 모든 상성이 적용돼요.');
+// 누구게?: 상대의 공격이 확률로 상대 자신에게
+U('who_is', '누구게?', '🎭', 3, { whoIs: [0.4, 3], cost: 35 }, '"어? 누구를 때린 거지?" 상대의 공격이 가끔 자기 자신에게 날아가요.');
+U('who_is_grand', '대혼란: 누구게?', '🎪', 5, { whoIs: [0.7, 3], cost: 55, cd: 6, elem: 'dark' }, '완전히 뒤죽박죽! 상대의 공격 대부분이 자기 자신에게 되돌아가요.');
+// 영구 잠금: 이번 전투 동안 상대 스킬 전부 봉인 (조커 봉인은 3턴)
+U('seal_brand', '봉인의 낙인', '🔏', 5, { lockSkills: true, cost: 60, cd: 10, elem: 'dark' }, '낙인이 찍힌 순간, 이번 싸움 내내 상대는 스킬을 쓸 수 없어요.');
+
 // ───────── 전용기 (그 펫만 배울 수 있어요 · 같은 마나의 일반 스킬보다 세요) ─────────
 // 스타팅
 P('pyro_cat', 'sig_pyro_cat', '불꽃 발톱', '🐾', 2, { pow: 2.1, dot: ['burn', 0.06, 3, 0.6] }, '꼬리 끝 불꽃을 발톱에 모아 할퀴어요.');
@@ -678,6 +706,15 @@ export function skillEffectLines(sk) {
   if (sk.devilDeal) t.push(`😈 ${sk.devilDeal[0]}턴 동안 내 모든 공격이 **확정 급소 + 약점 공격**! 단, ${sk.devilDeal[0]}턴 안에 상대를 쓰러뜨리지 못하면 그동안 준 피해의 **×${sk.devilDeal[1]}** 를 **무효화 불가 피해**로 나도 받아요 (부활·스킬 면역·쉴드·가드로 못 막고, 부활도 안 돼요)`);
   if (sk.catchPro) t.push(`🪢 ${catchProTurns(sk)}턴 동안 유효: 야생 펫이 도망치려 하면 **확정으로 붙잡아요** (처음 붙잡을 때 이번 전투 제한 턴 **+${sk.catchPro[1]}턴**) · 포획률 **+${P100(sk.catchPro[0])}p**`);
   if (sk.fightBuff) t.push(`📈 이번 전투가 끝날 때까지: ${fightBuffText(sk.fightBuff)} (겹쳐 쓰면 쌓이고 한도가 있어요)`);
+  if (sk.allElem) {
+    const [mode, turns] = sk.allElem;
+    const all = ALL_ELEMS.map((e) => ELEMENTS[e].emoji).join('');
+    if (mode !== 'defend') t.push(`🌈 ${turns}턴 동안 **모든 속성으로 공격**: 상대 속성의 약점은 그대로 찌르고 "효과 별로"는 사라져요 (모든 속성 스킬이 같은 속성 보너스도 받아요)`);
+    if (mode !== 'attack') t.push(`🪩 ${turns}턴 동안 몸에 **모든 속성**(${all})이 깃들어요: 받는 공격의 속성 상성이 전부 곱해져서 적용돼요`);
+    t.push(`⚖️ 전속성이 얽힌 상성 배율은 ×${ALL_ELEM_CFG.minMult} ~ ×${ALL_ELEM_CFG.maxMult} 안으로 맞춰져요`);
+  }
+  if (sk.whoIs) t.push(`🎭 ${sk.whoIs[1]}턴 동안 상대가 나를 때리는 공격(스킬 타격 · 기본 공격)이 ${P100(sk.whoIs[0])} 확률로 **상대 자신에게** 들어가요 (시한폭탄 · 고정 피해는 제외)`);
+  if (sk.lockSkills) t.push('🔏 상대의 스킬을 **이번 전투 동안 영구 봉인**해요 (조커 봉인은 3턴, 이건 끝날 때까지)');
   if (sk.cd) t.push(`⏳ 쿨타임 ${sk.cd}턴`);
   if (sk.cleanse) t.push('내 상태이상(화상·독·출혈·약화) 제거');
   return t;
@@ -691,8 +728,8 @@ export const tierStars = (t) => '★'.repeat(Math.max(1, Math.min(5, t)));
 export function skillCategory(sk) {
   if (sk.pet) return '전용기';
   if (sk.pow || sk.bomb || sk.detonate) return '공격';
-  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward || sk.priority || sk.clone || sk.reflect || sk.reflectDebuff || sk.copy || sk.revive || sk.skillImmune || sk.cdReset || sk.devilDeal || sk.catchPro || sk.fightBuff || sk.statRoll?.[1] === 'self') return '강화';
-  if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp || sk.steal || sk.buffXfer || sk.joker || sk.curse || sk.curseGrant || sk.statRoll?.[1] === 'foe') return '약화';
+  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward || sk.priority || sk.clone || sk.reflect || sk.reflectDebuff || sk.copy || sk.revive || sk.skillImmune || sk.cdReset || sk.devilDeal || sk.catchPro || sk.fightBuff || sk.allElem || sk.whoIs || sk.statRoll?.[1] === 'self') return '강화';
+  if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp || sk.steal || sk.buffXfer || sk.joker || sk.curse || sk.curseGrant || sk.lockSkills || sk.statRoll?.[1] === 'foe') return '약화';
   return '회복·방어';
 }
 
@@ -770,7 +807,7 @@ export function grantSkills(inst, rng = Math.random) {
 // 전투에서 한쪽(나/야생)을 이렇게 표현해요: { name, emoji, hp, max, atk, def, st, mana, crit }
 // st(상태): { dots:[{kind,pct,turns}], stun, atkUp, atkDown, defUp, defDown, guard, shield, evade, regen }
 export const newSide = () => ({});
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 export const effAtk = (X) => (X.atk + (X.st.defToAtk?.amt ?? 0)) * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0), 0.2, 4) * (X.st.burst?.mult ?? 1) * (X.st.statMod?.atk ?? 1);
 export const effDef = (X) => (X.st.defToAtk ? 0 : X.def) * clamp(1 + (X.st.defUp?.pct ?? 0) - (X.st.defDown?.pct ?? 0), 0.2, 4) * (X.st.statMod?.def ?? 1);
 export const effSpd = (X) => (X.spd ?? 0) * clamp(1 + (X.st.spdUp?.pct ?? 0) - (X.st.spdDown?.pct ?? 0), 0.2, 4) * (X.st.statMod?.spd ?? 1);
@@ -827,7 +864,7 @@ const heal = (X, n) => {
 
 // ───────── 🆕 배치 3 헬퍼 ─────────
 // 스킬로 "적에게 가는" 효과 칸들 — 상대가 스킬 면역이면 castSkill 이 이 칸들을 지워요
-const HOSTILE_KEYS = ['pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'turnCut', 'healCut', 'atkDown', 'defDown', 'stun', 'dot', 'drainMana', 'swapHp', 'buffXfer', 'joker', 'curseGrant'];
+const HOSTILE_KEYS = ['pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'turnCut', 'healCut', 'atkDown', 'defDown', 'stun', 'dot', 'drainMana', 'swapHp', 'buffXfer', 'joker', 'curseGrant', 'lockSkills'];
 export const ROLL_CAP = { 1: 1.3, 2: 1.5, 3: 1.8, 4: 2.2, 5: 3 }; // 🎰 등급별 능력치 변동 상한 (배수)
 const STAT_LABEL = { atk: '⚔️ 공격력', def: '🧱 방어력', spd: '👟 스피드' };
 export const cdLeft = (st, id) => st?.cds?.[id] ?? 0; // ⏳ 남은 쿨타임 (0 이면 쓸 수 있어요)
@@ -1009,7 +1046,7 @@ export function castSkill(sk, A, B, rng, log) {
     if (mine === sk.id) { // 조커 카드가 상대 손에 들어갔어요
       const lost = Math.round(B.mana);
       B.mana = 0;
-      B.st.sealed = { turns: JOKER_CFG.sealTurns + 1 }; // +1: 이번 턴 끝 감소분
+      if (!B.st.sealed?.perm) B.st.sealed = { turns: JOKER_CFG.sealTurns + 1 }; // +1: 이번 턴 끝 감소분 (영구 봉인은 덮어쓰지 않아요)
       log.push(`　😈 ${B.name}(이)가 **조커 카드**를 받았어요! 마나 ${lost} 전부 삭제 + 스킬 ${JOKER_CFG.sealTurns}턴 봉인!`);
     }
   }
@@ -1019,12 +1056,12 @@ export function castSkill(sk, A, B, rng, log) {
   const skElem = skillElement(sk);
   let elemMul = 1;
   if (sk.pow || sk.bomb) {
-    const clash = elemClash(skElem, B, { ignoreResist: sk.ignoreResist });
+    const clash = elemClash(skElem, B, { ignoreResist: sk.ignoreResist, attacker: A }); // 🌈 allElem 반영
     const devilWeak = !!A.st.devil && clash.mult < ELEM_CFG.strong; // 😈 악마의 거래: 약점 확정
     const cmult = devilWeak ? ELEM_CFG.strong : clash.mult;
     elemMul = cmult;
     if (sk.weakBonus && cmult > 1) elemMul *= 1 + sk.weakBonus;
-    const stab = skElem !== 'normal' && effElems(A).includes(skElem) ? ELEM_CFG.stab : 1;
+    const stab = skElem !== 'normal' && (effElems(A).includes(skElem) || isAllElemAtk(A)) ? ELEM_CFG.stab : 1;
     elemMul *= stab;
     const tags = [];
     if (devilWeak) tags.push(`😈 악마의 거래: 약점 확정! (×${ELEM_CFG.strong})`);
@@ -1072,6 +1109,16 @@ export function castSkill(sk, A, B, rng, log) {
   }
   if (sk.pow) {
     for (let i = 0; i < hits && B.hp > 0; i++) {
+      if (B.st.whoIs && rng() < B.st.whoIs.pct) { // 🎭 누구게?: 이 타격이 때린 쪽(A) 자신에게 들어가요
+        const sa = effAtk(A) + fearBonus;
+        const sd = Math.max(1, Math.round(Math.max(sa * 0.25, sa - effDef(A) * 0.5) * sk.pow * (0.85 + rng() * 0.3)));
+        const self = mitigate(A, sd, rng);
+        A.hp = Math.max(0, A.hp - self.dmg);
+        A.st.turnTaken = (A.st.turnTaken ?? 0) + self.dmg;
+        log.push(`　🎭 **누구게?** ${hits > 1 ? `${i + 1}타가` : '공격이'} ${B.name}이(가) 아니라 ${A.name}에게 들어갔어요! **${self.dmg}** 데미지${self.note}`);
+        if (A.hp <= 0) break;
+        continue;
+      }
       const atk = effAtk(A) + fearBonus;
       const def = effDef(B) * (1 - (sk.pierce ?? 0));
       let dmg = Math.max(atk * 0.25, atk - def * 0.5) * sk.pow * mult * (0.85 + rng() * 0.3);
@@ -1155,6 +1202,11 @@ export function castSkill(sk, A, B, rng, log) {
     A.st.devil = { turns: sk.devilDeal[0] + 1, mult: sk.devilDeal[1], dealt: 0 }; // +1: 이번 턴 끝 감소분
     log.push(`　😈 **악마와 거래했어요!** ${sk.devilDeal[0]}턴 동안 모든 공격이 확정 급소 + 약점! 하지만 못 쓰러뜨리면 준 피해의 ×${sk.devilDeal[1]} 를 무효화 불가 피해로 받아요…`);
   }
+  if (sk.allElem) { // 🌈 속성 전체 부여: turns 는 guard·ward 처럼 이번 턴부터 센 턴 수예요
+    A.st.allElem = { mode: sk.allElem[0], turns: sk.allElem[1] };
+    log.push(`　🌈 ${sk.allElem[1]}턴 동안 ${A.name}에게 ${{ attack: '모든 속성으로 공격하는 힘이', defend: '모든 속성이 깃든 몸이', both: '모든 속성의 힘과 몸이' }[sk.allElem[0]] ?? '모든 속성이'} 생겼어요!`);
+  }
+  if (sk.whoIs) { A.st.whoIs = { pct: sk.whoIs[0], turns: sk.whoIs[1] }; log.push(`　🎭 ${sk.whoIs[1]}턴 동안 상대의 공격이 ${P100(sk.whoIs[0])} 확률로 상대 자신에게 들어가요!`); }
   if (sk.catchPro) { // 🪢 포획 전문가: 유효 턴 동안 도망을 막고 포획률 상승 (붙잡았을 때의 제한 턴 연장은 catchProHold 가 해요)
     const dur = catchProTurns(sk);
     A.st.catchPro = { bonus: sk.catchPro[0], extra: sk.catchPro[1], turns: dur + 1, held: A.st.catchPro?.held ?? false }; // +1: 이번 턴 끝 감소분
@@ -1241,7 +1293,7 @@ export function castSkill(sk, A, B, rng, log) {
       log.push(cut ? `　⏳ ${B.name}의 좋은 효과 지속시간이 ${sk.turnCut}턴 줄었어요!` : '　💨 줄일 효과가 없었어요…');
     }
     // 🔮 거울 장막: 디버프를 쓴 쪽에게 되돌려요
-    const hasDebuff = sk.healCut || sk.atkDown || (sk.defDown && sk.defDown[0] > 0) || sk.stun || sk.dot || sk.drainMana || sk.curseGrant;
+    const hasDebuff = sk.healCut || sk.atkDown || (sk.defDown && sk.defDown[0] > 0) || sk.stun || sk.dot || sk.drainMana || sk.curseGrant || sk.lockSkills;
     const T = B.st.reflectDebuff && hasDebuff ? A : B;
     if (T !== B) log.push(`　🔮 ${B.name}의 거울 장막! 디버프가 ${A.name}에게 되돌아가요!`);
     if (sk.healCut) { T.st.healCut = { pct: sk.healCut[0], turns: sk.healCut[1] }; log.push(`　🚑 ${T.name}의 회복 효과 -${P100(sk.healCut[0])} (${sk.healCut[1]}턴)`); }
@@ -1253,6 +1305,7 @@ export function castSkill(sk, A, B, rng, log) {
       T.st.dots.push({ kind: sk.dot[0], pct: sk.dot[1], turns: sk.dot[2] });
       log.push(`　${DOT[sk.dot[0]] ?? sk.dot[0]} ${T.name}에게 ${sk.dot[2]}턴 동안!`);
     }
+    if (sk.lockSkills) { T.st.sealed = { turns: 9999, perm: true }; log.push(`　🔏 ${T.name}의 스킬이 **이번 전투 동안 영구 봉인**됐어요!`); }
     if (sk.drainMana) { const n = Math.min(T.mana, sk.drainMana); T.mana -= n; if (n) log.push(`　🔻 ${T.name} 마나 -${n}`); }
     if (sk.curseGrant && A.st.cursed) { // 🪬 저주부여: 저주로 받은 디버프를 ×배수 위력으로
       const rec = A.st.cursed;
@@ -1337,8 +1390,8 @@ export function tickSide(X, log, gainMana = true, foe = null) {
     delete st.manaMaxUp;
   }
   if (st.revive && --st.revive.turns <= 0) { delete st.revive; log.push(`🪽 ${X.name}의 부활 효과가 사라졌어요`); }
-  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro']) {
-    if (st[k] && --st[k].turns <= 0) delete st[k];
+  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro', 'allElem', 'whoIs']) {
+    if (st[k] && !st[k].perm && --st[k].turns <= 0) delete st[k]; // perm(영구 봉인)은 줄지 않아요
   }
   for (const id of Object.keys(st.cds ?? {})) if (--st.cds[id] <= 0) delete st.cds[id]; // ⏳ 쿨타임 감소
   st.prevTaken = st.turnTaken ?? 0; // 👼 지난 턴 받은 피해 기억 (대천사의 축복용)
@@ -1362,7 +1415,7 @@ export function rollWildSkills(petId, rng = Math.random) {
 export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
   if (wild.st?.sealed) return null; // 🔒 조커로 봉인되면 기본 공격만 해요
   const options = (skillIds ?? []).map((id) => SKILLS[id]).filter((sk) => sk && sk.cost <= wild.mana && cdLeft(wild.st, sk.id) <= 0
-    && !(sk.joker && wild.fight?.jokerUsed) && !(sk.devilDeal && wild.st?.devil) && !(sk.curseGrant && !wild.st?.cursed) && !sk.catchPro && !sk.fightBuff);
+    && !(sk.joker && wild.fight?.jokerUsed) && !(sk.devilDeal && wild.st?.devil) && !(sk.curseGrant && !wild.st?.cursed) && !sk.catchPro && !sk.fightBuff && !sk.lockSkills);
   if (!options.length) return null; // 배운 스킬이 없거나 마나가 모자라면 기본 공격
 
   const myRatio = wild.hp / wild.max;
@@ -1375,7 +1428,7 @@ export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
     if (sk.stun || sk.atkDown || sk.defDown || sk.dot) s += 2; // 방해 효과는 언제나 쓸모 있어요
     if (sk.pow) s += sk.pow; // 순수 세기도 반영
     if (sk.pow) { // 🌈 상성이 좋은 스킬을 더 골라요 (약점이면 +2.5, 반감이면 -2)
-      const cl = elemClash(skillElement(sk), me, { ignoreResist: sk.ignoreResist });
+      const cl = elemClash(skillElement(sk), me, { ignoreResist: sk.ignoreResist, attacker: wild });
       if (cl.mult >= 1.1) s += 2.5;
       else if (cl.mult <= 0.9) s -= 2;
     }
@@ -1422,7 +1475,9 @@ export function statusText(st = {}) {
   if (st.statMod) t.push(`🎰 능력치 ⚔️×${+st.statMod.atk.toFixed(2)} 🧱×${+st.statMod.def.toFixed(2)} 👟×${+st.statMod.spd.toFixed(2)} ${st.statMod.turns}턴`);
   if (st.skillImmune) t.push(`🧿 스킬면역 ${st.skillImmune.turns}턴`);
   if (st.revive) t.push(`🪽 부활대기 ${st.revive.turns}턴`);
-  if (st.sealed) t.push(`🔒 스킬봉인 ${st.sealed.turns}턴`);
+  if (st.sealed) t.push(st.sealed.perm ? '🔒 스킬 영구봉인' : `🔒 스킬봉인 ${st.sealed.turns}턴`);
+  if (st.allElem) t.push(`🌈 전속성(${{ attack: '공격', defend: '방어', both: '공격+방어' }[st.allElem.mode] ?? ''}) ${st.allElem.turns}턴`);
+  if (st.whoIs) t.push(`🎭 누구게? ${Math.round(st.whoIs.pct * 100)}% ${st.whoIs.turns}턴`);
   if (st.cursed) t.push(`🧿 저주 ${st.cursed.turns}턴`);
   if (st.catchPro) t.push(`🪢 포획전문가 ${st.catchPro.turns}턴 (포획률 +${Math.round(st.catchPro.bonus * 100)}%p${st.catchPro.held ? ' · 붙잡음' : ''})`);
   if (st.fightBuff && fightBuffText(st.fightBuff)) t.push(`📈 ${fightBuffText(st.fightBuff)}`);
