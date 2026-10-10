@@ -16,6 +16,14 @@
 //   elem 스킬의 속성 (fire/water/grass/electric/ice/wind/earth/light/dark/poison/normal — 안 적으면 무속성)
 //   weakBonus 비율 상대 속성이 약점일 때 데미지 추가 · ignoreResist 상대가 "효과 별로"여도 반감 무시
 //   convert [속성,턴] 내 속성을 바꿔요 (같은 속성 보너스 · 방어 상성도 같이 바뀌어요) · ward 턴 약점 속성으로 맞아도 추가 피해 없음
+//   🆕 2차 확장 효과 칸 (배치 1):
+//   manaMaxUp [수치,턴] 최대마나 증가 · manaRegenUp [수치,턴] 턴마다 차는 마나 증가
+//   steal [stat,비율,턴] 상대 공격력/방어력을 훔쳐서 내 버프+상대 디버프로 (stat: 'atk'|'def')
+//   turnCut 숫자 상대의 좋은 효과(공방업·보호태세·재생·보호막) 남은 턴을 깎아요
+//   truePct 비율 방어 무시 고정추가피해(최대체력 비율) · mercy 이번 공격은 상대 체력을 1% 밑으로 못 내려요
+//   burstAtk [배율,턴] 공격력을 배수로 (한도 없음, 예: 5 = x500%) · debuffToBuff 내 디버프(공방다운·기절)를 전부 버프로
+//   coinflip 턴 그동안 받는 모든 피해가 50% 확률로 2배, 50% 확률로 0 · defToAtk 턴 방어력을 전부 공격력으로 전환
+//   healCut [비율,턴] 상대가 받는 회복 효과를 비율만큼 깎아요
 
 export const SKILL_CFG = {
   manaMax: 100, // 마나 최대치 (마나 수정으로 펫마다 더 늘릴 수 있어요)
@@ -368,6 +376,19 @@ U('doomsday_clock', '종말의 시계', '🕰️', 5, { bomb: [5.5, 4], defDown:
 U('mana_nova', '마나 초신성', '🌟', 5, { pow: 1.2, overload: 0.035, pierce: 0.3, cost: 30 }, '쌓아둔 마나가 별처럼 폭발해요. 방어도 뚫어요!');
 U('devil_dice', '악마의 주사위', '😈', 5, { pow: 1.8, gamble: [0.3, 5.0, 0.3] }, '30%의 기적에 나를 걸어요. 실패하면 많이 아파요.');
 
+// ───────── 🆕 2차 확장 스킬 (배치 1 — manaMaxUp·manaRegenUp·steal·turnCut·truePct·mercy·burstAtk·debuffToBuff·coinflip·defToAtk·healCut 예시) ─────────
+U('mana_surge', '마나증폭', '🔷', 2, { manaMaxUp: [30, 3] }, '그릇이 커져서 마나를 더 담을 수 있어요.');
+U('mana_spring', '마나샘', '💧', 2, { manaRegenUp: [10, 3] }, '퐁퐁 솟아나는 마나샘이 생겨요.');
+U('power_steal', '힘흡수', '🧲', 3, { steal: ['atk', 0.3, 3] }, '상대의 힘을 쭉 빨아들여요.');
+U('iron_steal', '철벽흡수', '🧲', 3, { steal: ['def', 0.3, 3] }, '상대의 단단함을 내 것으로!');
+U('time_cut', '시간깎기', '⏳', 2, { turnCut: 2 }, '상대에게 걸린 좋은 효과의 시간을 싹둑 잘라요.');
+U('true_strike', '필중가격', '🎯', 3, { pow: 1.2, truePct: 0.1 }, '방어를 뚫는 확정 타격이 추가로 꽂혀요.');
+U('mercy_blow', '자비의일격', '🕊️', 2, { pow: 1.5, mercy: true }, '세게 때리지만 상대는 체력 1%로 꼭 살아남아요.');
+U('overdrive', '초출력', '🔥', 4, { burstAtk: [5, 1] }, '한계를 넘어 공격력이 폭주해요! (×500%)');
+U('silver_lining', '전화위복', '🔄', 3, { debuffToBuff: true }, '나쁜 일도 생각하기 나름! 디버프가 전부 버프로.');
+U('all_or_nothing', '모아니면도', '🎲', 3, { coinflip: 2 }, '이판사판! 받는 공격이 2배 아니면 0이 돼요.');
+U('berserk_wall', '벽격투', '⚔️', 3, { defToAtk: 3 }, '방패를 내려놓고 그 힘을 전부 주먹에 실어요.');
+U('plague_touch', '역병손길', '🚑', 3, { pow: 1.3, healCut: [0.5, 3] }, '손이 닿으면 회복이 잘 안 돼요…');
 
 // ───────── 🌈 속성 상성 스킬 (약점 노리기 · 반감 무시 · 방벽 · 속성 변환) ─────────
 G('weak_point', '약점 찌르기', '🎯', 2, { pow: 1.2, weakBonus: 0.5 });
@@ -670,23 +691,32 @@ export function grantSkills(inst, rng = Math.random) {
 // st(상태): { dots:[{kind,pct,turns}], stun, atkUp, atkDown, defUp, defDown, guard, shield, evade, regen }
 export const newSide = () => ({});
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-export const effAtk = (X) => X.atk * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0), 0.2, 4);
-export const effDef = (X) => X.def * clamp(1 + (X.st.defUp?.pct ?? 0) - (X.st.defDown?.pct ?? 0), 0.2, 4);
+export const effAtk = (X) => (X.atk + (X.st.defToAtk?.amt ?? 0)) * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0), 0.2, 4) * (X.st.burst?.mult ?? 1);
+export const effDef = (X) => (X.st.defToAtk ? 0 : X.def) * clamp(1 + (X.st.defUp?.pct ?? 0) - (X.st.defDown?.pct ?? 0), 0.2, 4);
 
 // 맞는 쪽의 회피 · 방어 · 보호막을 적용해요
-export function mitigate(X, dmg) {
+export function mitigate(X, dmg, rng = Math.random) {
   const st = X.st;
   if (st.evade > 0) { st.evade -= 1; return { dmg: 0, note: ' (🌀 회피!)' }; }
   let note = '';
-  if (st.guard) { dmg = Math.max(1, Math.round(dmg * (1 - st.guard.pct))); note += ' (🛡️ 방어)'; }
-  if (st.shield > 0) {
+  if (st.coinflip) {
+    if (rng() < 0.5) { dmg = Math.round(dmg * 2); note += ' (🎲 모 아니면 도: 2배!)'; }
+    else { dmg = 0; note += ' (🎲 모 아니면 도: 0!)'; }
+  }
+  if (st.guard && dmg > 0) { dmg = Math.max(1, Math.round(dmg * (1 - st.guard.pct))); note += ' (🛡️ 방어)'; }
+  if (st.shield > 0 && dmg > 0) {
     const ab = Math.min(st.shield, dmg);
     st.shield -= ab; dmg -= ab; note += ` (🔰 ${ab} 흡수)`;
   }
   return { dmg, note };
 }
 
-const heal = (X, n) => { const real = Math.min(X.max - X.hp, Math.max(0, Math.round(n))); X.hp += real; return real; };
+const heal = (X, n) => {
+  if (X.st?.healCut) n *= 1 - X.st.healCut.pct;
+  const real = Math.min(X.max - X.hp, Math.max(0, Math.round(n)));
+  X.hp += real;
+  return real;
+};
 
 // 스킬 한 번 쓰기. A = 쓰는 쪽, B = 맞는 쪽
 export function castSkill(sk, A, B, rng, log) {
@@ -748,11 +778,21 @@ export function castSkill(sk, A, B, rng, log) {
       const crit = rng() < (A.crit ?? 0.1) + (sk.crit ?? 0);
       if (crit) dmg *= 1.5;
       if (sk.exec && B.hp / B.max <= 0.3) dmg *= sk.exec;
-      const hit = mitigate(B, Math.max(1, Math.round(dmg)));
+      const hit = mitigate(B, Math.max(1, Math.round(dmg)), rng);
+      if (sk.mercy) {
+        const floor = Math.max(1, Math.round(B.max * 0.01));
+        if (B.hp - hit.dmg < floor) { hit.dmg = Math.max(0, B.hp - floor); hit.note += ' (🕊 상대가 1%는 버텼어요)'; }
+      }
       B.hp = Math.max(0, B.hp - hit.dmg);
       dealt += hit.dmg;
       log.push(`　${hits > 1 ? `${i + 1}타 ` : ''}${crit ? '💥 급소! ' : ''}${B.name}에게 **${hit.dmg}** 데미지${hit.note}`);
     }
+  }
+  if (sk.truePct && B.hp > 0) {
+    const n = Math.max(1, Math.round(B.max * sk.truePct));
+    B.hp = Math.max(0, B.hp - n);
+    dealt += n;
+    log.push(`　🎯 방어 무시 고정 피해 **${n}** (최대체력의 ${P100(sk.truePct)})`);
   }
   if (sk.drain && dealt > 0) { const n = heal(A, dealt * sk.drain); if (n) log.push(`　🩸 체력 +${n}`); }
   if (sk.recoil) {
@@ -768,6 +808,23 @@ export function castSkill(sk, A, B, rng, log) {
   if (sk.defUp) { A.st.defUp = { pct: sk.defUp[0], turns: sk.defUp[1] }; log.push(`　🧱 ${sk.defUp[1]}턴 동안 방어력 +${P100(sk.defUp[0])}`); }
   if (sk.convert) { A.st.convert = { elem: sk.convert[0], turns: sk.convert[1] }; log.push(`　🧬 ${sk.convert[1]}턴 동안 ${A.name}의 속성이 **${elemTag(sk.convert[0])}** 으로 변했어요!`); }
   if (sk.ward) { A.st.ward = { turns: sk.ward }; log.push(`　🔮 ${sk.ward}턴 동안 속성 약점을 막아주는 방벽이 쳐졌어요`); }
+  // 🆕 2차 확장: 마나 늘리기 · 공격력 폭주 · 디버프→버프 · 모아니면도 · 방어력→공격력
+  if (sk.manaMaxUp) {
+    A.manaMax += sk.manaMaxUp[0];
+    A.st.manaMaxUp = { amt: sk.manaMaxUp[0], turns: sk.manaMaxUp[1] };
+    log.push(`　🔷 ${sk.manaMaxUp[1]}턴 동안 최대 마나 +${sk.manaMaxUp[0]}`);
+  }
+  if (sk.manaRegenUp) { A.st.manaRegenUp = { amt: sk.manaRegenUp[0], turns: sk.manaRegenUp[1] }; log.push(`　🔋 ${sk.manaRegenUp[1]}턴 동안 턴마다 차는 마나 +${sk.manaRegenUp[0]}`); }
+  if (sk.burstAtk) { A.st.burst = { mult: sk.burstAtk[0], turns: sk.burstAtk[1] }; log.push(`　🔥 ${sk.burstAtk[1]}턴 동안 공격력이 **×${sk.burstAtk[0]}배**가 돼요!`); }
+  if (sk.debuffToBuff) {
+    let n = 0;
+    if (A.st.atkDown) { A.st.atkUp = { pct: (A.st.atkUp?.pct ?? 0) + A.st.atkDown.pct, turns: A.st.atkDown.turns }; delete A.st.atkDown; n++; }
+    if (A.st.defDown) { A.st.defUp = { pct: (A.st.defUp?.pct ?? 0) + A.st.defDown.pct, turns: A.st.defDown.turns }; delete A.st.defDown; n++; }
+    if (A.st.stun) { delete A.st.stun; n++; }
+    log.push(n ? '　🔄 나쁜 효과가 전부 좋은 효과로 바뀌었어요!' : '　💨 바꿀 나쁜 효과가 없었어요…');
+  }
+  if (sk.coinflip) { A.st.coinflip = { turns: sk.coinflip }; log.push(`　🎲 ${sk.coinflip}턴 동안 받는 피해가 50% 확률로 2배, 50% 확률로 0이 돼요!`); }
+  if (sk.defToAtk) { A.st.defToAtk = { amt: A.def, turns: sk.defToAtk }; log.push(`　⚔️ ${sk.defToAtk}턴 동안 방어력을 전부 공격력으로 바꿨어요!`); }
   if (sk.mana) { const n = Math.min(sk.mana, SKILL_CFG.manaMax + 1000); A.mana += n; log.push(`　🔋 마나 +${n}`); }
   if (sk.cleanse) { A.st.dots = []; delete A.st.atkDown; delete A.st.defDown; delete A.st.stun; log.push('　✨ 나쁜 상태가 사라졌어요'); }
   // 🆕 독창 스킬: 상태이상 터뜨리기 (새 상태이상을 걸기 전에 먼저 터뜨려요)
@@ -805,6 +862,22 @@ export function castSkill(sk, A, B, rng, log) {
       A.mana += n;
       log.push(`　🧤 ${B.name}의 마나 ${n}을(를) 훔쳤어요!`);
     }
+    if (sk.steal) {
+      const [stat, pct, turns] = sk.steal;
+      const upKey = stat === 'atk' ? 'atkUp' : 'defUp';
+      const downKey = stat === 'atk' ? 'atkDown' : 'defDown';
+      A.st[upKey] = { pct: (A.st[upKey]?.pct ?? 0) + pct, turns };
+      B.st[downKey] = { pct: (B.st[downKey]?.pct ?? 0) + pct, turns };
+      log.push(`　🧲 ${B.name}의 ${stat === 'atk' ? '공격력' : '방어력'} ${P100(pct)}을(를) 훔쳤어요! (${turns}턴)`);
+    }
+    if (sk.turnCut) {
+      let cut = 0;
+      for (const k of ['atkUp', 'defUp', 'guard', 'regen']) {
+        if (B.st[k]?.turns) { B.st[k].turns = Math.max(0, B.st[k].turns - sk.turnCut); if (B.st[k].turns <= 0) delete B.st[k]; cut++; }
+      }
+      log.push(cut ? `　⏳ ${B.name}의 좋은 효과 지속시간이 ${sk.turnCut}턴 줄었어요!` : '　💨 줄일 효과가 없었어요…');
+    }
+    if (sk.healCut) { B.st.healCut = { pct: sk.healCut[0], turns: sk.healCut[1] }; log.push(`　🚑 ${B.name}의 회복 효과 -${P100(sk.healCut[0])} (${sk.healCut[1]}턴)`); }
     if (sk.atkDown) { B.st.atkDown = { pct: sk.atkDown[0], turns: sk.atkDown[1] }; log.push(`　🔻 ${B.name} 공격력 -${P100(sk.atkDown[0])} (${sk.atkDown[1]}턴)`); }
     if (sk.defDown && sk.defDown[0] > 0) { B.st.defDown = { pct: sk.defDown[0], turns: sk.defDown[1] }; log.push(`　🔻 ${B.name} 방어력 -${P100(sk.defDown[0])} (${sk.defDown[1]}턴)`); }
     if (sk.stun && rng() < sk.stun) { B.st.stun = 1; log.push(`　💫 ${B.name}(이)가 **기절**했어요!`); }
@@ -850,10 +923,16 @@ export function tickSide(X, log, gainMana = true) {
     if (n) log.push(`🌱 ${X.name} 체력 +${n}`);
     if (--st.regen.turns <= 0) delete st.regen;
   }
-  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward']) {
+  // 🆕 최대마나 증가 효과가 끝나면 늘렸던 만큼 되돌려요
+  if (st.manaMaxUp && --st.manaMaxUp.turns <= 0) {
+    X.manaMax = Math.max(SKILL_CFG.manaMax, X.manaMax - st.manaMaxUp.amt);
+    X.mana = Math.min(X.mana, X.manaMax);
+    delete st.manaMaxUp;
+  }
+  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut']) {
     if (st[k] && --st[k].turns <= 0) delete st[k];
   }
-  if (gainMana) X.mana = Math.min(X.manaMax, X.mana + SKILL_CFG.manaPerTurn);
+  if (gainMana) X.mana = Math.min(X.manaMax, X.mana + SKILL_CFG.manaPerTurn + (st.manaRegenUp?.amt ?? 0));
 }
 
 // 🆕 야생 펫도 아군처럼 만날 때 랜덤 스킬을 1~3개 배워서 나와요
@@ -911,6 +990,12 @@ export function statusText(st = {}) {
   if (st.echo) t.push(`🔊 메아리 ${st.echo.turns}턴`);
   if (st.convert) t.push(`🧬 ${elemTag(st.convert.elem)} 변신 ${st.convert.turns}턴`);
   if (st.ward) t.push(`🔮 속성방벽 ${st.ward.turns}턴`);
+  if (st.manaMaxUp) t.push(`🔷 최대마나+${st.manaMaxUp.amt} ${st.manaMaxUp.turns}턴`);
+  if (st.manaRegenUp) t.push(`🔋 마나회복+${st.manaRegenUp.amt} ${st.manaRegenUp.turns}턴`);
+  if (st.burst) t.push(`🔥 공격력×${st.burst.mult} ${st.burst.turns}턴`);
+  if (st.coinflip) t.push(`🎲 모아니면도 ${st.coinflip.turns}턴`);
+  if (st.defToAtk) t.push(`⚔️ 방어→공격 ${st.defToAtk.turns}턴`);
+  if (st.healCut) t.push(`🚑 회복감소 ${st.healCut.turns}턴`);
   return t.join(' · ');
 }
 
