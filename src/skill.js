@@ -34,6 +34,10 @@
 //   joker true 내 스킬 하나 ↔ 상대 스킬 하나 랜덤 맞교환 (전투 안에서만 · 전투당 1번 = ex.battle.jokerUsed) — 상대가 받는 게 조커 카드면 상대 마나 전부 삭제 + 스킬 봉인
 //   curse [개수,턴] 나 자신에게 랜덤 디버프를 개수만큼 걸고, 이 스킬 칸이 curse_grant(저주부여)로 바뀌어요 · curseGrant 배수 저주로 받은 디버프를 배수 위력으로 상대에게
 //   devilDeal [턴,배수] 턴 동안 내 모든 공격이 확정 급소+약점 · 턴 안에 못 쓰러뜨리면 준 피해×배수를 무효화 불가 피해로 받아요 · hidden true 슬롯 뽑기에 안 나와요
+//   🆕 5차 확장 효과 칸 (배치 5 — 일부):
+//   catchPro [포획률+,연장턴] 포획 전문가: 유효 14턴(★5 는 15턴, CATCH_PRO_CFG) 동안 야생 펫이 도망치려 하면 확정으로 붙잡고(처음 붙잡을 때 전투 제한 턴 +연장턴), 포획률 +N%p (st.catchPro · ex.battle.extraRounds)
+//   fightBuff { catch, flee, exp, gold, petExp, equip } 전투 중 버프 — 이번 전투가 끝날 때까지 유지, 겹치면 쌓여요 (FIGHT_BUFF_CAP 한도) (st.fightBuff = ex.battle.mySt.fightBuff)
+//     catch 포획률 +%p · flee 도망 확률 -%p · exp 트레이너 경험치 · gold 돈 · petExp 펫 경험치 · equip 장비 획득 확률 (모두 +%)
 
 export const SKILL_CFG = {
   manaMax: 100, // 마나 최대치 (마나 수정으로 펫마다 더 늘릴 수 있어요)
@@ -474,6 +478,19 @@ U('forbidden_curse', '금단의 저주', '🧿', 4, { curse: [2, 4], cost: 25, c
 U('curse_grant', '저주부여', '🪬', 4, { curseGrant: 3, cost: 20, elem: 'dark', hidden: true }, '내가 받은 저주를 세 배로 키워서 선물해요. (금단의 저주를 쓴 다음 턴에만 나타나요)');
 U('devil_deal', '악마와의 거래', '😈', 5, { devilDeal: [2, 3], cost: 60, cd: 6, elem: 'dark' }, '"2턴 안에 끝내면 공짜, 못 끝내면… 준 만큼의 세 배를 받아가지."');
 
+// ───────── 🆕 5차 확장 (배치 5 — 일부): 포획 전문가 · 전투 중 버프 ─────────
+// 포획 전문가: 14턴(★5 는 15턴) 동안 도망을 막고 잡기 쉬워져요. 처음 붙잡을 때 제한 턴 +15.
+U('catch_expert', '포획 전문가', '🪢', 4, { catchPro: [0.2, 15], cost: 35, cd: 8, elem: 'normal' }, '도망칠 틈은 없어요. 한 번 노린 사냥감은 놓치지 않아요.');
+U('catch_master', '포획 대가', '🪢', 5, { catchPro: [0.2, 15], cost: 55, cd: 8, elem: 'normal' }, '전설의 사냥꾼. 하늘 끝까지 쫓아가서라도 붙잡아요.');
+// 전투 중 버프 (이번 전투가 끝날 때까지 · 겹쳐 쓰면 쌓여요)
+U('catch_aura', '포획의 기운', '🎯', 2, { fightBuff: { catch: 0.15 } }, '야생 펫이 왠지 순해져요. 볼이 더 잘 들어가요.');
+U('calm_wild', '진정의 노래', '🕊️', 2, { fightBuff: { flee: 0.2 } }, '야생 펫이 이 자리를 떠나기 싫어져요.');
+U('exp_spring', '경험의 샘', '⭐', 2, { fightBuff: { exp: 0.3 } }, '싸울수록 배움이 솟아나요.');
+U('gold_touch', '황금 손', '💰', 2, { fightBuff: { gold: 0.4 } }, '손대는 곳마다 금화가 반짝여요.');
+U('growth_bless', '성장의 축복', '🐾', 2, { fightBuff: { petExp: 0.3 } }, '펫이 이번 싸움에서 더 많이 자라요.');
+U('treasure_sense', '보물 감각', '🎁', 3, { fightBuff: { equip: 0.5 } }, '떨어진 장비가 눈에 쏙 들어와요.');
+U('hunter_blessing', '사냥꾼의 가호', '🏹', 4, { fightBuff: { catch: 0.1, flee: 0.1, exp: 0.15, gold: 0.15, petExp: 0.15, equip: 0.2 } }, '사냥에 도움이 되는 모든 행운이 조금씩.');
+
 // ───────── 전용기 (그 펫만 배울 수 있어요 · 같은 마나의 일반 스킬보다 세요) ─────────
 // 스타팅
 P('pyro_cat', 'sig_pyro_cat', '불꽃 발톱', '🐾', 2, { pow: 2.1, dot: ['burn', 0.06, 3, 0.6] }, '꼬리 끝 불꽃을 발톱에 모아 할퀴어요.');
@@ -659,6 +676,8 @@ export function skillEffectLines(sk) {
   if (sk.curse) t.push(`🧿 나 자신에게 랜덤 디버프 **${sk.curse[0]}개**를 ${sk.curse[1]}턴 동안 걸어요 (공격↓·방어↓·스피드↓·회복감소·화상·독·출혈 중) · 다음 턴부터 이 스킬이 **저주부여**로 바뀌어요`);
   if (sk.curseGrant) t.push(`🪬 저주로 받은 디버프를 **×${sk.curseGrant} 위력**으로 상대에게 부여해요 (쓰고 나면 다시 금단의 저주로 돌아와요)`);
   if (sk.devilDeal) t.push(`😈 ${sk.devilDeal[0]}턴 동안 내 모든 공격이 **확정 급소 + 약점 공격**! 단, ${sk.devilDeal[0]}턴 안에 상대를 쓰러뜨리지 못하면 그동안 준 피해의 **×${sk.devilDeal[1]}** 를 **무효화 불가 피해**로 나도 받아요 (부활·스킬 면역·쉴드·가드로 못 막고, 부활도 안 돼요)`);
+  if (sk.catchPro) t.push(`🪢 ${catchProTurns(sk)}턴 동안 유효: 야생 펫이 도망치려 하면 **확정으로 붙잡아요** (처음 붙잡을 때 이번 전투 제한 턴 **+${sk.catchPro[1]}턴**) · 포획률 **+${P100(sk.catchPro[0])}p**`);
+  if (sk.fightBuff) t.push(`📈 이번 전투가 끝날 때까지: ${fightBuffText(sk.fightBuff)} (겹쳐 쓰면 쌓이고 한도가 있어요)`);
   if (sk.cd) t.push(`⏳ 쿨타임 ${sk.cd}턴`);
   if (sk.cleanse) t.push('내 상태이상(화상·독·출혈·약화) 제거');
   return t;
@@ -672,7 +691,7 @@ export const tierStars = (t) => '★'.repeat(Math.max(1, Math.min(5, t)));
 export function skillCategory(sk) {
   if (sk.pet) return '전용기';
   if (sk.pow || sk.bomb || sk.detonate) return '공격';
-  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward || sk.priority || sk.clone || sk.reflect || sk.reflectDebuff || sk.copy || sk.revive || sk.skillImmune || sk.cdReset || sk.devilDeal || sk.statRoll?.[1] === 'self') return '강화';
+  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward || sk.priority || sk.clone || sk.reflect || sk.reflectDebuff || sk.copy || sk.revive || sk.skillImmune || sk.cdReset || sk.devilDeal || sk.catchPro || sk.fightBuff || sk.statRoll?.[1] === 'self') return '강화';
   if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp || sk.steal || sk.buffXfer || sk.joker || sk.curse || sk.curseGrant || sk.statRoll?.[1] === 'foe') return '약화';
   return '회복·방어';
 }
@@ -876,6 +895,33 @@ function applyXfer(X, foe, mode, log) {
 // 🃏 조커 설정: 상대가 조커 카드를 받으면 마나 전부 삭제 + sealTurns 턴 동안 스킬 봉인 / forceGive true 면 조커 카드가 항상 상대에게 가요
 export const JOKER_CFG = { sealTurns: 3, forceGive: false };
 
+// 🪢 포획 전문가 · 📈 전투 중 버프 설정 (배치 5)
+export const CATCH_PRO_CFG = { duration: 14, topTierDuration: 15 }; // 유효 턴 (최고등급 ★5 는 topTierDuration)
+export const catchProTurns = (sk) => (sk.tier >= 5 ? CATCH_PRO_CFG.topTierDuration : CATCH_PRO_CFG.duration);
+export const FIGHT_BUFF_CAP = { catch: 0.5, flee: 0.5, exp: 1, gold: 1, petExp: 1, equip: 1 }; // 겹쳐도 넘지 못하는 한도
+export const FIGHT_BUFF_LABEL = { catch: '🎯 포획률', flee: '🕊️ 도망률', exp: '⭐ 경험치', gold: '💰 돈', petExp: '🐾 펫 경험치', equip: '🎁 장비 획득률' };
+export const fightBuffOf = (st, key) => st?.fightBuff?.[key] ?? 0; // 전투 중 버프 값 (없으면 0)
+// 전투 중 버프를 글자로: "🎯 포획률 +15% · 🕊️ 도망률 -20%" (keys 로 보여줄 항목만 고를 수 있어요)
+export function fightBuffText(fb, keys = null) {
+  return Object.entries(fb ?? {})
+    .filter(([k, v]) => v > 0 && FIGHT_BUFF_LABEL[k] && (!keys || keys.includes(k)))
+    .map(([k, v]) => `${FIGHT_BUFF_LABEL[k]} ${k === 'flee' ? '-' : '+'}${Math.round(v * 100)}%`)
+    .join(' · ');
+}
+// 🪢 야생 펫이 도망치려 할 때 호출해요 (fight = ex.battle). 붙잡았으면 true.
+// onlyFirst true 면 아직 한 번도 안 붙잡았을 때만 붙잡아요 (제한 턴 도망이 끝없이 이어지는 걸 막아요)
+export function catchProHold(fight, log, { onlyFirst = false } = {}) {
+  const cp = fight?.mySt?.catchPro;
+  if (!cp) return false;
+  if (cp.held && onlyFirst) return false;
+  if (!cp.held) {
+    cp.held = true;
+    fight.extraRounds = (fight.extraRounds ?? 0) + cp.extra;
+    log.push(`🪢 도망치려던 야생 펫을 **확정으로 붙잡았어요!** 이번 전투의 제한 턴이 **+${cp.extra}턴** 늘었어요!`);
+  } else log.push('🪢 도망치려던 야생 펫을 다시 **붙잡았어요!**');
+  return true;
+}
+
 // 🧿 저주: 자신에게 거는 디버프 후보 (pct = 1배 위력, dot = 지속피해)
 const CURSE_POOL = [
   { k: 'atkDown', pct: 0.25 },
@@ -924,6 +970,7 @@ export function castSkill(sk, A, B, rng, log) {
   const fizzle = (why) => { A.mana += sk.cost; log.push(`　💨 ${why} (마나는 돌려받았어요)`); };
   if (sk.joker && (A.fight ?? B.fight)?.jokerUsed) return fizzle('조커는 이번 전투에서 이미 쓰였어요…');
   if (sk.devilDeal && A.st.devil) return fizzle('이미 악마와 거래 중이에요…');
+  if ((sk.catchPro || sk.fightBuff) && !(A.fight && A.st === A.fight.mySt)) return fizzle('이 스킬은 트레이너의 펫만 쓸 수 있어요…'); // 🆕 배치 5: 포획·보상 스킬은 내 쪽만
   if (sk.curseGrant && !A.st.cursed) { revertCurseSlots(A.skills, A.st); return fizzle('부여할 저주가 사라졌어요…'); }
   if (!sk.echoed) A.st.last = sk.copied ? sk.srcId : sk.id; // 🆕 "마지막에 쓴 스킬" 기록 (복사용)
   if (sk.cd && !sk.copied && !sk.echoed) (A.st.cds ??= {})[sk.id] = sk.cd + 1; // ⏳ 쿨타임 시작 (+1: 이번 턴 끝 감소분)
@@ -1108,6 +1155,16 @@ export function castSkill(sk, A, B, rng, log) {
     A.st.devil = { turns: sk.devilDeal[0] + 1, mult: sk.devilDeal[1], dealt: 0 }; // +1: 이번 턴 끝 감소분
     log.push(`　😈 **악마와 거래했어요!** ${sk.devilDeal[0]}턴 동안 모든 공격이 확정 급소 + 약점! 하지만 못 쓰러뜨리면 준 피해의 ×${sk.devilDeal[1]} 를 무효화 불가 피해로 받아요…`);
   }
+  if (sk.catchPro) { // 🪢 포획 전문가: 유효 턴 동안 도망을 막고 포획률 상승 (붙잡았을 때의 제한 턴 연장은 catchProHold 가 해요)
+    const dur = catchProTurns(sk);
+    A.st.catchPro = { bonus: sk.catchPro[0], extra: sk.catchPro[1], turns: dur + 1, held: A.st.catchPro?.held ?? false }; // +1: 이번 턴 끝 감소분
+    log.push(`　🪢 ${dur}턴 동안 야생 펫이 도망치려 하면 확정으로 붙잡아요! 포획률 **+${P100(sk.catchPro[0])}p**`);
+  }
+  if (sk.fightBuff) { // 📈 전투 중 버프: 이번 전투가 끝날 때까지 쌓여요 (한도 FIGHT_BUFF_CAP)
+    const fb = (A.st.fightBuff ??= {});
+    for (const [k, v] of Object.entries(sk.fightBuff)) fb[k] = Math.min(FIGHT_BUFF_CAP[k] ?? 1, (fb[k] ?? 0) + v);
+    log.push(`　📈 이번 전투 동안 ${fightBuffText(sk.fightBuff)}! (지금까지 쌓인 효과: ${fightBuffText(fb)})`);
+  }
   if (sk.curse) { // 🧿 금단의 저주: 나 자신에게 랜덤 디버프 N개 · 이 칸이 저주부여로 바뀌어요
     const [cnt, turns] = sk.curse;
     const pool = CURSE_POOL.slice();
@@ -1280,7 +1337,7 @@ export function tickSide(X, log, gainMana = true, foe = null) {
     delete st.manaMaxUp;
   }
   if (st.revive && --st.revive.turns <= 0) { delete st.revive; log.push(`🪽 ${X.name}의 부활 효과가 사라졌어요`); }
-  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed']) {
+  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro']) {
     if (st[k] && --st[k].turns <= 0) delete st[k];
   }
   for (const id of Object.keys(st.cds ?? {})) if (--st.cds[id] <= 0) delete st.cds[id]; // ⏳ 쿨타임 감소
@@ -1305,7 +1362,7 @@ export function rollWildSkills(petId, rng = Math.random) {
 export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
   if (wild.st?.sealed) return null; // 🔒 조커로 봉인되면 기본 공격만 해요
   const options = (skillIds ?? []).map((id) => SKILLS[id]).filter((sk) => sk && sk.cost <= wild.mana && cdLeft(wild.st, sk.id) <= 0
-    && !(sk.joker && wild.fight?.jokerUsed) && !(sk.devilDeal && wild.st?.devil) && !(sk.curseGrant && !wild.st?.cursed));
+    && !(sk.joker && wild.fight?.jokerUsed) && !(sk.devilDeal && wild.st?.devil) && !(sk.curseGrant && !wild.st?.cursed) && !sk.catchPro && !sk.fightBuff);
   if (!options.length) return null; // 배운 스킬이 없거나 마나가 모자라면 기본 공격
 
   const myRatio = wild.hp / wild.max;
@@ -1367,6 +1424,8 @@ export function statusText(st = {}) {
   if (st.revive) t.push(`🪽 부활대기 ${st.revive.turns}턴`);
   if (st.sealed) t.push(`🔒 스킬봉인 ${st.sealed.turns}턴`);
   if (st.cursed) t.push(`🧿 저주 ${st.cursed.turns}턴`);
+  if (st.catchPro) t.push(`🪢 포획전문가 ${st.catchPro.turns}턴 (포획률 +${Math.round(st.catchPro.bonus * 100)}%p${st.catchPro.held ? ' · 붙잡음' : ''})`);
+  if (st.fightBuff && fightBuffText(st.fightBuff)) t.push(`📈 ${fightBuffText(st.fightBuff)}`);
   if (st.devil) t.push(`😈 악마의 거래 ${st.devil.turns}턴 · 준 피해 ${st.devil.dealt} (×${st.devil.mult})`);
   for (const [id, n] of Object.entries(st.cds ?? {})) if (SKILLS[id]) t.push(`⏳ ${SKILLS[id].name} 쿨 ${n}턴`);
   return t.join(' · ');

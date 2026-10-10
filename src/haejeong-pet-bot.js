@@ -39,6 +39,9 @@ import {
   afterHit,
   actsFirst,
   revertCurseSlots, // 🆕 저주부여 → 금단의 저주 복귀
+  catchProHold, // 🆕 배치 5: 포획 전문가 (도망 붙잡기)
+  fightBuffOf, // 🆕 배치 5: 전투 중 버프 값
+  fightBuffText,
 } from './skill.js';
 
 const SLOT_IDX = Array.from({ length: SLOT_COUNT }, (_, i) => i); // 스킬 슬롯 번호들 (0~4)
@@ -2123,27 +2126,28 @@ function hasVisited(player, locationId) {
 //            × (전투로 야생 펫 체력을 깎을수록 쉬워져요: 체력이 거의 0이면 최대 2배!)
 //            × (포획 아이템 배수: 간식·꿀·부적) → 아이템을 써도 최대 98%, 아이템 없이는 최대 95%예요.
 //            − 등급 깎임값(고등급만) → 0% 아래로 내려가면(음수) 못 잡아요. 음수는 -30% 까지만 내려가요.
-function catchChanceRaw(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0, itemMult = 1) {
+function catchChanceRaw(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0, itemMult = 1, flat = 0) {
   const gap = Math.max(0, wildLevel - mainLevel);
   const factor = Math.max(0.3, 1 - gap * 0.02);
   const weakBonus = 1 + (1 - Math.max(0, Math.min(1, hpRatio)));
   const base = PETS[petId].catchRate * factor * weakBonus * itemMult;
   const penalty = CATCH_GRADE_PENALTY[PETS[petId].grade] ?? 0;
-  const raw = base - penalty - CATCH_DROP_PER_TRY * tries; // 던진 횟수만큼 -10%p
+  const raw = base - penalty - CATCH_DROP_PER_TRY * tries + flat; // 던진 횟수만큼 -10%p · flat = 스킬로 올린 포획률(%p)
   return Math.max(penalty > 0 ? CATCH_NEG_FLOOR : CATCH_MIN_CHANCE, raw); // 계산값 (음수 가능)
 }
 
 // 실제로 굴리는 확률 = 계산값을 0% ~ 상한 사이로 맞춘 값
-function catchChance(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0, itemMult = 1) {
-  const raw = catchChanceRaw(petId, wildLevel, mainLevel, hpRatio, tries, itemMult);
-  const cap = itemMult > 1 ? CATCH_MAX_WITH_ITEMS : CATCH_MAX_CHANCE;
+function catchChance(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0, itemMult = 1, flat = 0) {
+  const raw = catchChanceRaw(petId, wildLevel, mainLevel, hpRatio, tries, itemMult, flat);
+  const cap = itemMult > 1 || flat > 0 ? CATCH_MAX_WITH_ITEMS : CATCH_MAX_CHANCE;
   return Math.max(0, Math.min(cap, raw));
 }
 
 // 도망 확률: 실패한 횟수만큼 +35%p (상한 90%). 끈끈이 그물을 쓰면 -30%p (최소 5%)
-function fleeChance(tries, net = false) {
+function fleeChance(tries, net = false, cut = 0) {
   const v = Math.min(FLEE_MAX, FLEE_BASE + FLEE_RISE_PER_TRY * tries);
-  return net ? Math.max(CATCH_NET_FLEE_MIN, v - CATCH_NET_FLEE_REDUCE) : v;
+  const base = net ? Math.max(CATCH_NET_FLEE_MIN, v - CATCH_NET_FLEE_REDUCE) : v;
+  return cut > 0 ? Math.max(0, base - cut) : base; // 🆕 cut = 스킬로 줄인 도망 확률(%p)
 }
 
 // ───────── 포획 아이템 🍖 ─────────
@@ -2155,16 +2159,25 @@ function exCatchMult(ex) {
   return 1 + (ex.catchBonus ?? 0) + (ex.charm ? CHARM_BONUS : 0);
 }
 
+// 🆕 배치 5: 전투 중 스킬 효과 (전투 단위 상태 = ex.battle.mySt)
+// 포획률 +%p: 포획의 기운 같은 전투 버프 + 포획 전문가(유효 턴 동안)
+function exCatchFlat(ex) {
+  const st = ex?.battle?.mySt;
+  return fightBuffOf(st, 'catch') + (st?.catchPro?.bonus ?? 0);
+}
+// 도망 확률 -%p
+const exFleeCut = (ex) => fightBuffOf(ex?.battle?.mySt, 'flee');
+
 // 지금 [잡기] 를 한 번 던졌을 때의 실제 포획 확률 (분석기가 보여주는 값 = 진짜 던질 때 쓰는 값)
 function exCatchChance(player, ex) {
   const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
-  return catchChance(ex.encounter.petId, ex.encounter.level, getMainPet(player)?.level ?? 1, hpRatio, ex.catchTries ?? 0, exCatchMult(ex));
+  return catchChance(ex.encounter.petId, ex.encounter.level, getMainPet(player)?.level ?? 1, hpRatio, ex.catchTries ?? 0, exCatchMult(ex), exCatchFlat(ex));
 }
 
 // 같은 조건의 "계산값" (0% 아래로 내려간 음수도 그대로 보여줘요 — 분석기용)
 function exCatchRaw(player, ex) {
   const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
-  return catchChanceRaw(ex.encounter.petId, ex.encounter.level, getMainPet(player)?.level ?? 1, hpRatio, ex.catchTries ?? 0, exCatchMult(ex));
+  return catchChanceRaw(ex.encounter.petId, ex.encounter.level, getMainPet(player)?.level ?? 1, hpRatio, ex.catchTries ?? 0, exCatchMult(ex), exCatchFlat(ex));
 }
 
 function catchItemState(player, ex) {
@@ -2178,7 +2191,7 @@ function catchItemState(player, ex) {
     charm: !!ex.charm,
     net: !!ex.net,
     analyzed: !!ex.analyzed,
-    fleeNext: fleeChance((ex.catchTries ?? 0) + 1, !!ex.net),
+    fleeNext: fleeChance((ex.catchTries ?? 0) + 1, !!ex.net, exFleeCut(ex)),
     owned,
   };
 }
@@ -2369,6 +2382,8 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
 
     const loc = LOCATIONS[ex.locationId];
     let expGain = Math.round(PETS[petId].expYield * loc.expMultiplier * 1.5) + (isNew ? 25 : 0);
+    const fb = ex.battle?.mySt?.fightBuff ?? {}; // 🆕 전투 중 버프 (경험치 · 장비 획득률)
+    if (fb.exp) expGain = Math.round(expGain * (1 + fb.exp));
     const trainerBoost = takeBoost(player, 'trainerExp'); // 🚀 포획 경험치에도 트레이너 부스트가 붙어요
     if (trainerBoost) expGain = Math.round(expGain * (1 + BOOST_PCT));
     const before = player.level;
@@ -2377,7 +2392,8 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
 
     player.exploration = null;
     return {
-      drops: awardEquipDrops(player, ex.encounter, loc, 'catch', rng), // 🎁 장비 드롭
+      drops: awardEquipDrops(player, ex.encounter, loc, 'catch', rng, 1 + (fb.equip ?? 0)), // 🎁 장비 드롭 (전투 버프로 확률 증가)
+      buffLines: fightBuffText(fb, ['exp', 'equip']) ? [`📈 전투 버프 적용! ${fightBuffText(fb, ['exp', 'equip'])}`] : [],
       kind: 'caught', commit: true, petId, level, isNew, expGain, locationId, trainerBoost, boostsLeft: { ...(player.boosts ?? {}) },
       levelsGained: result.levelsGained, newLevel: player.level, unlocked, ballsLeft: balls - 1,
     };
@@ -2385,15 +2401,18 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
 
   // 실패! 던진 횟수가 늘어서 이제 도망이 더 쉬워져요
   ex.catchTries = tries + 1;
-  if (rng() < fleeChance(ex.catchTries, ex.net)) {
-    player.exploration = null;
-    return { kind: 'fled', commit: true, petId, ballsLeft: balls - 1, locationId };
+  const holdLog = []; // 🪢 포획 전문가가 붙잡았을 때의 안내
+  if (rng() < fleeChance(ex.catchTries, ex.net, exFleeCut(ex))) {
+    if (!(ex.battle && catchProHold(ex.battle, holdLog))) { // 🪢 포획 전문가 중이면 도망치지 못해요
+      player.exploration = null;
+      return { kind: 'fled', commit: true, petId, ballsLeft: balls - 1, locationId };
+    }
   }
 
   // 전투 중에 던진 거라면, 공격/회복처럼 똑같이 한 턴을 써요 (야생 펫이 반격해요!)
   if (ex.battle) {
     const c = context(player, ex);
-    const log = [`${BALL.emoji} ${BALL.name}을(를) 던졌지만 빠져나왔어요! (남은 ${BALL.name} ${balls - 1}개)`];
+    const log = [`${BALL.emoji} ${BALL.name}을(를) 던졌지만 빠져나왔어요! (남은 ${BALL.name} ${balls - 1}개)`, ...holdLog];
     wildAttack(c, ex.battle, log, rng);
     return { ...finishTurn(player, ex, c, log, now, rng), ballsLeft: balls - 1 };
   }
@@ -2669,6 +2688,13 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
      let petExp = Math.round(wildPet.expYield * loc.expMultiplier * WIN_PET_EXP_MULT) * bonusMult;
 
     // 🚀 켜둔 경험치 부스트가 있으면 1회씩 쓰고 +30%
+    // 📈 전투 중 버프 (스킬): 경험치 · 펫 경험치 · 돈 · 장비 획득률
+    const fb = b.mySt?.fightBuff ?? {};
+    if (fb.gold) gold = Math.round(gold * (1 + fb.gold));
+    if (fb.exp) trainerExp = Math.round(trainerExp * (1 + fb.exp));
+    if (fb.petExp) petExp = Math.round(petExp * (1 + fb.petExp));
+    const buffText = fightBuffText(fb, ['exp', 'petExp', 'gold', 'equip']);
+
     const trainerBoost = takeBoost(player, 'trainerExp');
     const petBoost = takeBoost(player, 'petExp');
     if (trainerBoost) trainerExp = Math.round(trainerExp * (1 + BOOST_PCT));
@@ -2683,7 +2709,8 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
 
     player.exploration = null;
     return {
-      drops: awardEquipDrops(player, wildInfo, loc, 'win', rng), // 🎁 장비 드롭
+      drops: awardEquipDrops(player, wildInfo, loc, 'win', rng, 1 + (fb.equip ?? 0)), // 🎁 장비 드롭 (전투 버프로 확률 증가)
+      buffLines: buffText ? [`📈 전투 버프 적용! ${buffText}`] : [],
       kind: 'won', commit: true, log, locationId,
       wildPetId: wildInfo.petId, wildLevel: wildInfo.level,
       myPetId: main.petId, myName,
@@ -2717,13 +2744,16 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   }
 
   // 매 턴 끝에 야생 펫이 겁먹고 스스로 도망칠 수도 있어요
-  if (rng() < WILD_FLEE_CHANCE) {
-    player.exploration = null;
-    return { kind: 'wild_flee', commit: true, log, locationId, wildPetId: wildInfo.petId };
+  // 🆕 도망 확률은 전투 중 버프(진정의 노래 등)로 줄어들고, 포획 전문가가 있으면 도망치려는 순간 붙잡혀요
+  if (rng() < WILD_FLEE_CHANCE * (1 - fightBuffOf(b.mySt, 'flee'))) {
+    if (!catchProHold(b, log)) {
+      player.exploration = null;
+      return { kind: 'wild_flee', commit: true, log, locationId, wildPetId: wildInfo.petId };
+    }
   }
 
-  // 너무 오래 끌면 야생 펫이 떠나요
-  if (b.round >= BATTLE_MAX_ROUNDS) {
+  // 너무 오래 끌면 야생 펫이 떠나요 (포획 전문가로 붙잡은 전투는 +extraRounds 턴 더 길어져요)
+  if (b.round >= BATTLE_MAX_ROUNDS + (b.extraRounds ?? 0) && !catchProHold(b, log, { onlyFirst: true })) {
     player.exploration = null;
     return { kind: 'draw', commit: true, log, locationId, wildPetId: wildInfo.petId };
   }
@@ -4364,6 +4394,7 @@ function battleOutcomeView(out, userId) {
       out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
       `${mine.emoji} ${out.myName} 경험치 +${out.petExp}`,
       out.petBoost ? `💫 펫 경험치 부스트 +${pct(BOOST_PCT)}% 적용! (남은 ${out.boostsLeft.petExp ?? 0}회)` : null,
+      ...(out.buffLines ?? []),
       out.petLevelsGained > 0 ? `🎊 **${out.myName} 레벨 업!** → Lv.${out.petNewLevel} (체력 가득!)` : null,
       `❤️ ${out.myName} 체력 ${out.petHp}/${out.petMaxHp}`,
       ...equipDropLines(out.drops),
@@ -4705,6 +4736,7 @@ async function exploreHandleButton(interaction, args) {
       out.isNew ? '✨ **새로운 도감 등록!**' : null,
       `📍 ${LOCATIONS[out.locationId].emoji} ${LOCATIONS[out.locationId].name}에서 잡았어요`,
       `⭐ 경험치 +${out.expGain}`,
+      ...(out.buffLines ?? []),
       ...equipDropLines(out.drops),
       out.trainerBoost ? `🌟 트레이너 경험치 부스트 +${pct(BOOST_PCT)}% 적용! (남은 ${out.boostsLeft.trainerExp ?? 0}회)` : null,
       out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
