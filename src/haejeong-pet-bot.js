@@ -33,6 +33,9 @@ import {
   clashLabel,
   effElems,
   skillElement,
+  mitigate,
+  afterHit,
+  actsFirst,
 } from './skill.js';
 
 const SLOT_IDX = Array.from({ length: SLOT_COUNT }, (_, i) => i); // 스킬 슬롯 번호들 (0~4)
@@ -2470,6 +2473,19 @@ function attemptCatchMulti(player, id, now = Date.now(), rng = Math.random, time
 //    체력이 0이면 싸울 수 없어요 → 회복약, 시간 경과(자동 회복), 다른 펫로 교체로 해결해요.
 
 
+// 🆕 내 펫이 먼저 움직이는가? (스피드 훔치기·선공 priority 스킬이 반영돼요)
+function iMoveFirst(c, b) {
+  return actsFirst({ spd: c.mine.spd, st: b.mySt }, { spd: c.wild.spd, st: b.wildSt });
+}
+
+// 🆕 기본 공격으로 피해를 받은 직후: 반사 · 이번 턴 받은 피해 기록. toMe=true 면 내가 맞은 거예요.
+function reactHit(c, b, toMe, dmg, log) {
+  const X = toMe ? { name: c.myName, st: b.mySt } : { name: c.wildPet.name, st: b.wildSt };
+  const Y = toMe ? { name: c.wildPet.name, hp: b.wildHp } : { name: c.myName, hp: b.myHp };
+  afterHit(X, Y, dmg, log);
+  if (toMe) b.wildHp = Y.hp; else b.myHp = Y.hp;
+}
+
 // 데미지 = 공격력 - 방어력의 절반 (최소 공격력의 25%) × 랜덤(0.85~1.15), 가끔 급소(×1.5)
 // 🌈 mult: 속성 상성 배율 (약점 ×1.5 · 반감 ×0.65 …)
 function calcDamage(atk, def, rng = Math.random, critChance = CRIT_CHANCE, mult = 1) {
@@ -2508,9 +2524,11 @@ function myAttack(c, b, log, rng) {
     return;
   }
   const clash = elemClash(effElems(mySideOf(c, b))[0], wildSideOf(c, b));
-  const { dmg, crit } = calcDamage(c.mine.atk, c.wild.def, rng, CRIT_CHANCE + c.mineEq.crit, clash.mult);
-  b.wildHp = Math.max(0, b.wildHp - dmg);
-  log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${dmg}** 데미지${clash.note}`);
+  const { dmg: raw, crit } = calcDamage(c.mine.atk, c.wild.def, rng, CRIT_CHANCE + c.mineEq.crit, clash.mult);
+  const hit = mitigate({ st: b.wildSt }, raw, rng);
+  b.wildHp = Math.max(0, b.wildHp - hit.dmg);
+  log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${hit.dmg}** 데미지${clash.note}${hit.note}`);
+  reactHit(c, b, false, hit.dmg, log);
 }
 
 function wildAttack(c, b, log, rng) {
@@ -2519,9 +2537,11 @@ function wildAttack(c, b, log, rng) {
     return;
   }
   const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b));
-  const { dmg, crit } = calcDamage(c.wild.atk, c.mine.def, rng, GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, clash.mult);
-  b.myHp = Math.max(0, b.myHp - dmg);
-  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${dmg}** 데미지${clash.note}`);
+  const { dmg: raw, crit } = calcDamage(c.wild.atk, c.mine.def, rng, GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, clash.mult);
+  const hit = mitigate({ st: b.mySt }, raw, rng);
+  b.myHp = Math.max(0, b.myHp - hit.dmg);
+  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${hit.dmg}** 데미지${clash.note}${hit.note}`);
+  reactHit(c, b, true, hit.dmg, log);
 }
 
 // 🆕 야생 펫의 한 방이 최대 얼마나 아플지 (급소 제외, 랜덤 최대치 기준) — 확인창 판단용이에요
@@ -2695,10 +2715,10 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   }
 
   // 🆕 턴 끝: 지속 피해 · 재생 · 상태이상 턴 감소는 항상 적용돼요. 내 마나는 기본 공격을 한 턴에만 차요!
-  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp, mana: b.myMana, manaMax: maxMana(main), st: b.mySt };
-  const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt };
-  tickSide(tMe, log, myManaGain);
-  tickSide(tWild, log);
+  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, mana: b.myMana, manaMax: maxMana(main), st: b.mySt };
+  const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt };
+  tickSide(tMe, log, myManaGain, tWild);
+  tickSide(tWild, log, true, tMe);
   b.myHp = tMe.hp; b.myMana = tMe.mana;
   b.wildHp = tWild.hp; b.wildMana = tWild.mana;
 
@@ -2739,7 +2759,7 @@ function battleTurn(player, id, now = Date.now(), rng = Math.random) {
   const b = ex.battle;
   const c = context(player, ex);
   const log = [];
-  const order = c.mine.spd >= c.wild.spd ? ['me', 'wild'] : ['wild', 'me'];
+  const order = iMoveFirst(c, b) ? ['me', 'wild'] : ['wild', 'me']; // 🆕 스피드 훔치기·선공 반영
   let attacked = false; // 내가 실제로 기본 공격을 했는지 (기절하면 못 해요)
   for (const who of order) {
     if (b.myHp <= 0 || b.wildHp <= 0) break; // 이미 쓰러졌으면 반격 못 해요
@@ -2853,27 +2873,34 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
 
   const c = context(player, ex);
   const log = [];
-  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main), st: b.mySt, elems: petElems(c.main.petId) };
-  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, crit: GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt, elems: petElems(c.wildInfo.petId) };
+  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, spd: c.mine.spd, crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main), st: b.mySt, elems: petElems(c.main.petId) };
+  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, spd: c.wild.spd, crit: GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt, elems: petElems(c.wildInfo.petId) };
+  const sync = () => { b.myHp = me.hp; b.myMana = me.mana; b.wildHp = wild.hp; b.wildMana = wild.mana; };
 
-  // 1) 내가 스킬을 써요 (기절 중이면 못 써요 — 마나는 그대로예요)
-  if (!stunned(b.mySt, c.myName, log)) {
+  // 내 차례: 기절 중이면 못 써요 (마나는 그대로)
+  const myTurn = () => {
+    if (b.myHp <= 0 || b.wildHp <= 0) return;
+    if (stunned(b.mySt, c.myName, log)) return;
     castSkill(sk, me, wild, rng, log);
-    b.myHp = me.hp; b.myMana = me.mana;
-    b.wildHp = wild.hp; b.wildMana = wild.mana;
-  }
-
-  // 2) 야생 펫이 반격해요: 배운 스킬 중 상황에 맞는 걸 우선 써요 (마나만 되면 거의 항상 스킬)
-  if (b.wildHp > 0 && b.myHp > 0 && !stunned(b.wildSt, c.wildPet.name, log)) {
+    sync();
+  };
+  // 야생 펫 차례: 배운 스킬 중 상황에 맞는 걸 우선 써요 (마나만 되면 거의 항상 스킬)
+  const wildTurn = () => {
+    if (b.myHp <= 0 || b.wildHp <= 0) return;
+    if (stunned(b.wildSt, c.wildPet.name, log)) return;
+    me.hp = b.myHp; wild.hp = b.wildHp;
     const wsk = pickWildSkill(c.wildInfo.skills, wild, me, rng);
     if (wsk) {
       castSkill(wsk, wild, me, rng, log);
-      b.wildHp = wild.hp; b.wildMana = wild.mana;
-      b.myHp = me.hp; b.myMana = me.mana;
+      sync();
     } else {
-      wildAttack(c, b, log, rng);
+      wildAttack(c, b, log, rng); // b.myHp 가 직접 바뀌어요
+      me.hp = b.myHp; wild.hp = b.wildHp;
     }
-  }
+  };
+
+  if (iMoveFirst(c, b)) { myTurn(); wildTurn(); }
+  else { wildTurn(); myTurn(); }
 
   return finishTurn(player, ex, c, log, now, rng);
 }
