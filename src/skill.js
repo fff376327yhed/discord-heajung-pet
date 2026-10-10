@@ -24,6 +24,12 @@
 //   burstAtk [배율,턴] 공격력을 배수로 (한도 없음, 예: 5 = x500%) · debuffToBuff 내 디버프(공방다운·기절)를 전부 버프로
 //   coinflip 턴 그동안 받는 모든 피해가 50% 확률로 2배, 50% 확률로 0 · defToAtk 턴 방어력을 전부 공격력으로 전환
 //   healCut [비율,턴] 상대가 받는 회복 효과를 비율만큼 깎아요
+//   🆕 3차 확장 효과 칸 (배치 3):
+//   buffXfer [모드,턴] 1회용 효과 이동 (모드: 'steal' 상대 버프 뺏기 · 'give' 내 디버프 떠넘기기 · 'swap' 둘 다) — 한 번 발동하면 사라져요
+//   statRoll [모드,대상,턴] 능력치 룰렛 (모드: 'swap' 두 능력치 맞바꿈 · 'random' 랜덤 배수 / 대상: 'self'|'foe') — 등급별 상한(ROLL_CAP)
+//   cdReset 숫자 내 스킬 쿨타임을 전부(99) 또는 숫자만큼 줄여요 · cd 숫자 이 스킬의 쿨타임(턴)
+//   revive [비율,턴] 쓰러지면 비율만큼 체력으로 부활 (턴이 지나면 사라져요) · skillImmune 턴 스킬로 취급되는 효과 전부 무효
+//   archBless [회복배율,추가피해비율] 받은 피해 × 배율 회복 + 회복량의 비율만큼 상대에게 추가 피해
 
 export const SKILL_CFG = {
   manaMax: 100, // 마나 최대치 (마나 수정으로 펫마다 더 늘릴 수 있어요)
@@ -442,6 +448,20 @@ G('purify_water', '정화수', '🫗', 3, { heal: 0.2, cleanse: true });
 G('photosynth', '광합성', '🌱', 2, { heal: 0.15, regen: [0.05, 3] });
 G('wildfire', '들불', '🔥', 4, { pow: 1.2, hits: 2, dot: ['burn', 0.07, 3, 0.8] });
 
+// ───────── 🆕 3차 확장 (배치 3): 효과 이동 · 능력치 룰렛 · 쿨타임 · 부활 · 스킬 면역 · 대천사 ─────────
+U('buff_thief', '버프 도둑', '🦹', 3, { buffXfer: ['steal', 3] }, '상대가 두른 좋은 기운을 슬쩍 가로채요. 한 번만!');
+U('curse_dump', '저주 떠넘기기', '🎁', 3, { buffXfer: ['give', 3] }, '내가 맞은 나쁜 기운을 예쁘게 포장해서 상대에게 선물해요.');
+U('fate_trade', '운명 교환', '🔁', 4, { buffXfer: ['swap', 3] }, '좋은 건 내 거, 나쁜 건 네 거!');
+U('stat_shake', '능력치 뒤섞기', '🎰', 2, { statRoll: ['swap', 'self', 3] }, '내 힘과 방어와 속도를 흔들어 두 개를 바꿔요.');
+U('stat_roulette', '능력치 룰렛', '🎡', 3, { statRoll: ['random', 'self', 3] }, '돌아라 돌아라~ 어떤 능력치가 멈출까?');
+U('foe_roulette', '상대 룰렛', '🌀', 3, { statRoll: ['random', 'foe', 3] }, '상대의 능력치 판을 빙글빙글 흔들어요.');
+U('chaos_swap', '혼돈의 맞바꿈', '🌪️', 4, { statRoll: ['swap', 'foe', 3] }, '상대의 힘과 방어와 속도가 뒤죽박죽!');
+U('time_rewind', '시간 되감기', '⏪', 3, { cdReset: 99, mana: 10 }, '시계를 거꾸로 돌려 모든 스킬을 다시 쓸 수 있게 해요.');
+U('revival', '부활', '🪽', 5, { revive: [0.5, 3], cd: 6, elem: 'light' }, '3턴 동안, 쓰러져도 날개를 펴고 다시 일어나요.');
+U('skill_ward', '스킬 면역', '🧿', 4, { skillImmune: 2, cd: 4, elem: 'light' }, '어떤 스킬도 통하지 않는 투명한 막이 둘러싸요.');
+U('void_veil', '무효의 장막', '🕳️', 5, { skillImmune: 3, cd: 6, elem: 'dark' }, '스킬이라는 스킬은 전부 허공으로 사라져요.');
+U('archangel_bless', '대천사의 축복', '👼', 5, { archBless: [2, 0.3], cd: 3, elem: 'light' }, '맞은 아픔을 두 배의 빛으로 돌려받고, 그 빛이 상대를 꿰뚫어요.');
+
 
 // ───────── 전용기 (그 펫만 배울 수 있어요 · 같은 마나의 일반 스킬보다 세요) ─────────
 // 스타팅
@@ -618,6 +638,13 @@ export function skillEffectLines(sk) {
   if (sk.clone) t.push(`👥 ${sk.clone[2]}턴 동안 분신 소환: 공격력 ${P100(sk.clone[0])}로 같이 공격, 방어력 ${P100(sk.clone[1])} 기준 체력으로 받는 피해의 ${P100(CLONE_SHARE)}를 대신 맞아요`);
   if (sk.reflect) t.push(`🪞 ${sk.reflect[1]}턴 동안 받은 피해의 ${P100(sk.reflect[0])}를 상대에게 되돌려요`);
   if (sk.reflectDebuff) t.push(`🔮 ${sk.reflectDebuff}턴 동안 걸리는 디버프를 상대에게 그대로 반사`);
+  if (sk.buffXfer) t.push(`🧲 ${sk.buffXfer[1]}턴 안에 **한 번** ${{ steal: '상대의 좋은 효과(공방업·보호태세·재생·보호막…)를 뺏어요', give: '내 나쁜 효과(약화·독·화상·기절…)를 상대에게 떠넘겨요', swap: '상대의 좋은 효과를 뺏고 내 나쁜 효과를 떠넘겨요' }[sk.buffXfer[0]] ?? '효과를 옮겨요'} (발동하면 사라져요)`);
+  if (sk.statRoll) t.push(`🎰 ${sk.statRoll[2]}턴 동안 ${sk.statRoll[1] === 'foe' ? '상대' : '내'} 공격력·방어력·스피드를 ${sk.statRoll[0] === 'swap' ? '두 개 골라 **랜덤으로 맞바꿔요**' : '**랜덤 배수**로 바꿔요'} (등급 상한 ×${ROLL_CAP[sk.tier] ?? 1.5})`);
+  if (sk.cdReset) t.push(sk.cdReset >= 99 ? '⏪ 내 모든 스킬의 쿨타임을 없애요' : `⏪ 내 모든 스킬의 쿨타임 -${sk.cdReset}턴`);
+  if (sk.revive) t.push(`🪽 ${sk.revive[1]}턴 동안 쓰러지면 최대 체력의 ${P100(sk.revive[0])}로 **부활** (${sk.revive[2] ?? 1}회 · 턴이 지나면 사라져요)`);
+  if (sk.skillImmune) t.push(`🧿 ${sk.skillImmune}턴 동안 상대의 스킬 효과(피해·약화·지속피해·분신 공격…)를 전혀 안 받아요 (기본 공격은 맞아요)`);
+  if (sk.archBless) t.push(`👼 받은 피해(이번 턴, 없으면 지난 턴)의 ${P100(sk.archBless[0])} 회복 + 회복량의 ${P100(sk.archBless[1])}를 상대에게 추가 피해 (방어 무시)`);
+  if (sk.cd) t.push(`⏳ 쿨타임 ${sk.cd}턴`);
   if (sk.cleanse) t.push('내 상태이상(화상·독·출혈·약화) 제거');
   return t;
 }
@@ -630,8 +657,8 @@ export const tierStars = (t) => '★'.repeat(Math.max(1, Math.min(5, t)));
 export function skillCategory(sk) {
   if (sk.pet) return '전용기';
   if (sk.pow || sk.bomb || sk.detonate) return '공격';
-  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward || sk.priority || sk.clone || sk.reflect || sk.reflectDebuff || sk.copy) return '강화';
-  if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp || sk.steal) return '약화';
+  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward || sk.priority || sk.clone || sk.reflect || sk.reflectDebuff || sk.copy || sk.revive || sk.skillImmune || sk.cdReset || sk.statRoll?.[1] === 'self') return '강화';
+  if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp || sk.steal || sk.buffXfer || sk.statRoll?.[1] === 'foe') return '약화';
   return '회복·방어';
 }
 
@@ -710,9 +737,9 @@ export function grantSkills(inst, rng = Math.random) {
 // st(상태): { dots:[{kind,pct,turns}], stun, atkUp, atkDown, defUp, defDown, guard, shield, evade, regen }
 export const newSide = () => ({});
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-export const effAtk = (X) => (X.atk + (X.st.defToAtk?.amt ?? 0)) * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0), 0.2, 4) * (X.st.burst?.mult ?? 1);
-export const effDef = (X) => (X.st.defToAtk ? 0 : X.def) * clamp(1 + (X.st.defUp?.pct ?? 0) - (X.st.defDown?.pct ?? 0), 0.2, 4);
-export const effSpd = (X) => (X.spd ?? 0) * clamp(1 + (X.st.spdUp?.pct ?? 0) - (X.st.spdDown?.pct ?? 0), 0.2, 4);
+export const effAtk = (X) => (X.atk + (X.st.defToAtk?.amt ?? 0)) * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0), 0.2, 4) * (X.st.burst?.mult ?? 1) * (X.st.statMod?.atk ?? 1);
+export const effDef = (X) => (X.st.defToAtk ? 0 : X.def) * clamp(1 + (X.st.defUp?.pct ?? 0) - (X.st.defDown?.pct ?? 0), 0.2, 4) * (X.st.statMod?.def ?? 1);
+export const effSpd = (X) => (X.spd ?? 0) * clamp(1 + (X.st.spdUp?.pct ?? 0) - (X.st.spdDown?.pct ?? 0), 0.2, 4) * (X.st.statMod?.spd ?? 1);
 
 // 내가 먼저 움직이는가? (priority 가 한쪽만 있으면 그쪽이 먼저, 둘 다/둘 다 없으면 스피드 비교, 같으면 내가 먼저)
 export function actsFirst(me, foe) {
@@ -763,17 +790,106 @@ const heal = (X, n) => {
   return real;
 };
 
+// ───────── 🆕 배치 3 헬퍼 ─────────
+// 스킬로 "적에게 가는" 효과 칸들 — 상대가 스킬 면역이면 castSkill 이 이 칸들을 지워요
+const HOSTILE_KEYS = ['pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'turnCut', 'healCut', 'atkDown', 'defDown', 'stun', 'dot', 'drainMana', 'swapHp', 'buffXfer'];
+export const ROLL_CAP = { 1: 1.3, 2: 1.5, 3: 1.8, 4: 2.2, 5: 3 }; // 🎰 등급별 능력치 변동 상한 (배수)
+const STAT_LABEL = { atk: '⚔️ 공격력', def: '🧱 방어력', spd: '👟 스피드' };
+export const cdLeft = (st, id) => st?.cds?.[id] ?? 0; // ⏳ 남은 쿨타임 (0 이면 쓸 수 있어요)
+
+// 🎰 능력치 룰렛: swap = 두 능력치를 랜덤으로 맞바꿔요 / random = 세 능력치에 랜덤 배수
+function rollStats(sk, T, rng, log) {
+  const [mode, who, turns] = sk.statRoll;
+  const cap = ROLL_CAP[sk.tier] ?? 1.5;
+  const mod = { atk: 1, def: 1, spd: 1, turns };
+  const keys = ['atk', 'def', 'spd'];
+  if (mode === 'swap') {
+    const pool = keys.slice();
+    const a = pool.splice(Math.floor(rng() * 3), 1)[0];
+    const b = pool[Math.floor(rng() * 2)];
+    const va = Math.max(1, T[a] ?? 1);
+    const vb = Math.max(1, T[b] ?? 1);
+    mod[a] = clamp(vb / va, 1 / cap, cap);
+    mod[b] = clamp(va / vb, 1 / cap, cap);
+    log.push(`　🔀 ${T.name}의 ${STAT_LABEL[a]} ↔ ${STAT_LABEL[b]} 맞바꿈! (×${mod[a].toFixed(2)} / ×${mod[b].toFixed(2)}, ${turns}턴)`);
+  } else {
+    const lo = who === 'foe' ? 1 / cap : 0.7; // 상대에게 쓰면 약해지는 쪽으로, 나에게 쓰면 도박(0.7 ~ 상한)
+    const hi = who === 'foe' ? 1 : cap;
+    for (const k of keys) mod[k] = lo + rng() * (hi - lo);
+    log.push(`　🎡 ${T.name}의 능력치 룰렛! ⚔️×${mod.atk.toFixed(2)} 🧱×${mod.def.toFixed(2)} 👟×${mod.spd.toFixed(2)} (${turns}턴, 상한 ×${cap})`);
+  }
+  T.st.statMod = mod;
+}
+
+// 🧲 1회용 효과 이동: X(건 쪽) ↔ foe. 옮길 효과가 있으면 true (= 한 번 발동하고 사라져요)
+const XFER_BUFFS = ['atkUp', 'defUp', 'spdUp', 'guard', 'regen', 'burst'];
+const XFER_DEBUFFS = ['atkDown', 'defDown', 'spdDown', 'healCut'];
+const moveKeys = (from, to, keys) => {
+  let n = 0;
+  for (const k of keys) {
+    const v = from.st[k];
+    if (!v) continue;
+    const cur = to.st[k];
+    to.st[k] = cur && v.pct != null && cur.pct != null ? { ...v, pct: cur.pct + v.pct, turns: Math.max(cur.turns, v.turns) } : { ...v };
+    delete from.st[k];
+    n++;
+  }
+  return n;
+};
+function applyXfer(X, foe, mode, log) {
+  let n = 0;
+  if (mode === 'steal' || mode === 'swap') {
+    n += moveKeys(foe, X, XFER_BUFFS);
+    if (foe.st.shield > 0) { X.st.shield = (X.st.shield ?? 0) + foe.st.shield; delete foe.st.shield; n++; }
+    if (n) log.push(`　🧲 ${foe.name}의 좋은 효과를 ${X.name}(이)가 가로챘어요!`);
+  }
+  if (mode === 'give' || mode === 'swap') {
+    let m = moveKeys(X, foe, XFER_DEBUFFS);
+    if (X.st.dots?.length) {
+      foe.st.dots = [...(foe.st.dots ?? []).filter((d) => !X.st.dots.some((o) => o.kind === d.kind)), ...X.st.dots];
+      X.st.dots = [];
+      m++;
+    }
+    if (X.st.stun) { foe.st.stun = 1; delete X.st.stun; m++; }
+    if (m) log.push(`　🎁 ${X.name}의 나쁜 효과를 ${foe.name}에게 떠넘겼어요!`);
+    n += m;
+  }
+  return n > 0;
+}
+
+// 🪽 부활: 쓰러졌고 부활 효과가 남아 있으면 되살려요 (남은 횟수가 0 이 되면 효과 사라짐)
+export function tryRevive(X, log) {
+  const r = X.st?.revive;
+  if (!r || X.hp > 0) return false;
+  X.hp = Math.max(1, Math.round(X.max * r.pct));
+  X.st.dots = [];
+  delete X.st.bomb;
+  delete X.st.stun;
+  if (--r.left <= 0) delete X.st.revive;
+  log.push(`🪽 ${X.name}(이)가 **부활**했어요! 체력 ${X.hp}/${X.max}`);
+  return true;
+}
+
 // 스킬 한 번 쓰기. A = 쓰는 쪽, B = 맞는 쪽
 export function castSkill(sk, A, B, rng, log) {
   A.mana = Math.max(0, A.mana - sk.cost);
   log.push(`✨ ${A.emoji} ${A.name}의 ${sk.emoji} **${sk.name}**!`);
   if (!sk.echoed) A.st.last = sk.copied ? sk.srcId : sk.id; // 🆕 "마지막에 쓴 스킬" 기록 (복사용)
+  if (sk.cd && !sk.copied && !sk.echoed) (A.st.cds ??= {})[sk.id] = sk.cd + 1; // ⏳ 쿨타임 시작 (+1: 이번 턴 끝 감소분)
   if (sk.copy) { // 🦜 상대가 마지막에 쓴 스킬을 복사해서 마나 0으로 즉시 사용
     const src = SKILLS[B.st.last];
     if (!src || src.copy) { A.mana += sk.cost; log.push('　💨 복사할 스킬이 없어요… (마나는 돌려받았어요)'); return; }
     log.push(`　🦜 ${B.name}의 ${src.emoji} **${src.name}** 을(를) 복사했어요!`);
     castSkill({ ...src, name: `${src.name} (복사)`, cost: 0, copied: true, srcId: src.id }, A, B, rng, log);
     return;
+  }
+  // 🧿 스킬 면역: 상대가 면역이면 "적에게 가는 효과"가 전부 사라져요 (내게 쓰는 효과는 그대로)
+  let immune = false;
+  if (B.st.skillImmune && (HOSTILE_KEYS.some((k) => sk[k]) || sk.archBless || sk.statRoll?.[1] === 'foe')) {
+    immune = true;
+    sk = { ...sk };
+    for (const k of HOSTILE_KEYS) delete sk[k];
+    log.push(`　🧿 ${B.name}은(는) **스킬 면역** 상태! 적에게 가는 스킬 효과가 전부 막혔어요`);
   }
   let dealt = 0;
 
@@ -860,6 +976,23 @@ export function castSkill(sk, A, B, rng, log) {
     if (n > 0) { A.hp -= n; log.push(`　💢 반동으로 -${n}`); }
   }
   if (sk.heal) { const n = heal(A, A.max * sk.heal); log.push(`　💖 체력 +${n}`); }
+  if (sk.archBless) { // 👼 받은 피해(이번 턴, 없으면 지난 턴) × 배율 회복 + 회복량의 일부를 상대에게 추가 피해 (방어 무시)
+    const [hr, sr] = sk.archBless;
+    const basis = (A.st.turnTaken ?? 0) > 0 ? A.st.turnTaken : (A.st.prevTaken ?? 0);
+    if (basis > 0) {
+      const intended = Math.round(basis * hr * (1 - (A.st.healCut?.pct ?? 0)));
+      const got = heal(A, basis * hr);
+      log.push(`　👼 받은 피해 ${basis}의 ${P100(hr)}를 회복! 체력 +${got}`);
+      if (!immune && B.hp > 0) {
+        const smite = Math.max(1, Math.round(intended * sr));
+        B.hp = Math.max(0, B.hp - smite);
+        dealt += smite;
+        log.push(`　⚡ 축복의 빛이 ${B.name}에게 **${smite}** 추가 피해! (회복량의 ${P100(sr)})`);
+      }
+    } else {
+      log.push('　💨 아직 받은 피해가 없어서 축복이 흩어졌어요…');
+    }
+  }
   if (sk.regen) { A.st.regen = { pct: sk.regen[0], turns: sk.regen[1] }; log.push(`　🌱 ${sk.regen[1]}턴 동안 체력이 차올라요`); }
   if (sk.shield) { A.st.shield = (A.st.shield ?? 0) + Math.round(A.max * sk.shield); log.push(`　🔰 보호막 ${A.st.shield}`); }
   if (sk.guard) { A.st.guard = { pct: sk.guard[0], turns: sk.guard[1] }; log.push(`　🛡️ ${sk.guard[1]}턴 동안 받는 데미지 -${P100(sk.guard[0])}`); }
@@ -895,6 +1028,17 @@ export function castSkill(sk, A, B, rng, log) {
   if (sk.reflectDebuff) { A.st.reflectDebuff = { turns: sk.reflectDebuff }; log.push(`　🔮 ${sk.reflectDebuff}턴 동안 걸리는 디버프를 상대에게 되돌려요`); }
   if (sk.mana) { const n = Math.min(sk.mana, SKILL_CFG.manaMax + 1000); A.mana += n; log.push(`　🔋 마나 +${n}`); }
   if (sk.cleanse) { A.st.dots = []; delete A.st.atkDown; delete A.st.defDown; delete A.st.stun; log.push('　✨ 나쁜 상태가 사라졌어요'); }
+  // 🆕 배치 3: 쿨타임 삭제 · 부활 · 스킬 면역 · 능력치 룰렛 · 1회용 효과 이동(대기)
+  if (sk.cdReset) {
+    const had = Object.keys(A.st.cds ?? {}).length;
+    if (sk.cdReset >= 99) delete A.st.cds;
+    else for (const id of Object.keys(A.st.cds ?? {})) if ((A.st.cds[id] -= sk.cdReset) <= 0) delete A.st.cds[id];
+    log.push(had ? '　⏪ 스킬 쿨타임이 줄어들었어요!' : '　💨 줄일 쿨타임이 없었어요…');
+  }
+  if (sk.revive) { A.st.revive = { pct: sk.revive[0], turns: sk.revive[1] + 1, left: sk.revive[2] ?? 1 }; log.push(`　🪽 ${sk.revive[1]}턴 동안 쓰러져도 체력 ${P100(sk.revive[0])}로 부활해요!`); }
+  if (sk.skillImmune) { A.st.skillImmune = { turns: sk.skillImmune + 1 }; log.push(`　🧿 ${sk.skillImmune}턴 동안 스킬로 취급되는 효과를 전혀 받지 않아요!`); }
+  if (sk.statRoll && (sk.statRoll[1] !== 'foe' || (!immune && B.hp > 0))) rollStats(sk, sk.statRoll[1] === 'foe' ? B : A, rng, log);
+  if (sk.buffXfer && B.hp > 0) { A.st.xfer = { mode: sk.buffXfer[0], turns: sk.buffXfer[1] }; log.push(`　🧲 1회용 효과 이동을 준비했어요! (${sk.buffXfer[1]}턴 안에 한 번 발동)`); }
   // 🆕 독창 스킬: 상태이상 터뜨리기 (새 상태이상을 걸기 전에 먼저 터뜨려요)
   if (sk.detonate && B.hp > 0) {
     const left = (B.st.dots ?? []).reduce((n, d) => n + Math.max(1, Math.round(B.max * d.pct)) * d.turns, 0);
@@ -968,6 +1112,8 @@ export function castSkill(sk, A, B, rng, log) {
     log.push('　🔊 메아리가 울려 퍼져요!');
     castSkill({ id: sk.id, name: `${sk.name} (메아리)`, emoji: sk.emoji, tier: sk.tier, cost: 0, pow: sk.pow * 0.75, hits: sk.hits, hitsRange: sk.hitsRange, pierce: sk.pierce, crit: sk.crit, exec: sk.exec, elem: sk.elem, weakBonus: sk.weakBonus, ignoreResist: sk.ignoreResist, echoed: true }, A, B, rng, log);
   }
+  tryRevive(A, log); // 🪽 이번 스킬로 쓰러졌다면 부활 판정
+  tryRevive(B, log);
   A.mana = Math.min(A.mana, A.manaMax);
 }
 
@@ -975,28 +1121,40 @@ export function castSkill(sk, A, B, rng, log) {
 // gainMana: 이번 턴에 기본 공격을 했을 때만 true 로 넘겨요. 스킬을 쓴 턴에는 마나가 안 차요.
 export function tickSide(X, log, gainMana = true, foe = null) {
   const st = X.st;
+  const immune = !!st.skillImmune; // 🧿 스킬 면역이면 스킬로 걸린 지속 피해·폭탄은 효과가 없어요
   for (const d of st.dots ?? []) {
-    const n = Math.max(1, Math.round(X.max * d.pct));
-    X.hp = Math.max(0, X.hp - n);
-    log.push(`${DOT[d.kind] ?? d.kind} ${X.name}(이)가 **${n}** 피해`);
+    if (immune) log.push(`🧿 ${X.name}은(는) 스킬 면역! ${DOT[d.kind] ?? d.kind} 피해를 안 받아요`);
+    else {
+      const n = Math.max(1, Math.round(X.max * d.pct));
+      X.hp = Math.max(0, X.hp - n);
+      log.push(`${DOT[d.kind] ?? d.kind} ${X.name}(이)가 **${n}** 피해`);
+    }
     d.turns -= 1;
   }
   st.dots = (st.dots ?? []).filter((d) => d.turns > 0);
   if (st.bomb) {
     st.bomb.turns -= 1;
     if (st.bomb.turns <= 0) {
-      const n = Math.max(1, Math.round(st.bomb.dmg));
-      X.hp = Math.max(0, X.hp - n);
-      log.push(`💣 ${X.name}에게 **시한폭탄**이 터졌어요! **${n}** 피해`);
+      if (immune) log.push(`🧿 ${X.name}은(는) 스킬 면역! 시한폭탄이 불발됐어요`);
+      else {
+        const n = Math.max(1, Math.round(st.bomb.dmg));
+        X.hp = Math.max(0, X.hp - n);
+        log.push(`💣 ${X.name}에게 **시한폭탄**이 터졌어요! **${n}** 피해`);
+      }
       delete st.bomb;
     }
   }
-  if (st.clone && foe && foe.hp > 0 && X.hp > 0) { // 👥 분신이 같이 공격해요
+  tryRevive(X, log); // 🪽 지속 피해로 쓰러졌다면 부활
+  if (st.clone && foe && foe.hp > 0 && X.hp > 0 && !foe.st.skillImmune) { // 👥 분신이 같이 공격해요 (상대가 스킬 면역이면 못 때려요)
     const base = Math.max(st.clone.atk * 0.25, st.clone.atk - effDef(foe) * 0.5) * (0.85 + Math.random() * 0.3);
     const hit = mitigate(foe, Math.max(1, Math.round(base)));
     foe.hp = Math.max(0, foe.hp - hit.dmg);
     log.push(`👥 ${X.name}의 분신이 ${foe.name}에게 **${hit.dmg}** 데미지${hit.note}`);
     afterHit(foe, X, hit.dmg, log);
+  }
+  if (st.xfer && foe && foe.hp > 0 && X.hp > 0) { // 🧲 1회용 효과 이동: 옮길 게 생기면 한 번 발동하고 사라져요
+    if (!foe.st.skillImmune && applyXfer(X, foe, st.xfer.mode, log)) delete st.xfer;
+    else if (--st.xfer.turns <= 0) { delete st.xfer; log.push(`💨 ${X.name}의 효과 이동이 아무 일 없이 사라졌어요`); }
   }
   if (st.regen && X.hp > 0) {
     const n = heal(X, X.max * st.regen.pct);
@@ -1009,9 +1167,12 @@ export function tickSide(X, log, gainMana = true, foe = null) {
     X.mana = Math.min(X.mana, X.manaMax);
     delete st.manaMaxUp;
   }
-  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone']) {
+  if (st.revive && --st.revive.turns <= 0) { delete st.revive; log.push(`🪽 ${X.name}의 부활 효과가 사라졌어요`); }
+  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune']) {
     if (st[k] && --st[k].turns <= 0) delete st[k];
   }
+  for (const id of Object.keys(st.cds ?? {})) if (--st.cds[id] <= 0) delete st.cds[id]; // ⏳ 쿨타임 감소
+  st.prevTaken = st.turnTaken ?? 0; // 👼 지난 턴 받은 피해 기억 (대천사의 축복용)
   delete st.turnTaken; // 이번 턴 받은 피해는 턴이 끝나면 초기화
   if (gainMana) X.mana = Math.min(X.manaMax, X.mana + SKILL_CFG.manaPerTurn + (st.manaRegenUp?.amt ?? 0));
 }
@@ -1030,7 +1191,7 @@ export function rollWildSkills(petId, rng = Math.random) {
 // 야생 펫의 스킬 고르기: 배운 스킬 중 "지금 상황에 가장 쓸모 있는" 걸 점수로 골라요.
 // 마나만 되면 거의 항상 스킬을 써요 (활용률 100%) — 예전처럼 35%로 거르지 않아요.
 export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
-  const options = (skillIds ?? []).map((id) => SKILLS[id]).filter((sk) => sk && sk.cost <= wild.mana);
+  const options = (skillIds ?? []).map((id) => SKILLS[id]).filter((sk) => sk && sk.cost <= wild.mana && cdLeft(wild.st, sk.id) <= 0);
   if (!options.length) return null; // 배운 스킬이 없거나 마나가 모자라면 기본 공격
 
   const myRatio = wild.hp / wild.max;
@@ -1083,6 +1244,11 @@ export function statusText(st = {}) {
   if (st.clone) t.push(`👥 분신 ❤${st.clone.hp} ${st.clone.turns}턴`);
   if (st.reflect) t.push(`🪞 반사 ${st.reflect.turns}턴`);
   if (st.reflectDebuff) t.push(`🔮 디버프반사 ${st.reflectDebuff.turns}턴`);
+  if (st.xfer) t.push(`🧲 ${{ steal: '버프 약탈', give: '디버프 떠넘기기', swap: '효과 교환' }[st.xfer.mode] ?? '효과 이동'} 대기 ${st.xfer.turns}턴`);
+  if (st.statMod) t.push(`🎰 능력치 ⚔️×${+st.statMod.atk.toFixed(2)} 🧱×${+st.statMod.def.toFixed(2)} 👟×${+st.statMod.spd.toFixed(2)} ${st.statMod.turns}턴`);
+  if (st.skillImmune) t.push(`🧿 스킬면역 ${st.skillImmune.turns}턴`);
+  if (st.revive) t.push(`🪽 부활대기 ${st.revive.turns}턴`);
+  for (const [id, n] of Object.entries(st.cds ?? {})) if (SKILLS[id]) t.push(`⏳ ${SKILLS[id].name} 쿨 ${n}턴`);
   return t.join(' · ');
 }
 

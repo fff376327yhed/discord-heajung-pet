@@ -15,6 +15,8 @@ import {
   maxMana,
   castSkill,
   tickSide,
+  tryRevive, // 🆕 부활
+  cdLeft, // 🆕 쿨타임
   pickWildSkill,
   statusText,
   describeSkill,
@@ -2641,6 +2643,13 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   const { main, myPet, wildPet, wildInfo, myName } = c;
   const locationId = ex.locationId;
   b.round += 1;
+  // 🪽 이번 턴에 쓰러진 쪽이 부활 효과를 갖고 있으면 되살려요 (기본 공격으로 쓰러진 경우 포함)
+  const rvMe = { name: myName, hp: b.myHp, max: c.mine.hp, st: b.mySt };
+  const rvWild = { name: wildPet.name, hp: b.wildHp, max: c.wild.hp, st: b.wildSt };
+  tryRevive(rvMe, log);
+  tryRevive(rvWild, log);
+  b.myHp = rvMe.hp;
+  b.wildHp = rvWild.hp;
   setHp(main, b.myHp, now); // ❤️ 전투가 끝나도 체력이 이어져요
 
   // 승리!
@@ -2870,6 +2879,7 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
 
   const b = ex.battle;
   if (b.myMana < sk.cost) return { kind: 'no_mana', need: sk.cost, have: b.myMana };
+  if (cdLeft(b.mySt, sk.id) > 0) return { kind: 'cooldown', name: sk.name, left: cdLeft(b.mySt, sk.id) }; // ⏳ 쿨타임 중
 
   const c = context(player, ex);
   const log = [];
@@ -4517,6 +4527,9 @@ async function exploreHandleButton(interaction, args) {
     if (out.kind === 'no_skill') return reply({ content: '그 슬롯에는 스킬이 없어요!' }, { ephemeral: true });
     if (out.kind === 'no_mana') {
       return reply({ content: `🔋 마나가 모자라요! (필요 ${out.need} / 현재 ${out.have}) 기본 공격을 해서 마나를 모아봐요.` }, { ephemeral: true });
+    }
+    if (out.kind === 'cooldown') {
+      return reply({ content: `⏳ **${out.name}** 은(는) 아직 쿨타임이에요! (${out.left}턴 남음)` }, { ephemeral: true });
     }
     if (out.kind === 'continue') return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
     return battleOutcomeView(out, user.id); // won / lost / draw / wild_flee
