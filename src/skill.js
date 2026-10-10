@@ -30,6 +30,10 @@
 //   cdReset 숫자 내 스킬 쿨타임을 전부(99) 또는 숫자만큼 줄여요 · cd 숫자 이 스킬의 쿨타임(턴)
 //   revive [비율,턴] 쓰러지면 비율만큼 체력으로 부활 (턴이 지나면 사라져요) · skillImmune 턴 스킬로 취급되는 효과 전부 무효
 //   archBless [회복배율,추가피해비율] 받은 피해 × 배율 회복 + 회복량의 비율만큼 상대에게 추가 피해
+//   🆕 4차 확장 효과 칸 (배치 4):
+//   joker true 내 스킬 하나 ↔ 상대 스킬 하나 랜덤 맞교환 (전투 안에서만 · 전투당 1번 = ex.battle.jokerUsed) — 상대가 받는 게 조커 카드면 상대 마나 전부 삭제 + 스킬 봉인
+//   curse [개수,턴] 나 자신에게 랜덤 디버프를 개수만큼 걸고, 이 스킬 칸이 curse_grant(저주부여)로 바뀌어요 · curseGrant 배수 저주로 받은 디버프를 배수 위력으로 상대에게
+//   devilDeal [턴,배수] 턴 동안 내 모든 공격이 확정 급소+약점 · 턴 안에 못 쓰러뜨리면 준 피해×배수를 무효화 불가 피해로 받아요 · hidden true 슬롯 뽑기에 안 나와요
 
 export const SKILL_CFG = {
   manaMax: 100, // 마나 최대치 (마나 수정으로 펫마다 더 늘릴 수 있어요)
@@ -463,6 +467,13 @@ U('void_veil', '무효의 장막', '🕳️', 5, { skillImmune: 3, cd: 6, elem: 
 U('archangel_bless', '대천사의 축복', '👼', 5, { archBless: [2, 0.3], cd: 3, elem: 'light' }, '맞은 아픔을 두 배의 빛으로 돌려받고, 그 빛이 상대를 꿰뚫어요.');
 
 
+// ───────── 🆕 4차 확장 (배치 4): 조커 · 금단의 저주 · 저주부여 · 악마와의 거래 ─────────
+// (기존 일반 스킬 '저주'(curse)와 이름이 겹치지 않게 새 저주는 '금단의 저주'(forbidden_curse) 예요)
+U('joker', '조커', '🃏', 5, { joker: true, cost: 50, elem: 'dark' }, '내 카드 한 장과 상대 카드 한 장을 슬쩍 바꿔치기! 상대 손에 조커가 들어가면… 큰일이에요.');
+U('forbidden_curse', '금단의 저주', '🧿', 4, { curse: [2, 4], cost: 25, cd: 5, elem: 'dark' }, '나 자신에게 저주를 걸어요. 아프지만, 그 저주는 곧 누군가에게 돌아가요.');
+U('curse_grant', '저주부여', '🪬', 4, { curseGrant: 3, cost: 20, elem: 'dark', hidden: true }, '내가 받은 저주를 세 배로 키워서 선물해요. (금단의 저주를 쓴 다음 턴에만 나타나요)');
+U('devil_deal', '악마와의 거래', '😈', 5, { devilDeal: [2, 3], cost: 60, cd: 6, elem: 'dark' }, '"2턴 안에 끝내면 공짜, 못 끝내면… 준 만큼의 세 배를 받아가지."');
+
 // ───────── 전용기 (그 펫만 배울 수 있어요 · 같은 마나의 일반 스킬보다 세요) ─────────
 // 스타팅
 P('pyro_cat', 'sig_pyro_cat', '불꽃 발톱', '🐾', 2, { pow: 2.1, dot: ['burn', 0.06, 3, 0.6] }, '꼬리 끝 불꽃을 발톱에 모아 할퀴어요.');
@@ -644,6 +655,10 @@ export function skillEffectLines(sk) {
   if (sk.revive) t.push(`🪽 ${sk.revive[1]}턴 동안 쓰러지면 최대 체력의 ${P100(sk.revive[0])}로 **부활** (${sk.revive[2] ?? 1}회 · 턴이 지나면 사라져요)`);
   if (sk.skillImmune) t.push(`🧿 ${sk.skillImmune}턴 동안 상대의 스킬 효과(피해·약화·지속피해·분신 공격…)를 전혀 안 받아요 (기본 공격은 맞아요)`);
   if (sk.archBless) t.push(`👼 받은 피해(이번 턴, 없으면 지난 턴)의 ${P100(sk.archBless[0])} 회복 + 회복량의 ${P100(sk.archBless[1])}를 상대에게 추가 피해 (방어 무시)`);
+  if (sk.joker) t.push(`🃏 내 스킬 하나 ↔ 상대 스킬 하나를 **랜덤으로 맞교환** (이번 전투 동안만 · 전투당 1번) — 상대가 받는 카드가 이 **조커**면 상대 마나 전부 삭제 + 스킬 ${JOKER_CFG.sealTurns}턴 봉인`);
+  if (sk.curse) t.push(`🧿 나 자신에게 랜덤 디버프 **${sk.curse[0]}개**를 ${sk.curse[1]}턴 동안 걸어요 (공격↓·방어↓·스피드↓·회복감소·화상·독·출혈 중) · 다음 턴부터 이 스킬이 **저주부여**로 바뀌어요`);
+  if (sk.curseGrant) t.push(`🪬 저주로 받은 디버프를 **×${sk.curseGrant} 위력**으로 상대에게 부여해요 (쓰고 나면 다시 금단의 저주로 돌아와요)`);
+  if (sk.devilDeal) t.push(`😈 ${sk.devilDeal[0]}턴 동안 내 모든 공격이 **확정 급소 + 약점 공격**! 단, ${sk.devilDeal[0]}턴 안에 상대를 쓰러뜨리지 못하면 그동안 준 피해의 **×${sk.devilDeal[1]}** 를 **무효화 불가 피해**로 나도 받아요 (부활·스킬 면역·쉴드·가드로 못 막고, 부활도 안 돼요)`);
   if (sk.cd) t.push(`⏳ 쿨타임 ${sk.cd}턴`);
   if (sk.cleanse) t.push('내 상태이상(화상·독·출혈·약화) 제거');
   return t;
@@ -657,8 +672,8 @@ export const tierStars = (t) => '★'.repeat(Math.max(1, Math.min(5, t)));
 export function skillCategory(sk) {
   if (sk.pet) return '전용기';
   if (sk.pow || sk.bomb || sk.detonate) return '공격';
-  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward || sk.priority || sk.clone || sk.reflect || sk.reflectDebuff || sk.copy || sk.revive || sk.skillImmune || sk.cdReset || sk.statRoll?.[1] === 'self') return '강화';
-  if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp || sk.steal || sk.buffXfer || sk.statRoll?.[1] === 'foe') return '약화';
+  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward || sk.priority || sk.clone || sk.reflect || sk.reflectDebuff || sk.copy || sk.revive || sk.skillImmune || sk.cdReset || sk.devilDeal || sk.statRoll?.[1] === 'self') return '강화';
+  if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp || sk.steal || sk.buffXfer || sk.joker || sk.curse || sk.curseGrant || sk.statRoll?.[1] === 'foe') return '약화';
   return '회복·방어';
 }
 
@@ -694,7 +709,7 @@ export function normalizeSkills(inst) {
 }
 
 export function rollSkill(inst, rng = Math.random, exclude = []) {
-  const all = Object.values(SKILLS).filter((s) => !exclude.includes(s.id));
+  const all = Object.values(SKILLS).filter((s) => !exclude.includes(s.id) && !s.hidden); // hidden(저주부여 등)은 뽑기에 안 나와요
   // 1) 전용기 판정: 펫에게 (아직 안 배운) 전용기가 있을 때만 sigChance(1%) 로 나와요. 전용기가 2개면 반반이에요.
   const sig = all.filter((s) => s.pet === inst.petId);
   if (sig.length && rng() < SKILL_CFG.sigChance) return sig[Math.floor(rng() * sig.length)].id;
@@ -753,6 +768,7 @@ export function actsFirst(me, foe) {
 export function afterHit(X, Y, dmg, log) {
   if (dmg <= 0) return;
   X.st.turnTaken = (X.st.turnTaken ?? 0) + dmg;
+  if (Y.st?.devil) Y.st.devil.dealt += dmg; // 😈 악마의 거래: 내가 준 피해 누적
   const r = X.st.reflect;
   if (r && Y.hp > 0) {
     const back = Math.max(1, Math.round(dmg * r.pct));
@@ -792,7 +808,7 @@ const heal = (X, n) => {
 
 // ───────── 🆕 배치 3 헬퍼 ─────────
 // 스킬로 "적에게 가는" 효과 칸들 — 상대가 스킬 면역이면 castSkill 이 이 칸들을 지워요
-const HOSTILE_KEYS = ['pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'turnCut', 'healCut', 'atkDown', 'defDown', 'stun', 'dot', 'drainMana', 'swapHp', 'buffXfer'];
+const HOSTILE_KEYS = ['pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'turnCut', 'healCut', 'atkDown', 'defDown', 'stun', 'dot', 'drainMana', 'swapHp', 'buffXfer', 'joker', 'curseGrant'];
 export const ROLL_CAP = { 1: 1.3, 2: 1.5, 3: 1.8, 4: 2.2, 5: 3 }; // 🎰 등급별 능력치 변동 상한 (배수)
 const STAT_LABEL = { atk: '⚔️ 공격력', def: '🧱 방어력', spd: '👟 스피드' };
 export const cdLeft = (st, id) => st?.cds?.[id] ?? 0; // ⏳ 남은 쿨타임 (0 이면 쓸 수 있어요)
@@ -857,6 +873,36 @@ function applyXfer(X, foe, mode, log) {
   return n > 0;
 }
 
+// 🃏 조커 설정: 상대가 조커 카드를 받으면 마나 전부 삭제 + sealTurns 턴 동안 스킬 봉인 / forceGive true 면 조커 카드가 항상 상대에게 가요
+export const JOKER_CFG = { sealTurns: 3, forceGive: false };
+
+// 🧿 저주: 자신에게 거는 디버프 후보 (pct = 1배 위력, dot = 지속피해)
+const CURSE_POOL = [
+  { k: 'atkDown', pct: 0.25 },
+  { k: 'defDown', pct: 0.25 },
+  { k: 'spdDown', pct: 0.25 },
+  { k: 'healCut', pct: 0.4 },
+  { k: 'burn', pct: 0.05, dot: true },
+  { k: 'poison', pct: 0.05, dot: true },
+  { k: 'bleed', pct: 0.05, dot: true },
+];
+const CURSE_LABEL = { atkDown: '🔻 공격력↓', defDown: '🔻 방어력↓', spdDown: '🐌 스피드↓', healCut: '🚑 회복감소', burn: '🔥 화상', poison: '☠️ 독', bleed: '🩸 출혈' };
+const CURSE_CAP = 0.9; // 능력치 디버프 · 회복감소 최대 비율
+const CURSE_DOT_CAP = 0.25; // 지속 피해 최대 비율 (매 턴 최대 체력의)
+function putCurse(T, c, mult, turns) {
+  if (c.dot) {
+    T.st.dots = (T.st.dots ?? []).filter((d) => d.kind !== c.k);
+    T.st.dots.push({ kind: c.k, pct: Math.min(CURSE_DOT_CAP, c.pct * mult), turns });
+  } else T.st[c.k] = { pct: Math.min(CURSE_CAP, c.pct * mult), turns };
+}
+// 저주가 끝났는데 칸이 아직 저주부여로 남아 있으면 금단의 저주로 되돌려요 (바뀐 게 있으면 true)
+export function revertCurseSlots(skills, st) {
+  if (!Array.isArray(skills) || st?.cursed) return false;
+  let changed = false;
+  for (let i = 0; i < skills.length; i++) if (skills[i] === 'curse_grant') { skills[i] = 'forbidden_curse'; changed = true; }
+  return changed;
+}
+
 // 🪽 부활: 쓰러졌고 부활 효과가 남아 있으면 되살려요 (남은 횟수가 0 이 되면 효과 사라짐)
 export function tryRevive(X, log) {
   const r = X.st?.revive;
@@ -874,11 +920,16 @@ export function tryRevive(X, log) {
 export function castSkill(sk, A, B, rng, log) {
   A.mana = Math.max(0, A.mana - sk.cost);
   log.push(`✨ ${A.emoji} ${A.name}의 ${sk.emoji} **${sk.name}**!`);
+  // 🆕 배치 4: 못 쓰는 상황이면 마나를 돌려주고 불발 (쿨타임·마지막 스킬 기록 전에 걸러요)
+  const fizzle = (why) => { A.mana += sk.cost; log.push(`　💨 ${why} (마나는 돌려받았어요)`); };
+  if (sk.joker && (A.fight ?? B.fight)?.jokerUsed) return fizzle('조커는 이번 전투에서 이미 쓰였어요…');
+  if (sk.devilDeal && A.st.devil) return fizzle('이미 악마와 거래 중이에요…');
+  if (sk.curseGrant && !A.st.cursed) { revertCurseSlots(A.skills, A.st); return fizzle('부여할 저주가 사라졌어요…'); }
   if (!sk.echoed) A.st.last = sk.copied ? sk.srcId : sk.id; // 🆕 "마지막에 쓴 스킬" 기록 (복사용)
   if (sk.cd && !sk.copied && !sk.echoed) (A.st.cds ??= {})[sk.id] = sk.cd + 1; // ⏳ 쿨타임 시작 (+1: 이번 턴 끝 감소분)
   if (sk.copy) { // 🦜 상대가 마지막에 쓴 스킬을 복사해서 마나 0으로 즉시 사용
     const src = SKILLS[B.st.last];
-    if (!src || src.copy) { A.mana += sk.cost; log.push('　💨 복사할 스킬이 없어요… (마나는 돌려받았어요)'); return; }
+    if (!src || src.copy || src.joker) { A.mana += sk.cost; log.push('　💨 복사할 스킬이 없어요… (마나는 돌려받았어요)'); return; }
     log.push(`　🦜 ${B.name}의 ${src.emoji} **${src.name}** 을(를) 복사했어요!`);
     castSkill({ ...src, name: `${src.name} (복사)`, cost: 0, copied: true, srcId: src.id }, A, B, rng, log);
     return;
@@ -891,6 +942,30 @@ export function castSkill(sk, A, B, rng, log) {
     for (const k of HOSTILE_KEYS) delete sk[k];
     log.push(`　🧿 ${B.name}은(는) **스킬 면역** 상태! 적에게 가는 스킬 효과가 전부 막혔어요`);
   }
+  if (sk.joker) { // 🃏 조커: 내 스킬 하나 ↔ 상대 스킬 하나 랜덤 맞교환 (전투 안에서만 · 전투당 1번)
+    const fight = A.fight ?? B.fight ?? (A.fight = B.fight = {});
+    A.fight ??= fight;
+    B.fight ??= fight;
+    const idxOf = (X) => (X.skills ?? []).map((id, i) => (SKILLS[id] ? i : -1)).filter((i) => i >= 0);
+    const ai = idxOf(A);
+    const bi = idxOf(B);
+    if (!ai.length || !bi.length) return fizzle('맞바꿀 스킬이 없어요…');
+    const jokerAt = ai.find((i) => A.skills[i] === sk.id);
+    const a = JOKER_CFG.forceGive && jokerAt != null ? jokerAt : ai[Math.floor(rng() * ai.length)];
+    const b = bi[Math.floor(rng() * bi.length)];
+    const mine = A.skills[a];
+    const theirs = B.skills[b];
+    A.skills[a] = theirs;
+    B.skills[b] = mine;
+    fight.jokerUsed = true;
+    log.push(`　🃏 **조커!** ${A.name}의 ${SKILLS[mine].emoji} ${SKILLS[mine].name} ↔ ${B.name}의 ${SKILLS[theirs].emoji} ${SKILLS[theirs].name} 맞교환! (이번 전투 동안만)`);
+    if (mine === sk.id) { // 조커 카드가 상대 손에 들어갔어요
+      const lost = Math.round(B.mana);
+      B.mana = 0;
+      B.st.sealed = { turns: JOKER_CFG.sealTurns + 1 }; // +1: 이번 턴 끝 감소분
+      log.push(`　😈 ${B.name}(이)가 **조커 카드**를 받았어요! 마나 ${lost} 전부 삭제 + 스킬 ${JOKER_CFG.sealTurns}턴 봉인!`);
+    }
+  }
   let dealt = 0;
 
   // 🌈 속성 상성: 약점(×1.5) / 반감(×0.65) / 같은 속성 보너스(×1.2)
@@ -898,13 +973,16 @@ export function castSkill(sk, A, B, rng, log) {
   let elemMul = 1;
   if (sk.pow || sk.bomb) {
     const clash = elemClash(skElem, B, { ignoreResist: sk.ignoreResist });
-    elemMul = clash.mult;
-    if (sk.weakBonus && clash.mult > 1) elemMul *= 1 + sk.weakBonus;
+    const devilWeak = !!A.st.devil && clash.mult < ELEM_CFG.strong; // 😈 악마의 거래: 약점 확정
+    const cmult = devilWeak ? ELEM_CFG.strong : clash.mult;
+    elemMul = cmult;
+    if (sk.weakBonus && cmult > 1) elemMul *= 1 + sk.weakBonus;
     const stab = skElem !== 'normal' && effElems(A).includes(skElem) ? ELEM_CFG.stab : 1;
     elemMul *= stab;
     const tags = [];
-    if (clash.note) tags.push(clash.note.trim());
-    if (sk.weakBonus && clash.mult > 1) tags.push(`🎯 약점 공략! (+${P100(sk.weakBonus)})`);
+    if (devilWeak) tags.push(`😈 악마의 거래: 약점 확정! (×${ELEM_CFG.strong})`);
+    else if (clash.note) tags.push(clash.note.trim());
+    if (sk.weakBonus && cmult > 1) tags.push(`🎯 약점 공략! (+${P100(sk.weakBonus)})`);
     if (stab > 1) tags.push(`🔰 같은 속성 보너스! (×${ELEM_CFG.stab})`);
     if (tags.length) log.push(`　${elemTag(skElem)} 속성 → ${effElems(B).map(elemTag).join(' + ')}: ${tags.join(' ')}`);
   }
@@ -950,7 +1028,7 @@ export function castSkill(sk, A, B, rng, log) {
       const atk = effAtk(A) + fearBonus;
       const def = effDef(B) * (1 - (sk.pierce ?? 0));
       let dmg = Math.max(atk * 0.25, atk - def * 0.5) * sk.pow * mult * (0.85 + rng() * 0.3);
-      const crit = rng() < (A.crit ?? 0.1) + (sk.crit ?? 0);
+      const crit = !!A.st.devil || rng() < (A.crit ?? 0.1) + (sk.crit ?? 0); // 😈 악마의 거래 중엔 확정 급소
       if (crit) dmg *= 1.5;
       if (sk.exec && B.hp / B.max <= 0.3) dmg *= sk.exec;
       const hit = mitigate(B, Math.max(1, Math.round(dmg)), rng);
@@ -1026,6 +1104,21 @@ export function castSkill(sk, A, B, rng, log) {
   }
   if (sk.reflect) { A.st.reflect = { pct: sk.reflect[0], turns: sk.reflect[1] }; log.push(`　🪞 ${sk.reflect[1]}턴 동안 받은 피해의 ${P100(sk.reflect[0])}를 되돌려줘요`); }
   if (sk.reflectDebuff) { A.st.reflectDebuff = { turns: sk.reflectDebuff }; log.push(`　🔮 ${sk.reflectDebuff}턴 동안 걸리는 디버프를 상대에게 되돌려요`); }
+  if (sk.devilDeal) { // 😈 악마와의 거래: 턴 동안 확정 급소+약점, 못 쓰러뜨리면 준 피해 × 배수를 무효화 불가 피해로 (tickSide 에서 정산)
+    A.st.devil = { turns: sk.devilDeal[0] + 1, mult: sk.devilDeal[1], dealt: 0 }; // +1: 이번 턴 끝 감소분
+    log.push(`　😈 **악마와 거래했어요!** ${sk.devilDeal[0]}턴 동안 모든 공격이 확정 급소 + 약점! 하지만 못 쓰러뜨리면 준 피해의 ×${sk.devilDeal[1]} 를 무효화 불가 피해로 받아요…`);
+  }
+  if (sk.curse) { // 🧿 금단의 저주: 나 자신에게 랜덤 디버프 N개 · 이 칸이 저주부여로 바뀌어요
+    const [cnt, turns] = sk.curse;
+    const pool = CURSE_POOL.slice();
+    const picked = [];
+    for (let i = 0; i < cnt && pool.length; i++) picked.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+    for (const c of picked) putCurse(A, c, 1, turns);
+    A.st.cursed = { list: picked, turns, dur: turns };
+    const slot = (A.skills ?? []).indexOf(sk.id);
+    if (slot >= 0) A.skills[slot] = 'curse_grant';
+    log.push(`　🧿 ${A.name}에게 저주가 걸렸어요! ${picked.map((c) => CURSE_LABEL[c.k]).join(' · ')} (${turns}턴)${slot >= 0 ? ' — 다음 턴, 이 스킬이 **저주부여**로 바뀌어요' : ''}`);
+  }
   if (sk.mana) { const n = Math.min(sk.mana, SKILL_CFG.manaMax + 1000); A.mana += n; log.push(`　🔋 마나 +${n}`); }
   if (sk.cleanse) { A.st.dots = []; delete A.st.atkDown; delete A.st.defDown; delete A.st.stun; log.push('　✨ 나쁜 상태가 사라졌어요'); }
   // 🆕 배치 3: 쿨타임 삭제 · 부활 · 스킬 면역 · 능력치 룰렛 · 1회용 효과 이동(대기)
@@ -1091,7 +1184,7 @@ export function castSkill(sk, A, B, rng, log) {
       log.push(cut ? `　⏳ ${B.name}의 좋은 효과 지속시간이 ${sk.turnCut}턴 줄었어요!` : '　💨 줄일 효과가 없었어요…');
     }
     // 🔮 거울 장막: 디버프를 쓴 쪽에게 되돌려요
-    const hasDebuff = sk.healCut || sk.atkDown || (sk.defDown && sk.defDown[0] > 0) || sk.stun || sk.dot || sk.drainMana;
+    const hasDebuff = sk.healCut || sk.atkDown || (sk.defDown && sk.defDown[0] > 0) || sk.stun || sk.dot || sk.drainMana || sk.curseGrant;
     const T = B.st.reflectDebuff && hasDebuff ? A : B;
     if (T !== B) log.push(`　🔮 ${B.name}의 거울 장막! 디버프가 ${A.name}에게 되돌아가요!`);
     if (sk.healCut) { T.st.healCut = { pct: sk.healCut[0], turns: sk.healCut[1] }; log.push(`　🚑 ${T.name}의 회복 효과 -${P100(sk.healCut[0])} (${sk.healCut[1]}턴)`); }
@@ -1104,6 +1197,13 @@ export function castSkill(sk, A, B, rng, log) {
       log.push(`　${DOT[sk.dot[0]] ?? sk.dot[0]} ${T.name}에게 ${sk.dot[2]}턴 동안!`);
     }
     if (sk.drainMana) { const n = Math.min(T.mana, sk.drainMana); T.mana -= n; if (n) log.push(`　🔻 ${T.name} 마나 -${n}`); }
+    if (sk.curseGrant && A.st.cursed) { // 🪬 저주부여: 저주로 받은 디버프를 ×배수 위력으로
+      const rec = A.st.cursed;
+      for (const c of rec.list) putCurse(T, c, sk.curseGrant, rec.dur);
+      log.push(`　🪬 저주가 **×${sk.curseGrant}** 로 커져서 ${T.name}에게! ${rec.list.map((c) => CURSE_LABEL[c.k]).join(' · ')} (${rec.dur}턴)`);
+      delete A.st.cursed;
+      revertCurseSlots(A.skills, A.st); // 칸이 다시 금단의 저주로
+    }
   }
   if (sk.echo) { A.st.echo = { turns: sk.echo }; log.push(`　🔊 ${sk.echo}턴 안에 쓰는 다음 공격 스킬이 메아리쳐요`); }
   // 🆕 메아리: 메아리가 켜진 상태에서 공격 스킬을 쓰면 위력 75% 로 한 번 더 (마나 0)
@@ -1145,6 +1245,18 @@ export function tickSide(X, log, gainMana = true, foe = null) {
     }
   }
   tryRevive(X, log); // 🪽 지속 피해로 쓰러졌다면 부활
+  if (st.devil && --st.devil.turns <= 0) { // 😈 악마의 거래 정산: 못 쓰러뜨렸다면 준 피해 × 배수를 "무효화 불가"로 받아요
+    const d = st.devil;
+    delete st.devil;
+    if (X.hp > 0 && foe && foe.hp > 0) {
+      if (d.dealt > 0) {
+        const toll = Math.max(1, Math.round(d.dealt * d.mult));
+        X.hp = Math.max(0, X.hp - toll); // 쉴드·가드·회피·분신·스킬 면역을 거치지 않고 체력에 바로 들어가요
+        log.push(`😈 **거래의 대가!** ${X.name}(이)가 준 피해 ${d.dealt}의 ×${d.mult} = **${toll}** 무효화 불가 피해를 받았어요!`);
+        if (X.hp <= 0) { delete st.revive; log.push(`😈 부활의 힘도 거래 앞에서는 소용없어요…`); }
+      } else log.push(`😈 ${X.name}은(는) 거래 기간 동안 피해를 못 줘서 대가를 치르지 않았어요`);
+    }
+  }
   if (st.clone && foe && foe.hp > 0 && X.hp > 0 && !foe.st.skillImmune) { // 👥 분신이 같이 공격해요 (상대가 스킬 면역이면 못 때려요)
     const base = Math.max(st.clone.atk * 0.25, st.clone.atk - effDef(foe) * 0.5) * (0.85 + Math.random() * 0.3);
     const hit = mitigate(foe, Math.max(1, Math.round(base)));
@@ -1168,7 +1280,7 @@ export function tickSide(X, log, gainMana = true, foe = null) {
     delete st.manaMaxUp;
   }
   if (st.revive && --st.revive.turns <= 0) { delete st.revive; log.push(`🪽 ${X.name}의 부활 효과가 사라졌어요`); }
-  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune']) {
+  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed']) {
     if (st[k] && --st[k].turns <= 0) delete st[k];
   }
   for (const id of Object.keys(st.cds ?? {})) if (--st.cds[id] <= 0) delete st.cds[id]; // ⏳ 쿨타임 감소
@@ -1191,7 +1303,9 @@ export function rollWildSkills(petId, rng = Math.random) {
 // 야생 펫의 스킬 고르기: 배운 스킬 중 "지금 상황에 가장 쓸모 있는" 걸 점수로 골라요.
 // 마나만 되면 거의 항상 스킬을 써요 (활용률 100%) — 예전처럼 35%로 거르지 않아요.
 export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
-  const options = (skillIds ?? []).map((id) => SKILLS[id]).filter((sk) => sk && sk.cost <= wild.mana && cdLeft(wild.st, sk.id) <= 0);
+  if (wild.st?.sealed) return null; // 🔒 조커로 봉인되면 기본 공격만 해요
+  const options = (skillIds ?? []).map((id) => SKILLS[id]).filter((sk) => sk && sk.cost <= wild.mana && cdLeft(wild.st, sk.id) <= 0
+    && !(sk.joker && wild.fight?.jokerUsed) && !(sk.devilDeal && wild.st?.devil) && !(sk.curseGrant && !wild.st?.cursed));
   if (!options.length) return null; // 배운 스킬이 없거나 마나가 모자라면 기본 공격
 
   const myRatio = wild.hp / wild.max;
@@ -1208,6 +1322,9 @@ export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
       if (cl.mult >= 1.1) s += 2.5;
       else if (cl.mult <= 0.9) s -= 2;
     }
+    if (sk.curseGrant) s += 5; // 🪬 저주부여는 기회가 한 번이라 바로 써요
+    else if (sk.curse) s -= 2; // 🧿 자기 저주는 살짝 꺼려요
+    if (sk.devilDeal || sk.joker) s += 1;
     if (sk.cost > wild.mana * 0.8) s -= 1; // 너무 비싸면 살짝 아껴요
     return s;
   };
@@ -1248,6 +1365,9 @@ export function statusText(st = {}) {
   if (st.statMod) t.push(`🎰 능력치 ⚔️×${+st.statMod.atk.toFixed(2)} 🧱×${+st.statMod.def.toFixed(2)} 👟×${+st.statMod.spd.toFixed(2)} ${st.statMod.turns}턴`);
   if (st.skillImmune) t.push(`🧿 스킬면역 ${st.skillImmune.turns}턴`);
   if (st.revive) t.push(`🪽 부활대기 ${st.revive.turns}턴`);
+  if (st.sealed) t.push(`🔒 스킬봉인 ${st.sealed.turns}턴`);
+  if (st.cursed) t.push(`🧿 저주 ${st.cursed.turns}턴`);
+  if (st.devil) t.push(`😈 악마의 거래 ${st.devil.turns}턴 · 준 피해 ${st.devil.dealt} (×${st.devil.mult})`);
   for (const [id, n] of Object.entries(st.cds ?? {})) if (SKILLS[id]) t.push(`⏳ ${SKILLS[id].name} 쿨 ${n}턴`);
   return t.join(' · ');
 }

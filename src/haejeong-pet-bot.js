@@ -38,6 +38,7 @@ import {
   mitigate,
   afterHit,
   actsFirst,
+  revertCurseSlots, // 🆕 저주부여 → 금단의 저주 복귀
 } from './skill.js';
 
 const SLOT_IDX = Array.from({ length: SLOT_COUNT }, (_, i) => i); // 스킬 슬롯 번호들 (0~4)
@@ -2282,7 +2283,7 @@ function snapshot(player, now = Date.now()) {
         myPetId: main.petId,
         myLevel: main.level,
         myName: main.nickname ?? PETS[main.petId].name,
-        skills: main.skills ?? Array(SLOT_COUNT).fill(null), // 🆕 스킬 슬롯 (전투 버튼에 쓰여요)
+        skills: b.mySkillOv ?? main.skills ?? Array(SLOT_COUNT).fill(null), // 🆕 스킬 슬롯 (전투 버튼에 쓰여요) · 조커·저주로 바뀐 칸(mySkillOv)이 우선이에요
         mainRef: { manaBonus: main.manaBonus ?? 0 }, // 화면에 최대 마나를 보여줄 때 써요
       };
     }
@@ -2483,7 +2484,7 @@ function iMoveFirst(c, b) {
 // 🆕 기본 공격으로 피해를 받은 직후: 반사 · 이번 턴 받은 피해 기록. toMe=true 면 내가 맞은 거예요.
 function reactHit(c, b, toMe, dmg, log) {
   const X = toMe ? { name: c.myName, st: b.mySt } : { name: c.wildPet.name, st: b.wildSt };
-  const Y = toMe ? { name: c.wildPet.name, hp: b.wildHp } : { name: c.myName, hp: b.myHp };
+  const Y = toMe ? { name: c.wildPet.name, hp: b.wildHp, st: b.wildSt } : { name: c.myName, hp: b.myHp, st: b.mySt };
   afterHit(X, Y, dmg, log);
   if (toMe) b.wildHp = Y.hp; else b.myHp = Y.hp;
 }
@@ -2526,10 +2527,12 @@ function myAttack(c, b, log, rng) {
     return;
   }
   const clash = elemClash(effElems(mySideOf(c, b))[0], wildSideOf(c, b));
-  const { dmg: raw, crit } = calcDamage(c.mine.atk, c.wild.def, rng, CRIT_CHANCE + c.mineEq.crit, clash.mult);
+  const dv = !!b.mySt.devil; // 😈 악마의 거래 중: 확정 급소 + 약점 확정
+  const weak = dv && clash.mult < ELEM_CFG.strong;
+  const { dmg: raw, crit } = calcDamage(c.mine.atk, c.wild.def, rng, dv ? 1 : CRIT_CHANCE + c.mineEq.crit, weak ? ELEM_CFG.strong : clash.mult);
   const hit = mitigate({ st: b.wildSt }, raw, rng);
   b.wildHp = Math.max(0, b.wildHp - hit.dmg);
-  log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${hit.dmg}** 데미지${clash.note}${hit.note}`);
+  log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${hit.dmg}** 데미지${weak ? ' 😈 **악마의 거래: 약점 확정!**' : clash.note}${hit.note}`);
   reactHit(c, b, false, hit.dmg, log);
 }
 
@@ -2539,10 +2542,12 @@ function wildAttack(c, b, log, rng) {
     return;
   }
   const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b));
-  const { dmg: raw, crit } = calcDamage(c.wild.atk, c.mine.def, rng, GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, clash.mult);
+  const dv = !!b.wildSt.devil; // 😈 야생 펫이 악마와 거래했다면 똑같이 확정 급소 + 약점
+  const weak = dv && clash.mult < ELEM_CFG.strong;
+  const { dmg: raw, crit } = calcDamage(c.wild.atk, c.mine.def, rng, dv ? 1 : GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, weak ? ELEM_CFG.strong : clash.mult);
   const hit = mitigate({ st: b.mySt }, raw, rng);
   b.myHp = Math.max(0, b.myHp - hit.dmg);
-  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${hit.dmg}** 데미지${clash.note}${hit.note}`);
+  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${hit.dmg}** 데미지${weak ? ' 😈 **악마의 거래: 약점 확정!**' : clash.note}${hit.note}`);
   reactHit(c, b, true, hit.dmg, log);
 }
 
@@ -2730,6 +2735,8 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   tickSide(tWild, log, true, tMe);
   b.myHp = tMe.hp; b.myMana = tMe.mana;
   b.wildHp = tWild.hp; b.wildMana = tWild.mana;
+  if (b.mySkillOv) revertCurseSlots(b.mySkillOv, b.mySt); // 🧿 저주가 끝났으면 저주부여 칸을 금단의 저주로 되돌려요
+  if (b.wildSkillOv) revertCurseSlots(b.wildSkillOv, b.wildSt);
 
   return { kind: 'continue', commit: true, log, snap: snapshot(player, now) };
 }
@@ -2855,6 +2862,7 @@ function battleSwap(player, id, uid, now = Date.now(), rng = Math.random) {
   b.myHp = hp;
   b.myMax = maxHp(next);
   b.mySt = {}; // 교체하면 이전 펫의 상태이상은 사라져요
+  delete b.mySkillOv; // 🃏 조커·저주로 바뀐 스킬 칸도 새 펫에게는 없어요 (jokerUsed 는 전투 단위라 그대로)
 
   const c = context(player, ex);
   const log = [
@@ -2873,19 +2881,28 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
   if (!ex.battle) return { kind: 'no_battle' };
 
   const main = getMainPet(player);
-  const sid = main.skills?.[slot];
-  const sk = SKILLS[sid];
+  const b = ex.battle;
+  const mySkills = b.mySkillOv ?? main.skills ?? []; // 🃏 조커·저주로 바뀐 칸이 있으면 그게 이번 전투의 내 스킬이에요
+  const sk = SKILLS[mySkills[slot]];
   if (!sk) return { kind: 'no_skill' };
 
-  const b = ex.battle;
+  if (b.mySt.sealed) return { kind: 'sealed', left: b.mySt.sealed.turns }; // 🔒 조커 카드를 받아서 스킬 봉인
   if (b.myMana < sk.cost) return { kind: 'no_mana', need: sk.cost, have: b.myMana };
   if (cdLeft(b.mySt, sk.id) > 0) return { kind: 'cooldown', name: sk.name, left: cdLeft(b.mySt, sk.id) }; // ⏳ 쿨타임 중
+  if (sk.joker && b.jokerUsed) return { kind: 'joker_used' }; // 🃏 조커는 전투당 1번
 
   const c = context(player, ex);
   const log = [];
-  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, spd: c.mine.spd, crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main), st: b.mySt, elems: petElems(c.main.petId) };
-  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, spd: c.wild.spd, crit: GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt, elems: petElems(c.wildInfo.petId) };
-  const sync = () => { b.myHp = me.hp; b.myMana = me.mana; b.wildHp = wild.hp; b.wildMana = wild.mana; };
+  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, spd: c.mine.spd, crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main), st: b.mySt, elems: petElems(c.main.petId), skills: [...mySkills], fight: b };
+  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, spd: c.wild.spd, crit: GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt, elems: petElems(c.wildInfo.petId), skills: [...(b.wildSkillOv ?? c.wildInfo.skills ?? [])], fight: b };
+  const origWild = [...wild.skills];
+  const sameArr = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
+  const sync = () => {
+    b.myHp = me.hp; b.myMana = me.mana; b.wildHp = wild.hp; b.wildMana = wild.mana;
+    // 🃏 조커 · 🧿 저주로 스킬 칸이 바뀌었으면 이번 전투 동안만 저장해요 (펫이 배운 진짜 스킬은 그대로)
+    if (!sameArr(me.skills, mySkills)) b.mySkillOv = [...me.skills];
+    if (!sameArr(wild.skills, origWild)) b.wildSkillOv = [...wild.skills];
+  };
 
   // 내 차례: 기절 중이면 못 써요 (마나는 그대로)
   const myTurn = () => {
@@ -2899,7 +2916,7 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
     if (b.myHp <= 0 || b.wildHp <= 0) return;
     if (stunned(b.wildSt, c.wildPet.name, log)) return;
     me.hp = b.myHp; wild.hp = b.wildHp;
-    const wsk = pickWildSkill(c.wildInfo.skills, wild, me, rng);
+    const wsk = pickWildSkill(wild.skills, wild, me, rng);
     if (wsk) {
       castSkill(wsk, wild, me, rng, log);
       sync();
@@ -3938,12 +3955,15 @@ function skillRows(snap, userId) {
     .filter((i) => SKILLS[b.skills?.[i]])
     .map((i) => {
       const sk = SKILLS[b.skills[i]];
+      const cdn = cdLeft(b.mySt, sk.id); // ⏳ 남은 쿨타임
+      const sealed = !!b.mySt?.sealed; // 🔒 조커 카드로 봉인
+      const jokerUsed = !!(sk.joker && b.jokerUsed); // 🃏 조커는 전투당 1번
       return button({
-        label: `${sk.name} (${sk.cost})`,
-        emoji: sk.emoji,
+        label: `${sk.name} (${sk.cost})${cdn > 0 ? ` ⏳ 쿨 ${cdn}턴` : ''}${jokerUsed ? ' · 사용됨' : ''}${sealed ? ' · 봉인' : ''}`,
+        emoji: sealed ? '🔒' : sk.emoji,
         customId: `explore:skillask:${userId}:${snap.id}:${i}`, // 누르면 설명 + 사용 확인창이 먼저 떠요
-        style: 1,
-        disabled: b.myMana < sk.cost,
+        style: cdn > 0 || sealed || jokerUsed ? 2 : 1,
+        disabled: b.myMana < sk.cost || cdn > 0 || sealed || jokerUsed,
       });
     });
   return btns.length ? [row(...btns)] : [];
@@ -4067,6 +4087,10 @@ function exploreViewSkillConfirm(snap, userId, slot) {
   const mine = PETS[b.myPetId];
   const maxM = maxMana(getMainPetFromSnap(snap));
   const enough = b.myMana >= sk.cost;
+  const cdn = cdLeft(b.mySt, sk.id); // ⏳ 남은 쿨타임
+  const sealed = !!b.mySt?.sealed; // 🔒 스킬 봉인
+  const jokerUsed = !!(sk.joker && b.jokerUsed);
+  const usable = enough && cdn <= 0 && !sealed && !jokerUsed;
   const after = Math.max(0, b.myMana - sk.cost);
   const effects = skillEffectLines(sk);
   // 🌈 지금 상대에게 이 스킬이 얼마나 잘 먹히는지 미리 보여줘요
@@ -4090,7 +4114,10 @@ function exploreViewSkillConfirm(snap, userId, slot) {
           `🔋 마나 **${sk.cost}** 소모 (지금 ${b.myMana} → 사용 후 ${after} / 최대 ${maxM})\n` +
           `⏱️ 스킬을 쓰면 **이번 턴이 끝나고** ${wild.emoji} ${wild.name}(이)가 반격해요. 스킬을 쓴 턴에는 마나가 차지 않아요! (기본 공격을 해야 마나 +${SKILL_CFG.manaPerTurn})\n` +
           `💫 기절 중이면 스킬이 나가지 않아요 (마나는 그대로).` +
-          (enough ? '' : `\n\n⚠️ **마나가 모자라요!** (필요 ${sk.cost} / 현재 ${b.myMana})`),
+          (enough ? '' : `\n\n⚠️ **마나가 모자라요!** (필요 ${sk.cost} / 현재 ${b.myMana})`) +
+          (cdn > 0 ? `\n\n⏳ **쿨타임 ${cdn}턴 남았어요!** (쿨 ${cdn}턴 뒤에 다시 쓸 수 있어요)` : '') +
+          (sealed ? `\n\n🔒 **스킬이 봉인됐어요!** (${b.mySt.sealed.turns}턴 동안 스킬을 못 써요)` : '') +
+          (jokerUsed ? '\n\n🃏 **조커는 이번 전투에서 이미 썼어요!** (전투당 1번)' : ''),
         color: 0x5865f2,
         fields: [
           { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIcons(effElems({ elems: petElems(b.myPetId), st: b.mySt }))}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
@@ -4100,7 +4127,7 @@ function exploreViewSkillConfirm(snap, userId, slot) {
     ],
     components: [
       row(
-        button({ label: '사용하기', emoji: '✅', customId: `explore:skillgo:${userId}:${snap.id}:${slot}`, style: 3, disabled: !enough }),
+        button({ label: '사용하기', emoji: '✅', customId: `explore:skillgo:${userId}:${snap.id}:${slot}`, style: 3, disabled: !usable }),
         button({ label: '취소', emoji: '❌', customId: `explore:skillno:${userId}:${snap.id}`, style: 2 }),
       ),
     ],
@@ -4530,6 +4557,12 @@ async function exploreHandleButton(interaction, args) {
     }
     if (out.kind === 'cooldown') {
       return reply({ content: `⏳ **${out.name}** 은(는) 아직 쿨타임이에요! (${out.left}턴 남음)` }, { ephemeral: true });
+    }
+    if (out.kind === 'sealed') {
+      return reply({ content: `🔒 조커 카드의 저주로 **스킬이 봉인**됐어요! (${out.left}턴 남음) 기본 공격이나 아이템은 쓸 수 있어요.` }, { ephemeral: true });
+    }
+    if (out.kind === 'joker_used') {
+      return reply({ content: '🃏 조커는 이번 전투에서 이미 썼어요! (전투당 1번)' }, { ephemeral: true });
     }
     if (out.kind === 'continue') return update(exploreViewBattle(out.snap, user.id, out.log.join('\n')));
     return battleOutcomeView(out, user.id); // won / lost / draw / wild_flee
