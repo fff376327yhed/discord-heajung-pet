@@ -45,7 +45,7 @@ import {
   catchProHold, // 🆕 배치 5: 포획 전문가 (도망 붙잡기)
   fightBuffOf, // 🆕 배치 5: 전투 중 버프 값
   fightBuffText,
-} from './skill.js';
+} from './skill-backup.js';
 
 const SLOT_IDX = Array.from({ length: SLOT_COUNT }, (_, i) => i); // 스킬 슬롯 번호들 (0~4)
 
