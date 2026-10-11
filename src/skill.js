@@ -3,6 +3,12 @@
 //   · 낮은 등급인데 사기였던 연타기·전용기·방어기 하향
 //   · 높은 등급인데 약했던 ★4·★5 공격기 상향, 쓸모없던 스킬(피의계약·프리즘 방벽·마나증폭 등) 보강
 //   · 같은 id 로 두 번 정의돼 덮어써지던 스킬(마나폭주 · 오버드라이브) 분리
+// 🛠️ 2차 밸런스 (2026-10-11) — 실제 레벨100 펫 능력치로 "스킬 1번 쓰면 상대 체력이 몇 % 깎이나"를 재서 같은 등급끼리 비교했어요
+//   · ★2·★3 의 너무 센 전용기·연타기·지속피해 스킬 하향 (예: 필살 독침 · 독니 일격 · 난타 · 낙석 · 화염구)
+//   · ★2~★5 의 너무 약했던 스킬 상향 (예: 불씨저주 · 독무 · 마나연소 · 피의계약 · 연쇄반응 · 늪 마녀의 저주 · 악마의 주사위 · 심판)
+//   · 사기였는데 등급이 어중간했던 시한폭탄 ★3 → ★4 (마나 35 → 50, 위력도 낮춤) · 종말의 시계 하향
+//   · ★5 회복보다 셌던 고래 노래 · 숲의 숨결 하향, 마나 회복 스킬(아드레날린 · 명상 · 심상) 효율을 등급 순서에 맞게 정리
+//   · 스킬 id 는 하나도 안 바꿨어요 (저장된 펫 스킬 그대로 써도 돼요)
 //
 // 마나: 최대 SKILL_CFG.manaMax(100), 기본 공격을 한 턴에만 +manaPerTurn(15) (스킬·회복·교체·잡기 턴에는 안 차요). 스킬은 마나를 써요. 좋은 스킬일수록 마나가 많이 들어요.
 // 슬롯(총 5칸): 1번 Lv.20 · 2번 Lv.40 · 3번 Lv.100 · 4번 Lv.200 · 5번 상점의 [스킬 슬롯 개방권]. 열릴 때 랜덤 스킬이 하나 들어와요 ([스킬 변경권] 으로 다시 뽑기).
@@ -189,12 +195,12 @@ const U = (id, name, emoji, tier, fx, flavor) => add(id, name, emoji, tier, fx, 
 // ───────── 일반 스킬: 속성 공격 (속성마다 ★1 · ★3 · ★5) ─────────
 // 📏 위력 기준: ★1 1.3~1.45 · ★2 1.5~1.8 · ★3 2.0~2.3 · ★4 2.5~3.0 · ★5 3.1~3.8 (연타기는 총 배율 기준, 부가 효과가 붙으면 조금 낮아요)
 G('fire_spark', '불씨', '🔥', 1, { pow: 1.4, dot: ['burn', 0.05, 2, 0.3] });
-G('fireball', '화염구', '☄️', 3, { pow: 2.1, dot: ['burn', 0.06, 3, 0.5] });
+G('fireball', '화염구', '☄️', 3, { pow: 2.0, dot: ['burn', 0.05, 3, 0.5] });
 G('inferno', '업화', '🌋', 5, { pow: 3.2, dot: ['burn', 0.08, 3, 1] });
 G('ember_jab', '불찌르기', '🔥', 1, { pow: 1.25, dot: ['burn', 0.04, 2, 0.4] });
-G('flame_wheel', '화륜', '🛞', 2, { pow: 1.6, dot: ['burn', 0.05, 3, 0.5] });
+G('flame_wheel', '화륜', '🛞', 2, { pow: 1.5, dot: ['burn', 0.04, 3, 0.5] });
 G('sear', '지지기', '🍳', 2, { pow: 1.2, dot: ['burn', 0.05, 3, 0.6] });
-G('blazing_kick', '작열차기', '🦶', 3, { pow: 2.2, dot: ['burn', 0.06, 3, 0.4] });
+G('blazing_kick', '작열차기', '🦶', 3, { pow: 2.1, dot: ['burn', 0.05, 3, 0.4] });
 G('magma_burst', '용암분출', '🌋', 4, { pow: 2.8, dot: ['burn', 0.07, 3, 0.6] });
 G('water_gun', '물총', '💧', 1, { pow: 1.35, atkDown: [0.1, 2] });
 G('tidal_wave', '파도타기', '🏄', 3, { pow: 2.0, atkDown: [0.15, 3] });
@@ -229,7 +235,7 @@ G('wind_blade', '바람칼날', '🍃', 3, { pow: 0.95, hits: 2, crit: 0.1 });
 G('tornado', '토네이도', '🌪️', 5, { pow: 1.2, hits: 3, crit: 0.1 });
 G('gale_slash', '질풍베기', '⚡', 2, { pow: 1.5, crit: 0.15 });
 G('cyclone', '회오리', '🌪', 3, { pow: 1.1, hits: 2 });
-G('feather_dart', '깃털화살', '🪶', 2, { pow: 0.65, hits: 3 });
+G('feather_dart', '깃털화살', '🪶', 2, { pow: 0.55, hits: 3 });
 G('talon_dive', '급강하발톱', '🦅', 3, { pow: 2.3, crit: 0.1 });
 G('gale_wing', '날개강타', '🪽', 3, { pow: 2.1, crit: 0.15 });
 G('pebble', '자갈던지기', '🪨', 1, { pow: 1.35 });
@@ -238,11 +244,11 @@ G('meteor_fall', '운석낙하', '🌠', 5, { pow: 3.3, stun: 0.2 });
 G('boulder_toss', '바위던지기', '🪨', 2, { pow: 1.6 });
 G('stone_fist', '돌주먹', '✊', 1, { pow: 1.5, defDown: [0.1, 2] });
 G('quake_stomp', '지각밟기', '👣', 3, { pow: 2.1, stun: 0.2 });
-G('sand_blast', '모래폭풍', '🏜️', 2, { pow: 1.0, hits: 2, atkDown: [0.15, 2] });
+G('sand_blast', '모래폭풍', '🏜️', 2, { pow: 0.85, hits: 2, atkDown: [0.15, 2] });
 G('dune_crush', '모래언덕', '🏝️', 3, { pow: 2.2, defDown: [0.2, 3] });
 G('flash', '섬광', '✨', 1, { pow: 1.3, atkDown: [0.1, 2] });
 G('holy_ray', '성스러운 빛', '🌟', 3, { pow: 2.0, heal: 0.1 });
-G('judgement', '심판', '⚖️', 5, { pow: 2.9, exec: 1.6 });
+G('judgement', '심판', '⚖️', 5, { pow: 3.3, exec: 1.6 });
 G('shadow_claw', '그림자발톱', '🌑', 1, { pow: 1.4, dot: ['bleed', 0.04, 2, 0.3] });
 G('shadow_bite', '그림자깨물기', '🌚', 2, { pow: 1.5, drain: 0.25 });
 G('dark_pulse', '어둠의파동', '🌘', 3, { pow: 2.1, drain: 0.25 });
@@ -252,11 +258,11 @@ G('eclipse_ray', '일식광선', '🌘', 5, { pow: 3.3, pierce: 0.4, atkDown: [0
 G('void_collapse', '공허붕괴', '🕳️', 5, { pow: 3.3, pierce: 0.5 });
 G('void_shot', '공허탄', '🌑', 3, { pow: 2.0, pierce: 0.3 });
 G('poison_sting', '독침', '☠️', 1, { pow: 1.1, dot: ['poison', 0.05, 3, 0.6] });
-G('toxic_fog', '독안개', '🧪', 3, { pow: 1.3, dot: ['poison', 0.07, 4, 0.8] });
+G('toxic_fog', '독안개', '🧪', 3, { pow: 1.2, dot: ['poison', 0.06, 4, 0.7] });
 G('plague', '대역병', '🦠', 5, { pow: 2.2, dot: ['poison', 0.09, 4, 1], atkDown: [0.2, 3] });
 G('acid_spit', '산성침', '🧪', 2, { pow: 1.1, defDown: [0.2, 3], dot: ['poison', 0.04, 3, 0.4] });
 G('hex_bolt', '저주탄', '🪄', 2, { pow: 1.2, dot: ['poison', 0.05, 3, 0.5] });
-G('spirit_siphon', '영혼흡수', '👻', 3, { pow: 1.4, drain: 0.5 });
+G('spirit_siphon', '영혼흡수', '👻', 3, { pow: 1.7, drain: 0.5 });
 G('prism_ray', '프리즘광선', '🔺', 4, { pow: 2.6, crit: 0.25 });
 G('echo_burst', '메아리', '📯', 3, { pow: 1.1, hits: 2, stun: 0.2 });
 G('bounce_ball', '튀는공', '⚽', 1, { pow: 0.75, hits: 2 });
@@ -266,18 +272,18 @@ G('frenzy', '광란', '😵', 4, { pow: 0.65, hits: 5, recoil: 0.05 });
 // ───────── 일반 스킬: 몸으로 부딪히기 · 연타 ─────────
 G('quick_jab', '빠른 찌르기', '🥊', 1, { pow: 0.75, hits: 2 });
 G('double_kick', '이단차기', '🦵', 2, { pow: 0.9, hits: 2 });
-G('triple_slash', '삼연참', '🗡️', 3, { pow: 0.85, hits: 3 });
-G('fury_swipes', '난타', '🐾', 3, { pow: 0.65, hits: 4 });
+G('triple_slash', '삼연참', '🗡️', 3, { pow: 0.75, hits: 3 });
+G('fury_swipes', '난타', '🐾', 3, { pow: 0.55, hits: 4 });
 G('rush', '돌진', '🐗', 2, { pow: 1.6, recoil: 0.08 });
 G('body_slam', '몸통박치기', '🏋️', 2, { pow: 1.5, stun: 0.15 });
 G('headbutt', '박치기', '🤕', 3, { pow: 2.3, recoil: 0.1 });
 G('heavy_strike', '강타', '🔨', 2, { pow: 1.7 });
-G('execute', '마무리일격', '💀', 4, { pow: 2.0, exec: 2.2 });
-G('piercing_shot', '관통사격', '🏹', 4, { pow: 2.4, pierce: 0.6 });
+G('execute', '마무리일격', '💀', 4, { pow: 2.3, exec: 2.2 });
+G('piercing_shot', '관통사격', '🏹', 4, { pow: 2.2, pierce: 0.5 });
 G('sniper', '저격', '🎯', 4, { pow: 2.6, crit: 0.4 });
-G('armor_break', '방어파괴', '🪓', 2, { pow: 1.2, defDown: [0.3, 3] });
+G('armor_break', '방어파괴', '🪓', 2, { pow: 1.4, defDown: [0.3, 3] });
 G('berserk', '광폭화', '😤', 3, { pow: 2.5, recoil: 0.15 });
-G('reckless', '무모한 돌격', '🐂', 2, { pow: 2.0, recoil: 0.12 });
+G('reckless', '무모한 돌격', '🐂', 2, { pow: 1.8, recoil: 0.12 });
 G('last_stand', '배수진', '🏴', 4, { pow: 3.2, recoil: 0.25 });
 G('all_in', '전력투구', '💥', 5, { pow: 3.8, recoil: 0.3 });
 G('bleed_slash', '출혈참', '🩸', 2, { pow: 1.2, dot: ['bleed', 0.05, 3, 0.6] });
@@ -307,7 +313,7 @@ G('hot_spring', '온천욕', '♨️', 3, { regen: [0.08, 3], cleanse: true });
 G('vampire_bite', '흡혈', '🧛', 2, { pow: 1.5, drain: 0.4 });
 G('life_drain', '생명흡수', '🩸', 3, { pow: 1.6, drain: 0.6 });
 G('soul_feast', '영혼연회', '👻', 5, { pow: 2.8, drain: 0.8 });
-G('blood_pact', '피의계약', '🩸', 4, { pow: 1.6, drain: 0.6, recoil: 0.05 }); // 🛠️ 예전엔 pow 가 없어서 흡혈이 안 되는 버그가 있었어요
+G('blood_pact', '피의계약', '🩸', 4, { pow: 2.2, drain: 0.6, recoil: 0.05 }); // 🛠️ 예전엔 pow 가 없어서 흡혈이 안 되는 버그가 있었어요
 
 // ───────── 일반 스킬: 방어 ─────────
 G('guard', '방어태세', '🛡️', 1, { guard: [0.4, 2] });
@@ -340,7 +346,7 @@ G('sharpen', '날갈기', '🗡️', 1, { atkUp: [0.25, 3] });
 G('war_cry', '함성', '📣', 2, { atkUp: [0.45, 3] });
 G('battle_roar', '전투함성', '📢', 2, { atkUp: [0.35, 3] });
 // 🛠️ 마나 스킬: 기본 공격이 공짜로 +15 를 주기 때문에, (얻는 마나 − 드는 마나)가 15 보다 확실히 커야 쓸 이유가 있어요
-G('adrenaline', '아드레날린', '💉', 2, { mana: 50 }); // 순이득 +30
+G('adrenaline', '아드레날린', '💉', 2, { mana: 45 }); // 순이득 +25
 G('rage', '분노', '😡', 3, { atkUp: [0.7, 3] });
 G('bulk_up', '벌크업', '🏋️‍♂️', 3, { atkUp: [0.3, 3], defUp: [0.3, 3] });
 G('blessing', '축복', '🙏', 3, { atkUp: [0.3, 4], defUp: [0.3, 4], heal: 0.1 });
@@ -349,12 +355,12 @@ G('sun_blessing', '햇살축복', '🌞', 3, { atkUp: [0.3, 4], heal: 0.1 });
 G('mana_rush', '마나폭주', '🔋', 3, { mana: 70, heal: 0.1 }); // 🛠️ id 변경 (mana_surge → mana_rush: 독창 스킬 '마나증폭'과 id 가 겹쳐 사라지던 문제)
 G('heart_drum', '심장북', '🥁', 3, { atkUp: [0.5, 2], mana: 10 });
 G('dragon_dance', '용의 춤', '🐉', 4, { atkUp: [0.6, 4], mana: 15 });
-G('deep_focus', '심상', '🔮', 4, { mana: 95 }); // 순이득 +45
+G('deep_focus', '심상', '🔮', 4, { mana: 100 }); // 순이득 +50
 G('ancient_power', '고대의힘', '🏺', 4, { atkUp: [0.5, 4], defUp: [0.2, 4] });
 G('overclock', '오버드라이브', '⚙️', 5, { atkUp: [1.2, 3], defUp: [0.6, 3], heal: 0.2 }); // 🛠️ id 변경 (overdrive → overclock: 독창 스킬 '초출력'과 id 겹침) + 피해 없는 ★5 라서 효과 상향
 G('charge_up', '충전', '🔋', 2, { mana: 40 }); // 순이득 +20
 G('focus_breath', '기마심호흡', '🫁', 2, { mana: 38, heal: 0.1 }); // 순이득 +18 + 회복
-G('meditate', '명상', '🧘', 3, { mana: 65 }); // 순이득 +30
+G('meditate', '명상', '🧘', 3, { mana: 70 }); // 순이득 +35
 
 // ───────── 일반 스킬: 약화 · 상태이상 ─────────
 G('growl', '으르렁', '😾', 1, { atkDown: [0.2, 3] });
@@ -365,41 +371,41 @@ G('sunder', '갑옷가르기', '⚔️', 2, { defDown: [0.3, 3] });
 G('crumble', '와르르', '🧱', 2, { defDown: [0.25, 3] });
 G('rust_touch', '녹스는 손', '🔩', 2, { defDown: [0.3, 2] });
 G('corrode', '부식', '🧫', 3, { defDown: [0.5, 3] });
-G('stun_strike', '기절타', '💫', 2, { pow: 0.6, stun: 0.5 });
+G('stun_strike', '기절타', '💫', 2, { pow: 0.9, stun: 0.5 });
 G('paralyze', '마비가루', '🍄', 3, { stun: 0.6 });
 G('sleep_dust', '수면가루', '😴', 3, { stun: 0.5 });
 G('lullaby', '자장가', '🎵', 3, { stun: 0.4, atkDown: [0.15, 2] });
 G('confusion_ray', '혼란광선', '🌀', 3, { stun: 0.3, atkDown: [0.2, 2] });
 G('hypnosis', '최면', '😵‍💫', 4, { stun: 0.8 });
 G('terror_gaze', '공포의 눈', '😱', 4, { atkDown: [0.4, 3], stun: 0.3 });
-G('mana_burn', '마나연소', '🔥', 3, { pow: 1.5, drainMana: 30 });
+G('mana_burn', '마나연소', '🔥', 3, { pow: 1.9, drainMana: 30 });
 G('curse', '저주', '🧿', 4, { atkDown: [0.4, 4], defDown: [0.4, 4] });
-G('ember_curse', '불씨저주', '🕯️', 2, { dot: ['burn', 0.06, 3, 1] });
-G('ember_brand', '불씨낙인', '🔥', 3, { dot: ['burn', 0.09, 3, 0.9], defDown: [0.2, 2] });
-G('toxic_mist', '독무', '☁️', 3, { dot: ['poison', 0.06, 3, 0.6], atkDown: [0.15, 2] });
+G('ember_curse', '불씨저주', '🕯️', 2, { dot: ['burn', 0.09, 3, 1] });
+G('ember_brand', '불씨낙인', '🔥', 3, { dot: ['burn', 0.13, 3, 1], defDown: [0.25, 3] });
+G('toxic_mist', '독무', '☁️', 3, { dot: ['poison', 0.1, 4, 0.9], atkDown: [0.2, 3] });
 G('venom_fang', '맹독니', '🐍', 3, { pow: 1.3, dot: ['poison', 0.06, 4, 0.8] });
 G('frostbite', '동상', '🥶', 3, { pow: 1.3, dot: ['burn', 0.06, 3, 0.7], atkDown: [0.2, 3] });
 G('scorch', '그을림', '♨️', 2, { pow: 1.2, dot: ['burn', 0.05, 3, 0.8] });
-G('soul_curse', '영혼저주', '☯️', 4, { dot: ['poison', 0.1, 4, 1], defDown: [0.25, 4] });
+G('soul_curse', '영혼저주', '☯️', 4, { dot: ['poison', 0.13, 4, 1], defDown: [0.3, 4] });
 
 // ───────── 🆕 독창 스킬 (모든 펫이 배울 수 있어요 · 다른 게임에 잘 없는 특이한 규칙들) ─────────
 // ★1
-U('pillow_fight', '베개싸움', '🛏️', 1, { pow: 1.0, stun: 0.2, heal: 0.05 }, '푹신푹신 퍽! 아프진 않은데 눈이 스르르 감겨요.');
+U('pillow_fight', '베개싸움', '🛏️', 1, { pow: 1.2, stun: 0.2, heal: 0.05 }, '푹신푹신 퍽! 아프진 않은데 눈이 스르르 감겨요.');
 U('confetti', '색종이 폭죽', '🎊', 1, { pow: 1.2, atkDown: [0.1, 2], mana: 5 }, '팡! 하고 터지면 다들 눈이 휘둥그레져요.');
 U('tickle', '간지럼 공격', '🪶', 1, { pow: 0.7, hits: 2, atkDown: [0.1, 2] }, '깃털로 살살… 웃음이 터져서 힘이 빠져요.');
 U('lucky_penny', '행운의 동전', '🪙', 1, { pow: 1.0, gamble: [0.5, 2.0, 0.05] }, '동전 던지기! 앞면이면 두 배, 뒷면이면 아야.');
 // ★2
 U('dice_fury', '주사위 난타', '🎲', 2, { pow: 0.6, hitsRange: [1, 5] }, '몇 번 때릴지는 주사위만 알아요 (1~5번).');
 U('comeback', '오기', '😤', 2, { pow: 1.2, revenge: 1.2 }, '아프면 아플수록 더 세게 때려요!');
-U('mana_thief', '마나 도둑', '🧤', 2, { pow: 0.8, stealMana: 20, cost: 15 }, '슬쩍~ 상대 마나를 내 주머니로.');
+U('mana_thief', '마나 도둑', '🧤', 2, { pow: 1.2, stealMana: 20, cost: 15 }, '슬쩍~ 상대 마나를 내 주머니로.');
 U('piggy_bank', '저금통 깨기', '🐷', 2, { pow: 1.5, mana: 15 }, '쨍그랑! 마나 동전이 와르르 쏟아져요.');
 U('hot_potato', '뜨거운 감자', '🥔', 2, { pow: 1.2, dot: ['burn', 0.05, 3, 0.9], atkDown: [0.15, 2] }, '앗 뜨거! 던졌더니 상대가 데어요.');
 U('ghost_prank', '도깨비 장난', '🎭', 2, { atkDown: [0.2, 3], defDown: [0.15, 3] }, '"왁!" 깜짝 놀라서 온몸에 힘이 빠져요.');
 // ★3
-U('time_bomb', '시한폭탄', '💣', 3, { bomb: [2.6, 3] }, '똑딱똑딱… 3턴 뒤에 쾅! 방어도 소용없어요.');
+U('time_bomb', '시한폭탄', '💣', 4, { bomb: [2.0, 3] }, '똑딱똑딱… 3턴 뒤에 쾅! 방어도 소용없어요.');
 U('fireworks', '불꽃놀이', '🎆', 3, { pow: 0.9, detonate: 1.5, dot: ['burn', 0.05, 3, 1] }, '이미 걸린 불씨를 한꺼번에 팡팡! 터뜨리고 새 불씨를 심어요.');
 U('lucky_seven', '럭키 세븐', '🎰', 3, { pow: 0.65, hitsRange: [1, 7] }, '1번일까 7번일까? 7번 나오면 대박이에요.');
-U('mana_vampire', '마나 흡혈', '🧛‍♂️', 3, { pow: 1.3, stealMana: 30, drain: 0.2 }, '피와 마나를 한꺼번에 쪽쪽 빨아요.');
+U('mana_vampire', '마나 흡혈', '🧛‍♂️', 3, { pow: 1.7, stealMana: 30, drain: 0.2 }, '피와 마나를 한꺼번에 쪽쪽 빨아요.');
 U('echo_chamber', '메아리 방', '🔊', 3, { echo: 3 }, '3턴 안에 쓰는 다음 공격 스킬이 한 번 더 울려 퍼져요.'); // 🛠️ 마나 20 → 35 (★5 스킬을 반값에 두 번 쓰는 문제)
 U('dance_battle', '댄스 배틀', '💃', 3, { atkUp: [0.4, 3], mana: 20, heal: 0.1 }, '흥이 오르면 힘도 마나도 솟아요!');
 U('sugar_rush', '설탕 폭주', '🍬', 3, { atkUp: [0.5, 3], mana: 25, recoil: 0.08 }, '당이 확 올라서 신나지만… 뒤가 좀 무서워요.');
@@ -407,12 +413,12 @@ U('sugar_rush', '설탕 폭주', '🍬', 3, { atkUp: [0.5, 3], mana: 25, recoil:
 U('all_in_gamble', '올인 도박', '🎰', 4, { pow: 1.6, gamble: [0.4, 3.6, 0.2] }, '40%에 모든 걸 걸어요. 터지면 엄청난 한 방!');
 U('last_gasp', '마지막 발악', '🩸', 4, { pow: 2.0, revenge: 2.0 }, '체력이 바닥일수록 무서운 한 방이 나가요.');
 U('mana_flood', '마나 대방출', '🌊', 4, { pow: 1.0, overload: 0.025, cost: 20 }, '남은 마나를 전부 쏟아부어요. 모아둘수록 세져요!');
-U('chain_reaction', '연쇄반응', '⛓️', 4, { pow: 1.2, detonate: 2.0 }, '화상·독·출혈이 걸려 있으면 남은 피해를 한꺼번에 폭발시켜요.');
+U('chain_reaction', '연쇄반응', '⛓️', 4, { pow: 1.6, detonate: 2.5 }, '화상·독·출혈이 걸려 있으면 남은 피해를 한꺼번에 폭발시켜요.');
 // ★5
 U('fate_swap', '운명 교환', '🔀', 5, { swapHp: true }, '"당신의 건강은 이제 내 것." 내 체력이 더 낮으면 서로의 체력 비율을 바꿔요.');
-U('doomsday_clock', '종말의 시계', '🕰️', 5, { bomb: [4.5, 4], defDown: [0.2, 4] }, '시곗바늘이 12를 가리키면 모든 게 끝나요.');
-U('mana_nova', '마나 초신성', '🌟', 5, { pow: 1.2, overload: 0.035, pierce: 0.3, cost: 30 }, '쌓아둔 마나가 별처럼 폭발해요. 방어도 뚫어요!');
-U('devil_dice', '악마의 주사위', '😈', 5, { pow: 2.0, gamble: [0.3, 5.0, 0.3] }, '30%의 기적에 나를 걸어요. 실패하면 많이 아파요.');
+U('doomsday_clock', '종말의 시계', '🕰️', 5, { bomb: [2.8, 4], defDown: [0.2, 4] }, '시곗바늘이 12를 가리키면 모든 게 끝나요.');
+U('mana_nova', '마나 초신성', '🌟', 5, { pow: 1.2, overload: 0.03, pierce: 0.3, cost: 30 }, '쌓아둔 마나가 별처럼 폭발해요. 방어도 뚫어요!');
+U('devil_dice', '악마의 주사위', '😈', 5, { pow: 2.4, gamble: [0.4, 5.0, 0.25] }, '40%의 기적에 나를 걸어요. 실패하면 많이 아파요.');
 
 // ───────── 🆕 2차 확장 스킬 (배치 1 — manaMaxUp·manaRegenUp·steal·turnCut·truePct·mercy·burstAtk·debuffToBuff·coinflip·defToAtk·healCut 예시) ─────────
 U('mana_surge', '마나증폭', '🔷', 2, { manaMaxUp: [30, 4], mana: 30 }, '그릇이 커져서 마나를 더 담을 수 있어요. 그릇을 키우면서 마나도 채워요.'); // 🛠️ 마나를 못 채워서 쓸모없던 스킬 → 마나 +30
@@ -421,12 +427,12 @@ U('power_steal', '힘흡수', '🧲', 3, { steal: ['atk', 0.3, 3] }, '상대의 
 U('iron_steal', '철벽흡수', '🧲', 3, { steal: ['def', 0.3, 3] }, '상대의 단단함을 내 것으로!');
 U('time_cut', '시간깎기', '⏳', 2, { turnCut: 2 }, '상대에게 걸린 좋은 효과의 시간을 싹둑 잘라요.');
 U('true_strike', '필중가격', '🎯', 3, { pow: 1.2, truePct: 0.1 }, '방어를 뚫는 확정 타격이 추가로 꽂혀요.');
-U('mercy_blow', '자비의일격', '🕊️', 3, { pow: 1.6, mercy: true }, '세게 때리지만 상대는 체력 1%로 꼭 살아남아요.'); // 🛠️ 포획용으로 너무 좋아서 ★2 → ★3
+U('mercy_blow', '자비의일격', '🕊️', 3, { pow: 1.8, mercy: true }, '세게 때리지만 상대는 체력 1%로 꼭 살아남아요.'); // 🛠️ 포획용으로 너무 좋아서 ★2 → ★3
 U('overdrive', '초출력', '🔥', 4, { burstAtk: [2.5, 2] }, '한계를 넘어 다음 턴 공격력이 폭주해요! (×250%)'); // 🛠️ 예전 [5,1] 은 시전 턴에 바로 끝나서 효과가 0턴이었어요
 U('silver_lining', '전화위복', '🔄', 3, { debuffToBuff: true }, '나쁜 일도 생각하기 나름! 디버프가 전부 버프로.');
 U('all_or_nothing', '모아니면도', '🎲', 3, { coinflip: 2 }, '이판사판! 받는 공격이 1.5배 아니면 0이 돼요.'); // 🛠️ 2배/0 은 기댓값이 ×1 이라 득이 없었어요 → 1.5배/0
 U('berserk_wall', '벽격투', '⚔️', 3, { defToAtk: 3 }, '방패를 내려놓고 그 힘을 전부 주먹에 실어요.');
-U('plague_touch', '역병손길', '🚑', 3, { pow: 1.3, healCut: [0.5, 3] }, '손이 닿으면 회복이 잘 안 돼요…');
+U('plague_touch', '역병손길', '🚑', 3, { pow: 1.7, healCut: [0.5, 3] }, '손이 닿으면 회복이 잘 안 돼요…');
 
 // ───────── 🆕 3차 확장 스킬 (배치 2: 스피드·복사·분신·반사·공포·선공) ─────────
 U('speed_steal', '속도흡수', '👟', 3, { steal: ['spd', 0.3, 3] }, '상대의 발걸음을 훔쳐서 내 것으로!');
@@ -436,11 +442,11 @@ U('copycat', '따라하기', '🦜', 3, { copy: true }, '상대가 방금 쓴 �
 U('shadow_clone', '분신술', '👥', 3, { clone: [0.5, 0.6, 3] }, '내가 둘이 됐어요! 같이 때리고 대신 맞아줘요.');
 U('mirror_coat', '반사의 갑옷', '🪞', 3, { reflect: [0.6, 2] }, '맞은 만큼 되돌려줘요.'); // 🛠️ 100% 반사는 너무 셌어요 → 60%
 U('mirror_veil', '거울 장막', '🔮', 3, { reflectDebuff: 2 }, '나쁜 기운은 전부 튕겨서 보낸 사람에게!');
-U('dread_counter', '공포의 반격', '😱', 4, { pow: 1.4, fear: 0.8 }, '맞은 아픔이 두려움이 되고, 두려움이 힘이 돼요.');
+U('dread_counter', '공포의 반격', '😱', 4, { pow: 1.8, fear: 0.8 }, '맞은 아픔이 두려움이 되고, 두려움이 힘이 돼요.');
 
 // ───────── 🌈 속성 상성 스킬 (약점 노리기 · 반감 무시 · 방벽 · 속성 변환) ─────────
-G('weak_point', '약점 찌르기', '🎯', 2, { pow: 1.2, weakBonus: 0.5 });
-G('keen_eye', '약점 간파', '👁️', 3, { pow: 1.6, weakBonus: 0.8 });
+G('weak_point', '약점 찌르기', '🎯', 2, { pow: 1.4, weakBonus: 0.5 });
+G('keen_eye', '약점 간파', '👁️', 3, { pow: 1.8, weakBonus: 0.8 });
 G('adapt_strike', '적응 타격', '🧬', 3, { pow: 1.7, ignoreResist: true });
 G('resist_breaker', '상성 파괴', '🔓', 4, { pow: 2.5, ignoreResist: true, weakBonus: 0.3 });
 G('prism_crash', '프리즘 파열', '🌈', 4, { pow: 2.4, ignoreResist: true, weakBonus: 0.5 });
@@ -465,18 +471,18 @@ for (const [e, [name, emoji, flavor]] of Object.entries(ATTUNE)) add(`attune_${e
 G('sunbeam', '햇살화살', '🌅', 1, { pow: 1.35, heal: 0.05 });
 G('aurora', '오로라', '🌌', 3, { pow: 1.9, cleanse: true });
 G('starfall', '별똥비', '🌠', 4, { pow: 1.0, hits: 3, pierce: 0.2 });
-G('nightmare', '악몽', '😈', 2, { pow: 1.2, stun: 0.25 });
+G('nightmare', '악몽', '😈', 2, { pow: 1.4, stun: 0.25 });
 G('abyss_maw', '심연의 아가리', '🕳️', 4, { pow: 2.6, exec: 1.6, drain: 0.2 });
 G('toxic_spore', '독포자', '🍄', 1, { pow: 1.1, dot: ['poison', 0.04, 3, 0.5] });
 G('acid_rain', '산성비', '🌧️', 4, { pow: 1.5, hits: 2, defDown: [0.25, 3], dot: ['poison', 0.05, 3, 0.6] });
-G('rockslide', '낙석', '🪨', 2, { pow: 0.7, hits: 3 });
+G('rockslide', '낙석', '🪨', 2, { pow: 0.6, hits: 3 });
 G('tremor', '지진파', '📳', 4, { pow: 2.6, defDown: [0.2, 3] });
 G('chain_lightning', '연쇄번개', '🔗', 4, { pow: 1.0, hits: 3, stun: 0.2 });
 G('ice_wall', '얼음벽', '🧊', 2, { guard: [0.4, 2], defUp: [0.2, 2] });
 G('tailwind', '순풍', '🍃', 2, { atkUp: [0.3, 3], evade: 1 });
 G('purify_water', '정화수', '🫗', 3, { heal: 0.2, cleanse: true });
 G('photosynth', '광합성', '🌱', 2, { heal: 0.15, regen: [0.05, 3] });
-G('wildfire', '들불', '🔥', 4, { pow: 1.4, hits: 2, dot: ['burn', 0.07, 3, 0.8] });
+G('wildfire', '들불', '🔥', 4, { pow: 1.3, hits: 2, dot: ['burn', 0.06, 3, 0.8] });
 
 // ───────── 🆕 3차 확장 (배치 3): 효과 이동 · 능력치 룰렛 · 쿨타임 · 부활 · 스킬 면역 · 대천사 ─────────
 U('buff_thief', '버프 도둑', '🦹', 3, { buffXfer: ['steal', 3] }, '상대가 두른 좋은 기운을 슬쩍 가로채요. 한 번만!');
@@ -526,26 +532,26 @@ U('seal_brand', '봉인의 낙인', '🔏', 5, { lockSkills: true, cost: 60, cd:
 
 // ───────── 전용기 (그 펫만 배울 수 있어요 · 같은 마나의 일반 스킬보다 세요) ─────────
 // 스타팅
-P('pyro_cat', 'sig_pyro_cat', '불꽃 발톱', '🐾', 2, { pow: 2.1, dot: ['burn', 0.06, 3, 0.6] }, '꼬리 끝 불꽃을 발톱에 모아 할퀴어요.');
+P('pyro_cat', 'sig_pyro_cat', '불꽃 발톱', '🐾', 2, { pow: 1.8, dot: ['burn', 0.05, 3, 0.5] }, '꼬리 끝 불꽃을 발톱에 모아 할퀴어요.');
 P('aqua_pup', 'sig_aqua_pup', '물방울 방패', '🫧', 2, { shield: 0.3, heal: 0.12 }, '커다란 물방울이 몸을 감싸요.');
 P('leaf_bun', 'sig_leaf_bun', '잎사귀 춤', '🍃', 2, { pow: 1.6, drain: 0.5 }, '잎사귀가 빙글빙글, 맞은 상대의 기운을 쏙 빨아와요.');
 // 초원
 P('slime', 'sig_slime', '말랑 폭탄', '🟢', 1, { pow: 1.5, stun: 0.25 }, '온몸을 부풀렸다가 퐁! 터뜨려요.');
 P('slime', 'sig_slime2', '끈끈 방울', '🫧', 2, { atkDown: [0.25, 3], heal: 0.1 }, '끈끈한 방울이 몸에 달라붙어요.');
-P('mouse', 'sig_mouse', '번개 달리기', '🐭', 1, { pow: 0.65, hits: 3 }, '눈 깜짝할 새 세 번 부딪혀요.');
-P('bee', 'sig_bee', '필살 독침', '🐝', 2, { pow: 2.0, dot: ['poison', 0.07, 4, 0.9] }, '딱 한 번 쏘는 아주 아픈 침!');
-P('rabbit', 'sig_rabbit', '달토끼 발차기', '🐰', 1, { pow: 0.8, hits: 2, crit: 0.25 }, '높이 뛰어올라 두 번 걷어차요.');
+P('mouse', 'sig_mouse', '번개 달리기', '🐭', 1, { pow: 0.55, hits: 3 }, '눈 깜짝할 새 세 번 부딪혀요.');
+P('bee', 'sig_bee', '필살 독침', '🐝', 2, { pow: 1.6, dot: ['poison', 0.05, 3, 0.7] }, '딱 한 번 쏘는 아주 아픈 침!');
+P('rabbit', 'sig_rabbit', '달토끼 발차기', '🐰', 1, { pow: 0.7, hits: 2, crit: 0.25 }, '높이 뛰어올라 두 번 걷어차요.');
 P('ladybug', 'sig_ladybug', '행운의 점박이', '🐞', 2, { defUp: [0.4, 3], regen: [0.06, 3] }, '등의 점이 반짝이면 행운이 따라와요.');
 P('butterfly', 'sig_butterfly', '비늘가루 춤', '🦋', 2, { pow: 1.4, atkDown: [0.25, 3], stun: 0.25 }, '반짝이는 가루에 상대가 어질어질해져요.');
 P('clover_fairy', 'sig_clover_fairy', '네잎의 축복', '🍀', 2, { heal: 0.3, atkUp: [0.3, 3], mana: 10 }, '네잎클로버가 행운과 기운을 나눠줘요.');
 // 숲
 P('owl', 'sig_owl', '밤눈 사냥', '🦉', 2, { pow: 1.9, crit: 0.35 }, '어둠 속에서도 약점을 정확히 찔러요.');
 P('owl', 'sig_owl2', '침묵의 날갯짓', '🌙', 3, { evade: 2, stun: 0.2 }, '소리 없이 날아와 방심한 틈을 노려요.');
-P('fox', 'sig_fox', '여우불 홀리기', '🦊', 3, { pow: 2.3, dot: ['burn', 0.06, 3, 0.7], stun: 0.2 }, '푸른 여우불이 길을 잃게 만들어요.');
+P('fox', 'sig_fox', '여우불 홀리기', '🦊', 3, { pow: 2.0, dot: ['burn', 0.05, 3, 0.6], stun: 0.2 }, '푸른 여우불이 길을 잃게 만들어요.');
 P('treant', 'sig_treant', '뿌리 감옥', '🌳', 4, { pow: 2.7, stun: 0.4, defDown: [0.3, 3] }, '땅속 뿌리가 솟아올라 꽁꽁 묶어요.');
-P('treant', 'sig_treant2', '숲의 숨결', '🌲', 3, { heal: 0.4, regen: [0.08, 3] }, '오래된 숲이 상처를 감싸줘요.');
-P('deer', 'sig_deer', '새벽 뿔치기', '🦌', 2, { pow: 2.0, pierce: 0.3 }, '새벽빛을 두른 뿔로 들이받아요.');
-P('squirrel', 'sig_squirrel', '도토리 연발', '🐿️', 2, { pow: 0.6, hits: 4 }, '도토리를 네 개나 던져요!');
+P('treant', 'sig_treant2', '숲의 숨결', '🌲', 3, { heal: 0.35, regen: [0.06, 3] }, '오래된 숲이 상처를 감싸줘요.');
+P('deer', 'sig_deer', '새벽 뿔치기', '🦌', 2, { pow: 1.8, pierce: 0.3 }, '새벽빛을 두른 뿔로 들이받아요.');
+P('squirrel', 'sig_squirrel', '도토리 연발', '🐿️', 2, { pow: 0.5, hits: 4 }, '도토리를 네 개나 던져요!');
 P('mushroom', 'sig_mushroom', '포자 폭발', '🍄', 3, { pow: 1.6, stun: 0.4, dot: ['poison', 0.06, 3, 0.7] }, '버섯 머리에서 포자가 퐁퐁!');
 P('wolf', 'sig_wolf', '그림자 사냥', '🐺', 4, { pow: 2.9, crit: 0.3, exec: 1.5 }, '그림자 속에서 튀어나와 단숨에 물어요.');
 P('wolf', 'sig_wolf2', '달빛 울음', '🌕', 3, { atkUp: [0.4, 3], drain: 0.2 }, '달을 보며 길게 울면 힘이 솟아요.');
@@ -557,43 +563,43 @@ P('bat', 'sig_bat', '초음파 비명', '🦇', 2, { pow: 1.5, stun: 0.4 }, '귀
 P('golem', 'sig_golem', '바위 주먹', '🪨', 3, { pow: 2.4, stun: 0.3 }, '집채만 한 바위 주먹을 내리쳐요.');
 P('golem', 'sig_golem2', '암석 갑옷', '⛰️', 3, { guard: [0.6, 3], defUp: [0.4, 3] }, '온몸에 바위를 둘러요.');
 P('spider', 'sig_spider', '거미줄 포박', '🕷️', 2, { pow: 1.4, stun: 0.4, atkDown: [0.2, 3] }, '끈끈한 줄에 몸이 묶여요.');
-P('scorpion', 'sig_scorpion', '왕전갈 꼬리침', '🦂', 3, { pow: 2.1, dot: ['poison', 0.08, 4, 0.9] }, '꼬리 끝 독침이 깊이 박혀요.');
-P('crystal', 'sig_crystal', '수정 폭풍', '💎', 4, { pow: 1.0, hits: 3, pierce: 0.3 }, '수정 조각이 소나기처럼 쏟아져요.');
-P('skeleton', 'sig_skeleton', '뼈다귀 난무', '💀', 2, { pow: 0.7, hits: 3, dot: ['bleed', 0.04, 3, 0.4] }, '뼈칼을 정신없이 휘둘러요.');
+P('scorpion', 'sig_scorpion', '왕전갈 꼬리침', '🦂', 3, { pow: 1.8, dot: ['poison', 0.05, 4, 0.8] }, '꼬리 끝 독침이 깊이 박혀요.');
+P('crystal', 'sig_crystal', '수정 폭풍', '💎', 4, { pow: 0.9, hits: 3, pierce: 0.3 }, '수정 조각이 소나기처럼 쏟아져요.');
+P('skeleton', 'sig_skeleton', '뼈다귀 난무', '💀', 2, { pow: 0.6, hits: 3, dot: ['bleed', 0.04, 3, 0.4] }, '뼈칼을 정신없이 휘둘러요.');
 P('ghost', 'sig_ghost', '으스스 속삭임', '👻', 3, { atkDown: [0.4, 4], stun: 0.45 }, '귓가에 소름 돋는 속삭임이...');
-P('ghost', 'sig_ghost2', '영혼 빨대', '🫥', 3, { pow: 1.3, drain: 0.6 }, '희미한 손이 기운을 빨아가요.');
+P('ghost', 'sig_ghost2', '영혼 빨대', '🫥', 3, { pow: 1.7, drain: 0.6 }, '희미한 손이 기운을 빨아가요.');
 // 바다
 P('crab', 'sig_crab', '집게 가위', '🦀', 3, { pow: 2.2, defDown: [0.3, 3] }, '단단한 집게로 갑옷을 싹둑!');
 P('shark', 'sig_shark', '심해 한입', '🦈', 4, { pow: 2.9, exec: 1.6, drain: 0.2 }, '피 냄새를 맡고 한입에 덥석!');
-P('pufferfish', 'sig_pufferfish', '뾰족 폭발', '🐡', 2, { pow: 1.9, recoil: 0.05, dot: ['bleed', 0.04, 3, 0.5] }, '풍선처럼 부풀었다가 가시가 사방으로!');
+P('pufferfish', 'sig_pufferfish', '뾰족 폭발', '🐡', 2, { pow: 1.7, recoil: 0.05, dot: ['bleed', 0.04, 3, 0.5] }, '풍선처럼 부풀었다가 가시가 사방으로!');
 P('octopus', 'sig_octopus', '먹물 연막', '🐙', 3, { evade: 2, atkDown: [0.3, 3], heal: 0.1 }, '새까만 먹물 속으로 쏙 숨어요.');
-P('octopus', 'sig_octopus2', '빨판 조이기', '🌀', 3, { pow: 1.5, stun: 0.3, drain: 0.2 }, '여덟 개 다리로 꽁꽁 감아요.');
-P('whale', 'sig_whale', '고래 노래', '🐋', 4, { heal: 0.5, regen: [0.08, 4], mana: 20 }, '깊고 느린 노래가 바다를 울려요.');
+P('octopus', 'sig_octopus2', '빨판 조이기', '🌀', 3, { pow: 1.9, stun: 0.3, drain: 0.2 }, '여덟 개 다리로 꽁꽁 감아요.');
+P('whale', 'sig_whale', '고래 노래', '🐋', 4, { heal: 0.4, regen: [0.06, 4], mana: 15 }, '깊고 느린 노래가 바다를 울려요.');
 P('whale', 'sig_whale2', '대양의 꼬리치기', '🌊', 5, { pow: 3.4, stun: 0.3 }, '바다 전체가 흔들리는 꼬리치기!');
 P('turtle', 'sig_turtle', '등껍질 수비', '🐢', 3, { guard: [0.6, 3], regen: [0.07, 3] }, '등껍질 속에서 천천히 숨을 골라요.');
 P('mermaid', 'sig_mermaid', '인어의 자장가', '🧜', 4, { stun: 0.7, heal: 0.2, drainMana: 20 }, '달콤한 노랫소리에 스르르 잠이 와요.');
 P('turtle', 'sig_turtle2', '거북 박치기', '🐢', 2, { pow: 1.6, defUp: [0.3, 2] }, '느리지만 묵직하게 들이받아요.');
 // 화산
-P('baby_dragon', 'sig_baby_dragon', '아기 불꽃숨', '🐲', 4, { pow: 2.8, dot: ['burn', 0.07, 3, 0.8] }, '아직 서툴지만 불꽃은 진짜예요!');
+P('baby_dragon', 'sig_baby_dragon', '아기 불꽃숨', '🐲', 4, { pow: 2.6, dot: ['burn', 0.06, 3, 0.8] }, '아직 서툴지만 불꽃은 진짜예요!');
 P('phoenix', 'sig_phoenix', '불사의 날갯짓', '🦅', 5, { pow: 2.8, heal: 0.4, cleanse: true }, '불꽃 날개가 상처를 태워 새로 태어나요.');
 P('phoenix', 'sig_phoenix2', '환생의 불길', '🔥', 4, { regen: [0.12, 4], atkUp: [0.4, 3] }, '타오를수록 힘이 솟아요.');
-P('magma_slime', 'sig_magma_slime', '용암 튀기기', '🟠', 3, { pow: 1.9, dot: ['burn', 0.08, 3, 0.9] }, '뜨거운 용암이 철퍽!');
-P('salamander', 'sig_salamander', '불꽃 꼬리채찍', '🦎', 3, { pow: 1.4, hits: 2, dot: ['burn', 0.05, 3, 0.5] }, '꼬리를 두 번 휘둘러요.');
+P('magma_slime', 'sig_magma_slime', '용암 튀기기', '🟠', 3, { pow: 1.7, dot: ['burn', 0.06, 3, 0.8] }, '뜨거운 용암이 철퍽!');
+P('salamander', 'sig_salamander', '불꽃 꼬리채찍', '🦎', 3, { pow: 1.2, hits: 2, dot: ['burn', 0.04, 3, 0.5] }, '꼬리를 두 번 휘둘러요.');
 P('flame_lord', 'sig_flame_lord', '화염 군림', '👹', 5, { pow: 3.2, dot: ['burn', 0.09, 4, 1], atkDown: [0.25, 3] }, '불꽃의 왕이 내려보면 모두 움츠러들어요.');
 P('flame_lord', 'sig_flame_lord2', '마왕의 포효', '😈', 4, { atkUp: [0.7, 3], stun: 0.4 }, '화산이 부르르 떨리는 포효!');
-P('fire_dragon', 'sig_fire_dragon', '용왕의 업화', '🐉', 5, { pow: 3.2, dot: ['burn', 0.1, 4, 1], pierce: 0.3 }, '모든 것을 재로 만드는 용왕의 불꽃.');
+P('fire_dragon', 'sig_fire_dragon', '용왕의 업화', '🐉', 5, { pow: 3.2, dot: ['burn', 0.08, 4, 1], pierce: 0.3 }, '모든 것을 재로 만드는 용왕의 불꽃.');
 P('fire_dragon', 'sig_fire_dragon2', '용의 위엄', '👑', 4, { atkUp: [0.6, 4], guard: [0.5, 3] }, '날개를 펴면 하늘이 붉게 물들어요.');
 // 안개 늪
 P('frog', 'sig_frog', '개굴 합창', '🐸', 2, { pow: 1.5, stun: 0.35 }, '개굴개굴! 시끄러워서 깜짝 놀라요.');
-P('snake', 'sig_snake', '독니 일격', '🐍', 3, { pow: 2.1, dot: ['poison', 0.09, 4, 1] }, '송곳니에서 맹독이 퍼져요.');
+P('snake', 'sig_snake', '독니 일격', '🐍', 3, { pow: 1.8, dot: ['poison', 0.05, 4, 0.9] }, '송곳니에서 맹독이 퍼져요.');
 P('croc', 'sig_croc', '죽음의 회전', '🐊', 3, { pow: 2.3, defDown: [0.25, 3], recoil: 0.04 }, '물고 빙글빙글! 놓치는 법이 없어요.');
-P('wisp', 'sig_wisp', '길잃은 불빛', '🕯️', 4, { pow: 2.2, stun: 0.4, drainMana: 25 }, '따라가다 보면 어느새 낭떠러지...');
-P('witch', 'sig_witch', '늪 마녀의 저주', '🧙', 5, { atkDown: [0.4, 4], defDown: [0.4, 4], dot: ['poison', 0.1, 4, 1] }, '보글보글 끓는 솥에서 저주가 피어올라요.');
+P('wisp', 'sig_wisp', '길잃은 불빛', '🕯️', 4, { pow: 2.5, stun: 0.4, drainMana: 25 }, '따라가다 보면 어느새 낭떠러지...');
+P('witch', 'sig_witch', '늪 마녀의 저주', '🧙', 5, { atkDown: [0.4, 4], defDown: [0.4, 4], dot: ['poison', 0.14, 4, 1] }, '보글보글 끓는 솥에서 저주가 피어올라요.');
 P('witch', 'sig_witch2', '마녀의 영약', '🧪', 4, { heal: 0.45, mana: 30, cleanse: true }, '정체불명 영약, 효과는 확실해요.');
 // 불볕 사막
 P('camel', 'sig_camel', '혹 저장고', '🐪', 2, { heal: 0.35, mana: 15 }, '혹에 저장해 둔 영양분으로 힘을 내요.');
 P('cactus', 'sig_cactus', '가시 갑옷', '🌵', 3, { guard: [0.5, 3], shield: 0.25 }, '건드리면 따끔! 가시가 곤두서요.');
-P('scarab', 'sig_scarab', '황금 광택', '🪲', 3, { defUp: [0.6, 3], pow: 1.6 }, '번쩍이는 껍질이 공격을 튕겨내요.');
+P('scarab', 'sig_scarab', '황금 광택', '🪲', 3, { defUp: [0.6, 3], pow: 2.0 }, '번쩍이는 껍질이 공격을 튕겨내요.');
 P('lion', 'sig_lion', '사막의 왕 포효', '🦁', 4, { pow: 2.6, atkUp: [0.4, 3], stun: 0.3 }, '사막이 쩌렁쩌렁 울려요.');
 P('mummy', 'sig_mummy', '파라오의 저주', '⚰️', 5, { pow: 2.8, atkDown: [0.4, 4], dot: ['poison', 0.08, 4, 1] }, '붕대가 풀리며 오래된 저주가 퍼져요.');
 P('mummy', 'sig_mummy2', '붕대 감기', '🧻', 3, { shield: 0.3, heal: 0.25 }, '다친 곳을 꽁꽁 싸매요.');
@@ -616,7 +622,7 @@ P('wyvern', 'sig_wyvern', '와이번 꼬리독', '🦖', 5, { pow: 3.0, dot: ['p
 P('wyvern', 'sig_wyvern2', '급강하 폭격', '☁️', 4, { pow: 3.0, recoil: 0.12 }, '구름을 뚫고 떨어지는 폭격!');
 P('angel', 'sig_angel', '심판의 나팔', '👼', 5, { pow: 3.0, exec: 1.8, stun: 0.3 }, '나팔 소리가 울리면 심판이 시작돼요.');
 P('angel', 'sig_angel2', '천사의 치유', '😇', 5, { heal: 0.6, cleanse: true, regen: [0.08, 4] }, '날개 끝에서 따뜻한 빛이 내려와요.');
-P('sun_god', 'sig_sun_god', '태양의 심판', '☀️', 5, { pow: 3.5, pierce: 0.4, dot: ['burn', 0.1, 4, 1] }, '새하얀 햇빛이 모든 것을 꿰뚫어요.');
+P('sun_god', 'sig_sun_god', '태양의 심판', '☀️', 5, { pow: 3.4, pierce: 0.4, dot: ['burn', 0.08, 4, 1] }, '새하얀 햇빛이 모든 것을 꿰뚫어요.');
 P('sun_god', 'sig_sun_god2', '일출의 가호', '🌅', 5, { heal: 0.35, atkUp: [0.6, 4], defUp: [0.4, 4] }, '해가 떠오르면 힘이 끝없이 솟아요.');
 // 별빛 심연
 P('shadow', 'sig_shadow', '그림자 삼키기', '👤', 3, { pow: 2.2, drain: 0.4 }, '발밑 그림자가 기운을 삼켜요.');
