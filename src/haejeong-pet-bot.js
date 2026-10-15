@@ -48,6 +48,7 @@ import {
 } from './skill-backup.js';
 
 const SLOT_IDX = Array.from({ length: SLOT_COUNT }, (_, i) => i); // 스킬 슬롯 번호들 (0~4)
+const SKILL_REROLL_MAX_PER_USE = 300; // 🔄 스킬 변경권을 목표(등급·스킬)와 함께 쓸 때, 한 번 명령으로 최대 몇 장까지 반복할지
 
 // ============================================================
 // 설정값 (config.js)
@@ -455,7 +456,7 @@ const ITEMS = {
     emoji: '🔄',
     price: 600,
     skillReroll: true,
-    description: '고른 펫의 스킬 슬롯 하나(1~5번, `/사용` 의 "슬롯" 칸)를 다른 랜덤 스킬로 다시 뽑아요. 전용기도 다시 나올 수 있어요.',
+    description: '고른 펫의 스킬 슬롯 하나(1~5번, `/사용` 의 "슬롯" 칸)를 다른 랜덤 스킬로 다시 뽑아요. 전용기도 다시 나올 수 있어요. "목표등급"(★ 이상) · "목표스킬"(최대 3개)을 걸면 조건이 나올 때까지 자동으로 반복해요 (둘 중 하나만 맞아도 멈춰요).',
   },
 
   // 🍖 포획 아이템: 야생 펫을 만난 뒤 써요 (전투 중엔 전투 화면 아이템 버튼). 포획 확률은 곱셈으로 올라가고, 최대 98%예요.
@@ -2005,7 +2006,9 @@ function useBoostItem(player, itemId, qty = 1, now = Date.now()) {
 
 // 🎫 스킬 슬롯 개방권 / 🔄 스킬 변경권 — 펫 한 마리를 골라서 써요
 // slot: 스킬 변경권일 때만 써요 (1~5, 이미 열려 있는 슬롯이어야 해요)
-function useSkillItem(player, itemId, selector, slot, now = Date.now()) {
+// goal: 🔄 스킬 변경권 전용 — { minTier: 0~5, skillIds: [최대 3개], maxRolls } 를 주면 조건이 나올 때까지(또는 변경권/maxRolls 가 다 떨어질 때까지) 반복해서 뽑아요.
+//       minTier 와 skillIds 는 "둘 중 하나라도 맞으면" 멈춰요. 안 주면 예전처럼 1장 = 1번이에요.
+function useSkillItem(player, itemId, selector, slot, now = Date.now(), goal = null) {
   const item = ITEMS[itemId];
   if (!item || !(item.skillSlot || item.skillReroll)) return { kind: 'unknown' };
 
@@ -2033,11 +2036,61 @@ function useSkillItem(player, itemId, selector, slot, now = Date.now()) {
   if (!SKILLS[inst.skills?.[idx]]) return { kind: 'empty_slot' };
 
   const before = SKILLS[inst.skills[idx]];
-  const id = rollSkill(inst, Math.random, [inst.skills[idx]], petGradeOrder(inst));
-  if (!id) return { kind: 'no_skill_left' };
-  inst.skills[idx] = id;
-  player.inventory[itemId] = owned - 1;
-  return { kind: 'rerolled', commit: true, item, inst: { ...inst }, before, skill: SKILLS[id] };
+
+  // 🎯 목표 없이: 1장으로 1번만 뽑아요 (예전과 똑같아요)
+  const hasGoal = !!goal && ((goal.minTier ?? 0) > 0 || (goal.skillIds?.length ?? 0) > 0);
+  if (!hasGoal) {
+    const id = rollSkill(inst, Math.random, [inst.skills[idx]], petGradeOrder(inst));
+    if (!id) return { kind: 'no_skill_left' };
+    inst.skills[idx] = id;
+    player.inventory[itemId] = owned - 1;
+    return { kind: 'rerolled', commit: true, item, inst: { ...inst }, before, skill: SKILLS[id] };
+  }
+
+  // 🎯 목표 있음: 이 펫이 실제로 얻을 수 있는 스킬만 목표로 걸 수 있어요 (다른 펫의 전용기·숨김 스킬은 영영 안 나와요)
+  const skillIds = goal.skillIds ?? [];
+  for (const sid of skillIds) {
+    const s = SKILLS[sid];
+    if (!s || s.hidden || (s.pet && s.pet !== inst.petId)) return { kind: 'goal_unreachable', skill: s ?? null, inst: { ...inst } };
+  }
+  const minTier = goal.minTier ?? 0;
+  const isHit = (s) => !!s && ((minTier > 0 && s.tier >= minTier) || skillIds.includes(s.id));
+  // 지금 슬롯 스킬이 이미 목표를 만족하면 변경권을 아끼도록 막아요
+  if (isHit(before)) return { kind: 'goal_met', skill: before, inst: { ...inst } };
+
+  const order = petGradeOrder(inst);
+  const cap = Math.min(owned, Math.max(1, Math.floor(goal.maxRolls ?? owned)));
+  const tally = {}; // 뽑힌 ★ 등급별 횟수
+  let current = inst.skills[idx];
+  let rolls = 0;
+  let found = false;
+  while (rolls < cap) {
+    const id = rollSkill(inst, Math.random, [current], order);
+    if (!id) break;
+    current = id;
+    rolls += 1;
+    const tier = SKILLS[id].tier;
+    tally[tier] = (tally[tier] ?? 0) + 1;
+    if (isHit(SKILLS[id])) { found = true; break; }
+  }
+  if (rolls === 0) return { kind: 'no_skill_left' };
+  inst.skills[idx] = current;
+  player.inventory[itemId] = owned - rolls;
+  return {
+    kind: 'rerolled', commit: true, item, inst: { ...inst }, before, skill: SKILLS[current],
+    goal: { minTier, skillIds }, rolls, found, left: owned - rolls, tally,
+    stoppedBy: found ? 'hit' : rolls >= owned ? 'out_of_items' : 'limit',
+  };
+}
+
+// 스킬 이름(또는 id)으로 스킬을 찾아요 (자동완성에서 고르지 않고 직접 적어도 돼요)
+function findSkillByText(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return null;
+  if (SKILLS[raw] && !SKILLS[raw].hidden) return SKILLS[raw];
+  const norm = (s) => String(s).toLowerCase().replace(/\s+/g, '');
+  const n = norm(raw);
+  return Object.values(SKILLS).find((s) => !s.hidden && norm(s.name) === n) ?? null;
 }
 
 // 쓴 약 요약 글자: "🧪 회복약 ×2 · 🍶 고급 회복약 ×1"
@@ -4338,8 +4391,28 @@ function skillItemResultText(out) {
   if (out.kind === 'bad_slot') return '그 슬롯은 아직 안 열려 있어요! `/사용` 의 **슬롯** 칸에 이미 열린 번호(1~5)를 적어주세요. (`/펫` 에서 확인 가능)';
   if (out.kind === 'empty_slot') return '그 슬롯은 아직 비어 있어요! (스킬이 있어야 바꿀 수 있어요)';
   if (out.kind === 'no_skill_left') return '더 뽑을 수 있는 스킬이 없어요 🤔';
+  if (out.kind === 'goal_unreachable') {
+    return out.skill
+      ? `${out.skill.emoji} **${out.skill.name}** 은(는) 이 펫이 얻을 수 없는 스킬이에요 (다른 펫의 전용기예요). 목표에서 빼주세요!`
+      : '목표로 건 스킬을 찾을 수 없어요 🤔';
+  }
+  if (out.kind === 'goal_met') {
+    return `이 슬롯의 ${out.skill.emoji} **${out.skill.name}** ${tierStars(out.skill.tier)} 은(는) 이미 목표 조건을 만족해요! 변경권을 아껴뒀어요 😊`;
+  }
   const pet = PETS[out.inst.petId];
   const name = out.inst.nickname ?? pet.name;
+  if (out.kind === 'rerolled' && out.goal) {
+    const goalParts = [];
+    if (out.goal.minTier > 0) goalParts.push(`${tierStars(out.goal.minTier)} 이상`);
+    for (const sid of out.goal.skillIds) goalParts.push(`${SKILLS[sid].emoji} ${SKILLS[sid].name}`);
+    const tallyText = Object.keys(out.tally).sort((a, b) => b - a).map((tr) => `${tierStars(Number(tr))}×${out.tally[tr]}`).join(' · ');
+    const head = `🔄 ${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** — 목표: ${goalParts.join(' 또는 ')}`;
+    const body = `${out.before.emoji} **${out.before.name}** → ${out.skill.emoji} **${out.skill.name}** (마나 ${out.skill.cost}) ${tierStars(out.skill.tier)}`;
+    const foot = `🎫 변경권 ${out.rolls}장 사용 (남은 ${out.left}장)${tallyText ? `\n📊 ${tallyText}` : ''}`;
+    if (out.found) return `${head}\n🎯 **목표 달성!** ${out.rolls}번 만에 나왔어요!\n${body}\n${foot}`;
+    const why = out.stoppedBy === 'out_of_items' ? '변경권이 다 떨어졌어요' : `한 번에 쓸 수 있는 최대(${SKILL_REROLL_MAX_PER_USE}장)에 도달했어요`;
+    return `${head}\n😭 **목표가 안 나왔어요** — ${why}.\n지금 스킬: ${body}\n${foot}`;
+  }
   if (out.kind === 'slot_opened') {
     return `🎫 ${GRADES[pet.grade].emoji} ${pet.emoji} **${name}**의 **5번 스킬 슬롯**이 열렸어요!\n✨ ${out.skill.emoji} **${out.skill.name}** (마나 ${out.skill.cost}) ${tierStars(out.skill.tier)} 를 배웠어요!`;
   }
@@ -5694,6 +5767,9 @@ async function qtyAutocomplete(interaction, commandName) {
     const needed = Math.ceil((hpMax - cur) / item.heal);
     max = Math.min(owned, needed);
     maxNote = needed <= owned ? `가득 찰 때까지 · ❤${cur}→${hpMax}` : `보유 ${owned}개 전부 · ❤${cur}→${Math.min(hpMax, cur + item.heal * owned)}`;
+  } else if (item.skillReroll) {
+    max = Math.min(owned, SKILL_REROLL_MAX_PER_USE); // 🎯 목표(등급·스킬)를 걸면 이 수량까지 반복해요
+    maxNote = `목표를 걸면 최대 ${max}장까지 반복 (목표 없으면 1장)`;
   } else if (!item.boost) {
     max = 1; // 시간 감소·포획·스킬 아이템은 한 번에 1개씩만 써요
     maxNote = '이 아이템은 1개씩 써요';
@@ -6134,6 +6210,24 @@ const train = {
 // /사용
 // ═════════════════════════════════════════════
 
+// 🎯 "목표스킬" 칸: 스킬 이름을 입력하면 이 펫이 얻을 수 있는 스킬만 골라서 보여줘요 (높은 ★ 순)
+async function skillGoalAutocomplete(interaction, focusedName) {
+  const user = getUser(interaction);
+  const player = await getPlayerCached(user.id);
+  if (!player) return autocompleteResult([]);
+  const inst = resolvePetSelector(player, getOption(interaction, '대상'));
+  const norm = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, '');
+  const typed = norm(getOption(interaction, focusedName));
+  const taken = new Set(['목표스킬1', '목표스킬2', '목표스킬3'].filter((n) => n !== focusedName).map((n) => getOption(interaction, n)).filter(Boolean));
+  const list = Object.values(SKILLS)
+    .filter((s) => !s.hidden && !taken.has(s.id) && (!s.pet || (inst && s.pet === inst.petId)))
+    .filter((s) => !typed || norm(s.name).includes(typed) || s.id.includes(typed))
+    .sort((a, b) => b.tier - a.tier || a.name.localeCompare(b.name, 'ko'));
+  return autocompleteResult(
+    list.slice(0, 25).map((s) => ({ name: `${s.emoji} ${s.name} ${tierStars(s.tier)}${s.pet ? ' (전용기)' : ''}`.slice(0, 100), value: s.id })),
+  );
+}
+
 const use = {
   data: {
     name: '사용',
@@ -6150,6 +6244,10 @@ const use = {
       { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? 칸을 누르면 쓸 수 있는 최대 개수가 떠요 (비우면 1개)', required: false, autocomplete: true },
       { type: 5, name: '최대', description: '켜면 가진 만큼 최대로 써요', required: false },
       { type: 4, name: '슬롯', description: '🔄 스킬 변경권 전용: 다시 뽑을 스킬 슬롯 번호 (1~5)', required: false, min_value: 1, max_value: SLOT_COUNT },
+      { type: 4, name: '목표등급', description: '🔄 스킬 변경권 전용: 이 ★ 등급 이상이 나올 때까지 반복해요 (1~5)', required: false, min_value: 1, max_value: 5 },
+      { type: 3, name: '목표스킬1', description: '🔄 스킬 변경권 전용: 이 스킬이 나올 때까지 반복해요 (이름을 입력하면 목록이 떠요)', required: false, autocomplete: true },
+      { type: 3, name: '목표스킬2', description: '🔄 스킬 변경권 전용: 목표 스킬 2 (둘 중 하나만 나와도 멈춰요)', required: false, autocomplete: true },
+      { type: 3, name: '목표스킬3', description: '🔄 스킬 변경권 전용: 목표 스킬 3 (최대 3개)', required: false, autocomplete: true },
       {
         type: 3,
         name: '대상',
@@ -6228,8 +6326,30 @@ const use = {
 
     // 🎫 스킬 슬롯 개방권 / 🔄 스킬 변경권 (펫 한 마리를 골라서 써요)
     if (picked?.skillSlot || picked?.skillReroll) {
+      // 🎯 스킬 변경권 목표: 등급(★ 이상) 또는 특정 스킬(최대 3개) — 둘 다 걸면 "둘 중 하나라도" 나오면 멈춰요
+      let goal = null;
+      if (picked.skillReroll) {
+        const goalTier = getOption(interaction, '목표등급');
+        const rawSkills = ['목표스킬1', '목표스킬2', '목표스킬3'].map((n) => getOption(interaction, n)).filter((v) => v != null && String(v).trim());
+        if (goalTier || rawSkills.length) {
+          const skillIds = [];
+          const unknown = [];
+          for (const raw of rawSkills) {
+            const s = findSkillByText(raw);
+            if (!s) unknown.push(String(raw));
+            else if (!skillIds.includes(s.id)) skillIds.push(s.id);
+          }
+          if (unknown.length) {
+            return reply({ content: `못 찾은 스킬: ${unknown.join(', ')} 🤔 칸에 이름을 입력하면 뜨는 목록에서 골라주세요!` }, { ephemeral: true });
+          }
+          const rawQty = getOption(interaction, '수량');
+          // 수량을 적으면 그 장수까지, 안 적거나 "최대"를 켜면 가진 만큼(최대 SKILL_REROLL_MAX_PER_USE장)까지 반복해요
+          const maxRolls = wantMax || rawQty == null ? SKILL_REROLL_MAX_PER_USE : Math.min(SKILL_REROLL_MAX_PER_USE, Math.max(1, rawQty));
+          goal = { minTier: goalTier ?? 0, skillIds, maxRolls };
+        }
+      }
       const res = await updatePlayer(user.id, (p) => {
-        const r = useSkillItem(p, itemId, target, slot, Date.now());
+        const r = useSkillItem(p, itemId, target, slot, Date.now(), goal);
         return { commit: r.commit === true, value: r };
       });
       if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
@@ -6303,6 +6423,7 @@ const use = {
   async autocomplete(interaction) {
     const focused = interaction.data.options?.find((o) => o.focused)?.name;
     if (focused === '수량') return qtyAutocomplete(interaction, '사용');
+    if (focused && focused.startsWith('목표스킬')) return skillGoalAutocomplete(interaction, focused);
     return petAutocomplete(interaction, '대상');
   },
 };
