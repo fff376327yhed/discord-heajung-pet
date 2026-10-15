@@ -1235,6 +1235,7 @@ async function updatePlayerNow(userId, rawMutate) {
     autoHuntNotices.delete(userId);
     const settled = settleAutoHunt(player);
     const out = rawMutate(player);
+    if (out?.commit && player.exploration) player.exploration.lastActiveAt = Date.now(); // 🆕 마지막 활동 시각 (방치 판정용)
     if (settled && out && !out.commit) out.commit = true;
     return out;
   };
@@ -1664,15 +1665,21 @@ function autoHuntCare(player, main, at, endAt, usePotion = true) {
 // 🏃 자리 비운 사이에 자동사냥이 한 일을 정산해요. 바뀐 게 있으면 true (저장해야 해요)
 // 한 번 도는 일 = 대기(5~30초) + 전투. 걸린 시간만큼 흘러간 것으로 치고, 지난 시간이 다 쓰일 때까지 반복해요.
 // 아직 안 끝난 한 판은 autoHuntPending 에 담아 두고 다음 정산 때 그대로 이어서 해요 (진행 화면이 이걸 보여줘요).
+// 직접 하던 탐험을 "방치됐다"고 보고 정리하기까지 걸리는 시간 (마지막으로 만지거나 펫이 나타난 때부터)
+const EXPLORE_IDLE_LIMIT_MS = 30 * 60 * 1000;
+
 function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
   if (!player.autoHunt) return false;
   const since = player.autoHuntAt ?? now;
   const elapsed = now - since;
   if (elapsed < AUTO_HUNT_MIN_SETTLE_SEC * 1000) return false;
 
-  // 직접 탐험하던 중이면 대신 안 해요 (몇 분 넘게 방치된 화면은 정리하고 대신 해줘요)
+  // 직접 탐험하던 중이면 대신 안 해요 (오래 방치된 화면만 정리하고 대신 해줘요)
+  // ⚠️ 예전에는 탐험 "시작" 시각만 보고 2분이 지나면 지웠어요 → 대기가 긴 탐험(신화 등)이나
+  //    상점을 다녀온 사이에 "이미 지나간 탐험" 이 됐어요. 이제는 마지막 활동/등장 시각을 기준으로 봐요.
   const ex = player.exploration;
-  if (ex && (ex.battle || now - (ex.startedAt ?? 0) < 120000)) {
+  const exIdleSince = ex ? Math.max(ex.startedAt ?? 0, ex.appearAt ?? 0, ex.lastActiveAt ?? 0) : 0;
+  if (ex && (ex.battle || now - exIdleSince < EXPLORE_IDLE_LIMIT_MS)) {
     player.autoHuntAt = now;
     player.autoHuntPending = null;
     return true;
