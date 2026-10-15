@@ -74,6 +74,21 @@ export const CLONE_HP_PER_DEF = 6; // 👥 분신 체력 = 내 방어력 × 방�
 export const TIER_WEIGHT = { 1: 40, 2: 33, 3: 20, 4: 6, 5: 1 };
 const TIER_COST = { 1: 10, 2: 20, 3: 35, 4: 50, 5: 70 }; // 등급별 기본 마나 (스킬마다 따로 고칠 수 있어요)
 
+// 🌟 펫 등급(일반~초월, 1~7단계)에 따라 TIER_WEIGHT 를 이렇게 곱해서 비틀어요.
+// 숫자가 1보다 크면 그 스킬 등급(★)이 더 잘 나오고, 1보다 작으면 덜 나와요.
+// 예) 전설(5)은 ★4·★5 배율이 높아서 "높은 등급 펫일수록 높은 등급 스킬이 더 잘 나옴" 이 돼요.
+// GRADE_TIER_MULT 에 없는 등급(order)이 오면 baseGrade(3, 희귀) 배율을 써요.
+export const GRADE_TIER_MULT = {
+  1: { 1: 1.3, 2: 1.1, 3: 0.85, 4: 0.5, 5: 0.2 }, // 일반
+  2: { 1: 1.15, 2: 1.05, 3: 0.95, 4: 0.7, 5: 0.4 }, // 고급
+  3: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 }, // 희귀 (기준, TIER_WEIGHT 그대로)
+  4: { 1: 0.8, 2: 0.9, 3: 1.15, 4: 1.5, 5: 2 }, // 영웅
+  5: { 1: 0.6, 2: 0.75, 3: 1.25, 4: 2, 5: 3.2 }, // 전설
+  6: { 1: 0.45, 2: 0.6, 3: 1.2, 4: 2.4, 5: 4.2 }, // 신화
+  7: { 1: 0.3, 2: 0.45, 3: 1.1, 4: 2.8, 5: 5.5 }, // 초월
+};
+const GRADE_TIER_BASE = 3; // GRADE_TIER_MULT 에 없는 등급일 때 쓸 기본값
+
 // ───────── 🌈 속성 (상성) ─────────
 // 펫과 스킬은 속성을 가져요. 공격 속성이 상대 속성에게 "잘 먹히면" 약점(데미지 ×strong), "잘 안 먹히면" 반감(데미지 ×weak)!
 // 두 가지 속성을 가진 펫은 두 속성의 배율이 곱해져요 (예: 약점 ×1.5 × 약점 ×1.5 = ×2.25).
@@ -786,19 +801,21 @@ export function normalizeSkills(inst) {
   return inst.skills;
 }
 
-export function rollSkill(inst, rng = Math.random, exclude = []) {
+export function rollSkill(inst, rng = Math.random, exclude = [], gradeOrder = GRADE_TIER_BASE) {
   const all = Object.values(SKILLS).filter((s) => !exclude.includes(s.id) && !s.hidden); // hidden(저주부여 등)은 뽑기에 안 나와요
   // 1) 전용기 판정: 펫에게 (아직 안 배운) 전용기가 있을 때만 sigChance(1%) 로 나와요. 전용기가 2개면 반반이에요.
   const sig = all.filter((s) => s.pet === inst.petId);
   if (sig.length && rng() < SKILL_CFG.sigChance) return sig[Math.floor(rng() * sig.length)].id;
-  // 2) 일반 스킬: 등급(★)을 먼저 뽑고(TIER_WEIGHT), 그 등급 안에서는 모든 스킬이 똑같은 확률이에요.
+  // 2) 일반 스킬: 등급(★)을 먼저 뽑고(TIER_WEIGHT × 펫 등급 배율 GRADE_TIER_MULT), 그 등급 안에서는 모든 스킬이 똑같은 확률이에요.
   const pool = all.filter((s) => !s.pet);
   if (!pool.length) return null;
-  const tiers = [...new Set(pool.map((s) => s.tier))].filter((t) => (TIER_WEIGHT[t] ?? 0) > 0);
+  const gMult = GRADE_TIER_MULT[gradeOrder] ?? GRADE_TIER_MULT[GRADE_TIER_BASE];
+  const weightOf = (t) => (TIER_WEIGHT[t] ?? 0) * (gMult[t] ?? 1);
+  const tiers = [...new Set(pool.map((s) => s.tier))].filter((t) => weightOf(t) > 0);
   if (!tiers.length) return pool[Math.floor(rng() * pool.length)].id;
-  let r = rng() * tiers.reduce((n, t) => n + TIER_WEIGHT[t], 0);
+  let r = rng() * tiers.reduce((n, t) => n + weightOf(t), 0);
   let tier = tiers[tiers.length - 1];
-  for (const t of tiers) { r -= TIER_WEIGHT[t]; if (r < 0) { tier = t; break; } }
+  for (const t of tiers) { r -= weightOf(t); if (r < 0) { tier = t; break; } }
   const same = pool.filter((s) => s.tier === tier);
   // 🌈 내 펫과 같은 속성의 스킬은 elemAffinity 배만큼 더 잘 나와요 (1 이면 모두 똑같은 확률)
   const aff = SKILL_CFG.elemAffinity ?? 1;
@@ -813,12 +830,13 @@ export function rollSkill(inst, rng = Math.random, exclude = []) {
 }
 
 // 열려 있는데 비어 있는 슬롯에 랜덤 스킬을 채워요. 새로 생긴 [슬롯번호, 스킬id] 목록을 돌려줘요.
-export function grantSkills(inst, rng = Math.random) {
+// gradeOrder: 펫 등급 단계(1=일반 ~ 7=초월). 안 넘기면 희귀(3) 기준으로 뽑아요.
+export function grantSkills(inst, rng = Math.random, gradeOrder = GRADE_TIER_BASE) {
   normalizeSkills(inst);
   const got = [];
   slotsOpen(inst).forEach((open, i) => {
     if (open && !SKILLS[inst.skills[i]]) {
-      const id = rollSkill(inst, rng, inst.skills.filter(Boolean));
+      const id = rollSkill(inst, rng, inst.skills.filter(Boolean), gradeOrder);
       if (id) { inst.skills[i] = id; got.push([i, id]); }
     }
   });

@@ -1351,7 +1351,7 @@ function addExp(target, amount) {
     target.exp = 0;
   }
   // 펫(스킬 슬롯이 있는 대상)이면 레벨이 오른 만큼 열린 슬롯에 스킬을 채워요
-  if (Array.isArray(target.skills)) grantSkills(target);
+  if (Array.isArray(target.skills)) grantSkills(target, Math.random, petGradeOrder(target));
 
   return { gained: gain, levelsGained: target.level - startLevel, level: target.level };
 }
@@ -1394,13 +1394,13 @@ function createPetInstance(petId, level = 1, caughtLoc = null) {
     caughtLoc, // 🆕 어디서 잡았는지 (장소 ID, 시작 펫은 'start')
     skills: Array(SLOT_COUNT).fill(null), // 스킬 슬롯 5칸 (1~4번은 레벨 Lv.20/40/100/200, 5번은 상점 개방권)
   };
-  grantSkills(inst); // 이미 열려 있는 슬롯이 있으면 바로 채워요
+  grantSkills(inst, Math.random, petGradeOrder(inst)); // 이미 열려 있는 슬롯이 있으면 바로 채워요 (펫 등급에 맞게 높은 등급 스킬 확률↑)
   return inst;
 }
 
 // 예전에 만들어진 펫에 스킬 슬롯이 없으면 붙여줘요 (호환용)
 function ensureSkills(inst) {
-  grantSkills(inst); // 옛 3칸 펫은 여기서 5칸으로 옮겨져요
+  grantSkills(inst, Math.random, petGradeOrder(inst)); // 옛 3칸 펫은 여기서 5칸으로 옮겨져요
   return inst;
 }
 
@@ -2016,7 +2016,7 @@ function useSkillItem(player, itemId, selector, slot, now = Date.now()) {
   if (item.skillSlot) {
     if (inst.slot3) return { kind: 'already_open', inst };
     inst.slot3 = true;
-    const got = grantSkills(inst);
+    const got = grantSkills(inst, Math.random, petGradeOrder(inst));
     const mine = got.find(([i]) => i === SLOT_COUNT - 1); // 방금 열린 5번 슬롯에 들어온 스킬
     if (!mine) { inst.slot3 = false; return { kind: 'no_skill_left' }; }
     player.inventory[itemId] = owned - 1;
@@ -2030,7 +2030,7 @@ function useSkillItem(player, itemId, selector, slot, now = Date.now()) {
   if (!SKILLS[inst.skills?.[idx]]) return { kind: 'empty_slot' };
 
   const before = SKILLS[inst.skills[idx]];
-  const id = rollSkill(inst, Math.random, [inst.skills[idx]]);
+  const id = rollSkill(inst, Math.random, [inst.skills[idx]], petGradeOrder(inst));
   if (!id) return { kind: 'no_skill_left' };
   inst.skills[idx] = id;
   player.inventory[itemId] = owned - 1;
