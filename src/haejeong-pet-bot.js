@@ -45,7 +45,7 @@ import {
   catchProHold, // 🆕 배치 5: 포획 전문가 (도망 붙잡기)
   fightBuffOf, // 🆕 배치 5: 전투 중 버프 값
   fightBuffText,
-} from './skill-backup.js';
+} from './skill.js';
 
 const SLOT_IDX = Array.from({ length: SLOT_COUNT }, (_, i) => i); // 스킬 슬롯 번호들 (0~4)
 const SKILL_REROLL_MAX_PER_USE = 300; // 🔄 스킬 변경권을 목표(등급·스킬)와 함께 쓸 때, 한 번 명령으로 최대 몇 장까지 반복할지
