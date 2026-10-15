@@ -5140,6 +5140,22 @@ function petsView(player, userId, page = 0, note) {
         }),
       }),
     ),
+    // ✨ 펫을 고르면 그 펫의 스킬 전체를 볼 수 있어요
+    row(
+      select({
+        customId: `pets:skills:${userId}:${cur}`,
+        placeholder: '✨ 스킬을 볼 펫을 골라요',
+        options: slice.map(({ inst, no }) => {
+          const pet = PETS[inst.petId];
+          return {
+            label: `${no}. ${inst.nickname ?? pet.name} Lv.${inst.level}`.slice(0, 100),
+            value: inst.uid,
+            description: `${GRADES[pet.grade].name} 등급 · 스킬 ${petSkillList(inst).filter((id) => SKILLS[id]).length}/${SLOT_COUNT}`,
+            emoji: pet.emoji,
+          };
+        }),
+      }),
+    ),
   ];
   components.push(
     row(
@@ -5225,6 +5241,112 @@ function petsTicketPickView(player, userId, page) {
   };
 }
 
+// ✨ 펫 한 마리의 스킬 칸(5개)을 "그대로" 읽어요 (아무것도 새로 뽑거나 저장하지 않아요)
+// 예전 3칸 펫([Lv40, Lv100, 상점])은 새 5칸 자리로 옮겨서 보여줘요.
+function petSkillList(inst) {
+  const raw = Array.isArray(inst.skills) ? inst.skills : [];
+  if (raw.length === 3) return [null, raw[0] ?? null, raw[1] ?? null, null, raw[2] ?? null];
+  return Array.from({ length: SLOT_COUNT }, (_, i) => raw[i] ?? null);
+}
+
+// 글자가 너무 길면 줄 단위로 잘라요 (디스코드 칸 하나는 1024자까지예요)
+function clipLines(text, max) {
+  if (text.length <= max) return text;
+  const out = [];
+  let len = 0;
+  for (const line of text.split('\n')) {
+    if (len + line.length + 1 > max - 12) break;
+    out.push(line);
+    len += line.length + 1;
+  }
+  return `${out.join('\n')}\n…(줄임)`;
+}
+
+// ✨ 펫 한 마리의 스킬 전체 화면 (/펫 에서 펫을 고르면 떠요)
+function petSkillsView(player, userId, page, inst) {
+  const pet = PETS[inst.petId];
+  const name = inst.nickname ?? pet.name;
+  const s = calcStats(inst.petId, inst.level, inst);
+  const open = slotsOpen(inst);
+  const list = petSkillList(inst);
+  const learned = list.filter((id) => SKILLS[id]).length;
+
+  // 칸별 설명 (글자 수 한도를 넘지 않게 cap 으로 줄여가며 만들어요)
+  const build = (cap) => {
+    const fields = list.map((id, i) => {
+      const sk = SKILLS[id];
+      if (sk) {
+        const effects = skillEffectLines(sk);
+        const body =
+          `${elemTag(skillElement(sk))} 속성 · ${skillCategory(sk)}${sk.pet ? ' · 🌟 전용기' : ''} · 🔋 마나 **${sk.cost}**\n` +
+          (sk.flavor ? `*${sk.flavor}*\n` : '') +
+          (effects.length ? effects.map((t) => `• ${t}`).join('\n') : '• 효과 없음');
+        return { name: `${i + 1}번 ${sk.emoji} ${sk.name} ${tierStars(sk.tier)}`, value: clipLines(body, cap) };
+      }
+      if (open[i]) return { name: `${i + 1}번 ✨ 열린 칸`, value: '칸은 열렸지만 아직 배운 스킬이 없어요.' };
+      return { name: `${i + 1}번 🔒 잠긴 칸`, value: SLOT_HINT()[i] };
+    });
+
+    // 🌟 이 펫만 배울 수 있는 전용기 (배웠는지도 같이 보여줘요)
+    const sigs = Object.values(SKILLS).filter((x) => x.pet === inst.petId);
+    if (sigs.length) {
+      fields.push({
+        name: '🌟 이 펫의 전용기',
+        value: clipLines(
+          sigs.map((x) => `${x.emoji} **${x.name}** ${tierStars(x.tier)} (마나 ${x.cost}) — ${list.includes(x.id) ? '✅ 배웠어요' : '아직 못 배웠어요'}`).join('\n'),
+          cap,
+        ),
+      });
+    }
+    return fields;
+  };
+
+  const description =
+    `${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** Lv.${inst.level} ${elemIcons(petElems(inst.petId))}` +
+    `${inst.uid === player.mainPetUid ? ' 👑 대표 펫' : ''}\n` +
+    `❤️ ${currentHp(inst)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
+    `🔋 최대 마나 **${maxMana(inst)}** · ✨ 스킬 **${learned}/${SLOT_COUNT}**`;
+  const footer = `기본 공격을 하면 마나가 +${SKILL_CFG.manaPerTurn} 차요 · 스킬은 전투 중에 쓸 수 있어요`;
+
+  // 임베드 전체는 6000자 한도라서, 넘치면 칸 길이를 줄여요
+  let fields = build(1000);
+  for (let cap = 900; cap >= 300; cap -= 100) {
+    const total = description.length + footer.length + 40 + fields.reduce((n, f) => n + f.name.length + f.value.length, 0);
+    if (total <= 5800) break;
+    fields = build(cap);
+  }
+
+  const sortMode = PET_SORTS[player.petSort] ? player.petSort : 'no';
+  const slice = sortedPetEntries(player, sortMode).slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const components = [];
+  if (slice.length) {
+    components.push(
+      row(
+        select({
+          customId: `pets:skills:${userId}:${page}`,
+          placeholder: '✨ 다른 펫의 스킬도 볼래요',
+          options: slice.map(({ inst: it, no }) => {
+            const p = PETS[it.petId];
+            return {
+              label: `${no}. ${it.nickname ?? p.name} Lv.${it.level}`.slice(0, 100),
+              value: it.uid,
+              description: `${GRADES[p.grade].name} 등급 · 스킬 ${petSkillList(it).filter((id) => SKILLS[id]).length}/${SLOT_COUNT}`,
+              emoji: p.emoji,
+              default: it.uid === inst.uid,
+            };
+          }),
+        }),
+      ),
+    );
+  }
+  components.push(row(button({ label: '펫 목록으로', emoji: '◀️', customId: `pets:page:${userId}:${page}`, style: 2 })));
+
+  return {
+    embeds: [{ title: `✨ ${name}의 스킬`, description, color: EMBED_COLOR, fields, footer: { text: footer } }],
+    components,
+  };
+}
+
 const pets = {
   data: {
     name: '펫',
@@ -5283,6 +5405,16 @@ const pets = {
         });
         if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
         return update(petsView(latest, user.id, 0, `🔀 **${PET_SORTS[mode].label}** 으로 정렬했어요!`));
+      }
+
+      // ✨ 펫을 고르면 그 펫의 스킬 전체 보기
+      if (action === 'skills') {
+        const uid = interaction.data.values?.[0];
+        const player = await getPlayer(user.id);
+        if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
+        const inst = player.pets.find((x) => x.uid === uid);
+        if (!inst) return reply({ content: '그 펫을 찾을 수 없어요 🤔 `/펫` 을 다시 열어보세요!' }, { ephemeral: true });
+        return update(petSkillsView(player, user.id, page, inst));
       }
 
       if (action === 'main') {
