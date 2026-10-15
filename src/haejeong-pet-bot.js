@@ -1682,7 +1682,14 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
   const end = since + Math.min(elapsed, cap);
   const roundMs = AUTO_HUNT_SEC_PER_ROUND * 1000;
   const rep = (player.autoHuntReport ??= newAutoHuntReport(getAutoHuntLocId(player), since));
-  const stop = (reason) => { rep.stopReason = reason; player.autoHunt = false; player.autoHuntAt = null; };
+  // 🔔 이유가 뭐든(장소 문제·펫 없음·위험해서·시간 다 채워서) 자동사냥이 "스스로" 꺼지면 결과를 개인 DM 으로 보내요
+  const stop = (reason) => {
+    rep.stopReason = reason;
+    player.autoHunt = false;
+    player.autoHuntAt = null;
+    rep.endedAt = t;
+    autoHuntNotices.set(player.userId, `🏃 **자동사냥이 끝났어요!**\n\n${autoHuntReportText(rep)}`);
+  };
 
   let t = since;
   let pending = player.autoHuntPending ?? null;
@@ -1751,11 +1758,7 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
       // 돌봐준 직후인데도 첫 턴부터 위험하거나, 돌봐줘도 계속 위험하면 → 이 장소는 무리예요. 끄고 개인 알림!
       if ((run.cared && f.rounds === 0) || dangerStreak >= AUTO_HUNT_MAX_DANGER_STREAK) {
         pushAutoFeed(rep, `🚨 ${tag} — 돌봐줘도 위험해서 자동사냥을 껐어요`);
-        stop('danger');
-        autoHuntNotices.set(
-          player.userId,
-          `🚨 **자동사냥이 꺼졌어요!**\n${PETS[main.petId].emoji} **${nameOf(main)}** 가 ${loc.emoji} ${loc.name} 에서 너무 위험해졌어요.\n${(player.autoHuntPotion ?? true) ? '회복약을 먹이고 ' : ''}쉬어 봤지만 계속 위험해서 멈췄어요.\n\n👉 펫 체력을 채우거나 더 쉬운 장소로 바꾼 뒤 \`/자동사냥\` 으로 다시 켜주세요!`,
-        );
+        stop('danger'); // stop() 안에서 결과 요약을 개인 DM 으로 큐에 넣어요
         break;
       }
       pushAutoFeed(rep, `🩹 ${tag} — 위험해서 물러났어요 (회복하고 다시 나가요)`);
