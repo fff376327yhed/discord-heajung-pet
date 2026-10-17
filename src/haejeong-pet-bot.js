@@ -212,6 +212,13 @@ let TRADE_TTL_MS = 5 * 60 * 1000; // 거래 신청은 이 시간(5분) 안에 �
 // ───────── 포획 아이템 🍖 ─────────
 // 야생 펫을 만난 뒤(싸우는 중에도) 써서 이번 만남의 포획 확률을 올려요. 다음 펫을 만나면 효과가 사라져요.
 // 포획 확률은 "곱셈"으로 올라서, 원래 잘 안 잡히는 펫(전설·신화·초월)은 아이템을 써도 여전히 어려워요!
+// 🎯 포획 보너스 한도 (%p)
+let CATCH_STACK_CAP = 0.25; // 아이템·스킬 보너스는 합쳐서 최대 +25%p
+let CATCH_TOTAL_BONUS_CAP = 0.35; // 체력 보너스까지 합친 전체 보너스는 최대 +35%p
+// 🩸 야생 펫 체력이 낮을수록 붙는 포획 보너스 (%p) — 0에 가까울수록 크지만 구간은 극단적으로 좁아요
+let CATCH_HP_T1 = 0.03, CATCH_HP_B1 = 0.20; // 체력 3% 이하: +20%p
+let CATCH_HP_T2 = 0.20, CATCH_HP_B2 = 0.10; // 체력 20% 이하: +10%p
+let CATCH_HP_T3 = 0.50, CATCH_HP_B3 = 0.05; // 체력 50% 이하: +5%p
 let CATCH_MAX_CHANCE = 0.95; // 아이템 없이 가능한 포획 확률 상한 (95%)
 let CATCH_MAX_WITH_ITEMS = 0.98; // 포획 아이템을 써도 이 값을 넘지 않아요 → 100% 확정 포획은 절대 없어요 (98%)
 let CATCH_BAIT_BONUS_CAP = 1.0; // 간식·꿀 효과는 이번 만남에서 합쳐서 최대 +100% (= 최대 ×2.0)
@@ -2247,16 +2254,26 @@ function hasVisited(player, locationId) {
 }
 
 // 잡을 확률: 펫마다 정해진 값 × (내 대표 펫보다 야생 펫이 너무 높으면 조금 어려워져요)
-//            × (전투로 야생 펫 체력을 깎을수록 쉬워져요: 체력이 거의 0이면 최대 2배!)
-//            × (포획 아이템 배수: 간식·꿀·부적) → 아이템을 써도 최대 98%, 아이템 없이는 최대 95%예요.
+//            + (야생 펫 체력이 낮을수록 +5%p / +10%p / 거의 0이면 +20%p)
+//            + (아이템·스킬 보너스는 합쳐서 최대 +25%p, 체력 보너스까지 합쳐 최대 +35%p) → 아이템을 써도 최대 98%, 아이템 없이는 최대 95%예요.
 //            − 등급 깎임값(고등급만) → 0% 아래로 내려가면(음수) 못 잡아요. 음수는 -30% 까지만 내려가요.
+// 야생 펫 체력이 낮을수록 붙는 포획 보너스 (%p). 가장 좁은 구간부터 봐요.
+function catchHpBonus(hpRatio) {
+  const h = Math.max(0, Math.min(1, hpRatio));
+  if (h <= CATCH_HP_T1) return CATCH_HP_B1;
+  if (h <= CATCH_HP_T2) return CATCH_HP_B2;
+  if (h <= CATCH_HP_T3) return CATCH_HP_B3;
+  return 0;
+}
+
 function catchChanceRaw(petId, wildLevel, mainLevel, hpRatio = 1, tries = 0, itemMult = 1, flat = 0) {
   const gap = Math.max(0, wildLevel - mainLevel);
   const factor = Math.max(0.3, 1 - gap * 0.02);
-  const weakBonus = 1 + (1 - Math.max(0, Math.min(1, hpRatio)));
-  const base = PETS[petId].catchRate * factor * weakBonus * itemMult;
+  const base = PETS[petId].catchRate * factor;
+  const stack = Math.min(CATCH_STACK_CAP, base * (itemMult - 1) + flat); // 아이템(배수 → %p)+스킬(%p) 합 최대 +25%p
+  const bonus = Math.min(CATCH_TOTAL_BONUS_CAP, stack + catchHpBonus(hpRatio)); // 체력 보너스까지 합쳐 최대 +35%p
   const penalty = CATCH_GRADE_PENALTY[PETS[petId].grade] ?? 0;
-  const raw = base - penalty - CATCH_DROP_PER_TRY * tries + flat; // 던진 횟수만큼 -10%p · flat = 스킬로 올린 포획률(%p)
+  const raw = base + bonus - penalty - CATCH_DROP_PER_TRY * tries; // 던진 횟수만큼 -10%p
   return Math.max(penalty > 0 ? CATCH_NEG_FLOOR : CATCH_MIN_CHANCE, raw); // 계산값 (음수 가능)
 }
 
@@ -7268,9 +7285,10 @@ const help = {
                 value:
                   '야생 펫을 만난 뒤(싸우는 중에도) 탐험 화면 맨 아래 **아이템 버튼**이나 `/사용` 으로 써요. 다음 펫을 만나면 효과가 사라져요.\n' +
                   `🔬 **포획 분석기** — 포획 확률과 난이도(${catchDifficulty(0.9).label} ~ ${catchDifficulty(0, -0.1).label})를 보여줘요. 턴을 안 써요.\n` +
-                  `🍖 **간식**(×1.2) · 🍯 **황금 꿀**(×1.5) — 포획 확률을 곱해서 올려요. 중첩되고 합쳐서 최대 ×${(1 + CATCH_BAIT_BONUS_CAP).toFixed(1)}\n` +
+                  `🍖 **간식**(×1.2) · 🍯 **황금 꿀**(×1.5) — 포획 확률을 올려요. 아이템·스킬 보너스는 합쳐서 최대 **+${pct(CATCH_STACK_CAP)}%p**, 체력 보너스까지 합쳐 최대 **+${pct(CATCH_TOTAL_BONUS_CAP)}%p**\n` +
+`🩸 야생 펫 체력이 ${pct(CATCH_HP_T3)}% 이하면 +${pct(CATCH_HP_B3)}%p · ${pct(CATCH_HP_T2)}% 이하면 +${pct(CATCH_HP_B2)}%p · **${pct(CATCH_HP_T1)}% 이하면 +${pct(CATCH_HP_B1)}%p**\n` +
                   `🍀 **행운의 부적** — 다음 던지기 1번 확률 ×2 · 🕸️ **끈끈이 그물** — 도망 확률 -${pct(CATCH_NET_FLEE_REDUCE)}%p\n` +
-                  `⚔️ 전투 중에 간식·꿀·부적·그물을 쓰면 **한 턴**을 써요(야생 펫이 반격!). 곱셈이라서 원래 잘 안 잡히는 펫은 여전히 어려워요.\n` +
+                  `⚔️ 전투 중에 간식·꿀·부적·그물을 쓰면 **한 턴**을 써요(야생 펫이 반격!).\n` +
                   `🎯 포획 확률 상한은 아이템 없이 **${pct(CATCH_MAX_CHANCE)}%**, 아이템을 써도 **${pct(CATCH_MAX_WITH_ITEMS)}%** — 100% 확정은 없어요!\n` +
                   `📉 높은 등급은 포획 확률에서 깎이는 값이 있어요 (${Object.entries(CATCH_GRADE_PENALTY).filter(([, v]) => v > 0).map(([g, v]) => `${GRADES[g].emoji}-${pct(v)}%p`).join(' ')}). ` +
                   `계산값이 **0% 아래(최대 ${pct(CATCH_NEG_FLOOR)}%)**면 못 잡아요 → 체력을 깎고 아이템을 써서 끌어올려요!`,
@@ -8277,6 +8295,14 @@ const admin = createConfigManager({
     CATCH_MAX_CHANCE: { get: () => CATCH_MAX_CHANCE, set: (v) => { CATCH_MAX_CHANCE = v; }, section: "포획 아이템 🍖", desc: "아이템 없이 가능한 포획 확률 상한 (95%)" },
     CATCH_MAX_WITH_ITEMS: { get: () => CATCH_MAX_WITH_ITEMS, set: (v) => { CATCH_MAX_WITH_ITEMS = v; }, section: "포획 아이템 🍖", desc: "포획 아이템을 써도 이 값을 넘지 않아요 → 100% 확정 포획은 절대 없어요 (98%)" },
     CATCH_BAIT_BONUS_CAP: { get: () => CATCH_BAIT_BONUS_CAP, set: (v) => { CATCH_BAIT_BONUS_CAP = v; }, section: "포획 아이템 🍖", desc: "간식·꿀 효과는 이번 만남에서 합쳐서 최대 +100% (= 최대 ×2.0)" },
+    CATCH_STACK_CAP: { get: () => CATCH_STACK_CAP, set: (v) => { CATCH_STACK_CAP = v; }, section: "포획 아이템 🍖", desc: "아이템·스킬 포획 보너스 합 최대치 (+25%p)" },
+    CATCH_TOTAL_BONUS_CAP: { get: () => CATCH_TOTAL_BONUS_CAP, set: (v) => { CATCH_TOTAL_BONUS_CAP = v; }, section: "포획 아이템 🍖", desc: "체력 보너스까지 합친 전체 포획 보너스 최대치 (+35%p)" },
+    CATCH_HP_T1: { get: () => CATCH_HP_T1, set: (v) => { CATCH_HP_T1 = v; }, section: "포획 🔴", desc: "야생 체력이 이 비율 이하면 가장 큰 포획 보너스 (3%)" },
+    CATCH_HP_B1: { get: () => CATCH_HP_B1, set: (v) => { CATCH_HP_B1 = v; }, section: "포획 🔴", desc: "그 보너스 (+20%p)" },
+    CATCH_HP_T2: { get: () => CATCH_HP_T2, set: (v) => { CATCH_HP_T2 = v; }, section: "포획 🔴", desc: "중간 구간 체력 비율 (20%)" },
+    CATCH_HP_B2: { get: () => CATCH_HP_B2, set: (v) => { CATCH_HP_B2 = v; }, section: "포획 🔴", desc: "중간 구간 보너스 (+10%p)" },
+    CATCH_HP_T3: { get: () => CATCH_HP_T3, set: (v) => { CATCH_HP_T3 = v; }, section: "포획 🔴", desc: "넓은 구간 체력 비율 (50%)" },
+    CATCH_HP_B3: { get: () => CATCH_HP_B3, set: (v) => { CATCH_HP_B3 = v; }, section: "포획 🔴", desc: "넓은 구간 보너스 (+5%p)" },
     CATCH_NET_FLEE_REDUCE: { get: () => CATCH_NET_FLEE_REDUCE, set: (v) => { CATCH_NET_FLEE_REDUCE = v; }, section: "포획 아이템 🍖", desc: "끈끈이 그물: 도망 확률 -30%p" },
     CATCH_NET_FLEE_MIN: { get: () => CATCH_NET_FLEE_MIN, set: (v) => { CATCH_NET_FLEE_MIN = v; }, section: "포획 아이템 🍖", desc: "그물을 써도 도망 확률은 이 값 아래로 안 내려가요" },
     CATCH_ITEM_COSTS_TURN: { get: () => CATCH_ITEM_COSTS_TURN, set: (v) => { CATCH_ITEM_COSTS_TURN = v; }, section: "포획 아이템 🍖", desc: "전투 중에 간식·꿀·부적·그물을 쓰면 한 턴을 써요 (야생 펫이 반격!) / 분석기는 공짜" },
