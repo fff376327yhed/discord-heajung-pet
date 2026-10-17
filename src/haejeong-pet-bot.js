@@ -2077,11 +2077,13 @@ function useSkillItem(player, itemId, selector, slot, now = Date.now(), goal = n
   if (!SKILLS[inst.skills?.[idx]]) return { kind: 'empty_slot' };
 
   const before = SKILLS[inst.skills[idx]];
+  // 🚫 같은 펫이 다른 슬롯에 이미 가진 스킬은 다시 나오지 않아요 (스킬 중복 방지)
+  const others = (inst.skills ?? []).filter((id, i) => id && i !== idx);
 
   // 🎯 목표 없이: 1장으로 1번만 뽑아요 (예전과 똑같아요)
   const hasGoal = !!goal && ((goal.minTier ?? 0) > 0 || (goal.skillIds?.length ?? 0) > 0);
   if (!hasGoal) {
-    const id = rollSkill(inst, Math.random, [inst.skills[idx]], petGradeOrder(inst));
+    const id = rollSkill(inst, Math.random, [inst.skills[idx], ...others], petGradeOrder(inst));
     if (!id) return { kind: 'no_skill_left' };
     inst.skills[idx] = id;
     player.inventory[itemId] = owned - 1;
@@ -2094,6 +2096,8 @@ function useSkillItem(player, itemId, selector, slot, now = Date.now(), goal = n
     const s = SKILLS[sid];
     if (!s || s.hidden || (s.pet && s.pet !== inst.petId)) return { kind: 'goal_unreachable', skill: s ?? null, inst: { ...inst } };
   }
+  // 다른 슬롯에 이미 있는 스킬은 이 슬롯에 나올 수 없어서, 목표로 걸면 변경권만 다 사라져요 → 미리 막아요
+  for (const sid of skillIds) if (others.includes(sid)) return { kind: 'goal_owned', skill: SKILLS[sid], inst: { ...inst } };
   const minTier = goal.minTier ?? 0;
   const isHit = (s) => !!s && ((minTier > 0 && s.tier >= minTier) || skillIds.includes(s.id));
   // 지금 슬롯 스킬이 이미 목표를 만족해도 막지 않아요! (경고는 /사용 확인창에서 띄워요)
@@ -2106,7 +2110,7 @@ function useSkillItem(player, itemId, selector, slot, now = Date.now(), goal = n
   let rolls = 0;
   let found = false;
   while (rolls < cap) {
-    const id = rollSkill(inst, Math.random, [current], order);
+    const id = rollSkill(inst, Math.random, [current, ...others], order);
     if (!id) break;
     current = id;
     rolls += 1;
@@ -4432,6 +4436,9 @@ function skillItemResultText(out) {
   if (out.kind === 'bad_slot') return '그 슬롯은 아직 안 열려 있어요! `/사용` 의 **슬롯** 칸에 이미 열린 번호(1~5)를 적어주세요. (`/펫` 에서 확인 가능)';
   if (out.kind === 'empty_slot') return '그 슬롯은 아직 비어 있어요! (스킬이 있어야 바꿀 수 있어요)';
   if (out.kind === 'no_skill_left') return '더 뽑을 수 있는 스킬이 없어요 🤔';
+  if (out.kind === 'goal_owned') {
+    return `${out.skill.emoji} **${out.skill.name}** 은(는) 이 펫이 이미 다른 슬롯에 가지고 있어요! 한 펫은 같은 스킬을 두 개 가질 수 없어서 이 슬롯에는 안 나와요. 목표에서 빼주세요 🙏`;
+  }
   if (out.kind === 'goal_unreachable') {
     return out.skill
       ? `${out.skill.emoji} **${out.skill.name}** 은(는) 이 펫이 얻을 수 없는 스킬이에요 (다른 펫의 전용기예요). 목표에서 빼주세요!`
