@@ -6622,7 +6622,7 @@ async function deleteMessages(channelId, ids, errors = []) {
 // /정리 의 "종류" — 콤마로 여러 개를 섞어 적을 수 있어요 (예: "사용,도감,탐험")
 const CLEANUP_SPECIAL_KINDS = ['전체', '최근명령어', '태그없음']; // 표시용 이름
 const CLEANUP_KIND_ALIASES = { 전체: '__all__', 최근명령어: '__recent__', '최근 명령어': '__recent__', 태그없음: '__none__', '태그 없음': '__none__' };
-const CLEANUP_COMMAND_NAMES = ['사용', '자동사냥', '탐험', '도감', '상점', '구매', '가방', '펫', '방생', '훈련', '랭킹', '출석', '도감보상', '대결', '거래', '장비', '정보', '장소', '별명', '시작', '도움말'];
+const CLEANUP_COMMAND_NAMES = ['사용', '자동사냥', '탐험', '도감', '상점', '구매', '가방', '펫', '방생', '훈련', '랭킹', '출석', '도감보상', '대결', '거래', '장비', '정보', '장소', '별명', '시작', '도움말', '통계'];
 const CLEANUP_KNOWN_KINDS = ['__all__', '__recent__', '__none__', ...CLEANUP_COMMAND_NAMES];
 
 // 메시지에 붙여둔 "🏷️명령어이름" 이름표를 읽어요. 못 찾으면 태그 없음.
@@ -6828,6 +6828,7 @@ function buildRankRow(p) {
     exp: p.exp ?? 0,
     power: pw.total,
     petCount: (p.pets ?? []).length,
+    gradeCounts: (p.pets ?? []).reduce((m, x) => { const g = PETS[x.petId]?.grade; if (g) m[g] = (m[g] ?? 0) + 1; return m; }, {}),
     dexFound: dex.found,
     dexTotal: dex.total,
     mainText: main ? `👑 ${rankPetText(main)}` : '👑 대표 펫 없음',
@@ -6964,6 +6965,82 @@ const rankingCmd = {
       }
       return update(rankingView(rows, kind, action === 'me' ? 'me' : Number(page0), user.id));
     },
+  },
+};
+
+// 📊 /통계 — 전체 유저의 지금까지 쌓인 기록(레벨·골드·펫·도감)을 모아서 보여줘요. 내 순위도 같이요!
+const median = (arr) => {
+  if (!arr.length) return 0;
+  const a = [...arr].sort((x, y) => x - y);
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+};
+
+function statsView(rows, viewerId) {
+  const n = rows.length;
+  if (!n) return { content: '아직 기록이 있는 유저가 없어요 🐾' };
+  const sum = (key) => rows.reduce((t, r) => t + (r[key] ?? 0), 0);
+  const gradeTotals = {};
+  for (const r of rows) for (const [g, c] of Object.entries(r.gradeCounts ?? {})) gradeTotals[g] = (gradeTotals[g] ?? 0) + c;
+  const gradeLine = Object.keys(GRADES)
+    .sort((a, b) => (GRADES[a].order ?? 0) - (GRADES[b].order ?? 0))
+    .filter((g) => gradeTotals[g])
+    .map((g) => `${GRADES[g].emoji}${fmtNum(gradeTotals[g])}`)
+    .join(' · ') || '없음';
+  const dexDone = rows.filter((r) => r.dexTotal > 0 && r.dexFound >= r.dexTotal).length;
+  const top = (kind) => sortRankRows(rows, kind)[0];
+  const topLine = (kind, text) => { const t = top(kind); return `${RANK_KINDS[kind].emoji} ${RANK_KINDS[kind].label} 1위 **${t.name}** — ${text(t)}`; };
+
+  const fields = [
+    {
+      name: '👥 전체',
+      value:
+        `트레이너 **${fmtNum(n)}명**\n` +
+        `⭐ 레벨 평균 ${(sum('level') / n).toFixed(1)} · 중앙값 ${median(rows.map((r) => r.level))} · 최고 ${Math.max(...rows.map((r) => r.level))}\n` +
+        `⚔️ 전투력 평균 ${fmtNum(Math.round(sum('power') / n))} · 최고 ${fmtNum(Math.max(...rows.map((r) => r.power)))}`,
+    },
+    {
+      name: '💰 골드 · 🐾 펫',
+      value:
+        `골드 합계 ${fmtNum(sum('gold'))} · 평균 ${fmtNum(Math.round(sum('gold') / n))}\n` +
+        `펫 총 **${fmtNum(sum('petCount'))}마리** · 1인 평균 ${(sum('petCount') / n).toFixed(1)}마리\n` +
+        `등급별: ${gradeLine}`,
+    },
+    {
+      name: '📖 도감',
+      value: `평균 ${(sum('dexFound') / n).toFixed(1)}/${rows[0].dexTotal} · 도감 완성 ${fmtNum(dexDone)}명`,
+    },
+    {
+      name: '🏆 1위 모음',
+      value: [
+        topLine('power', (t) => `⚔️ ${fmtNum(t.power)}`),
+        topLine('level', (t) => `Lv.${t.level}`),
+        topLine('gold', (t) => `💰 ${fmtNum(t.gold)}`),
+        topLine('pets', (t) => `${t.petCount}마리`),
+        topLine('dex', (t) => `${t.dexFound}/${t.dexTotal}`),
+      ].join('\n'),
+    },
+  ];
+
+  const me = rows.find((r) => r.userId === viewerId);
+  if (me) {
+    const rankOf = (kind) => sortRankRows(rows, kind).findIndex((r) => r.userId === viewerId) + 1;
+    fields.push({
+      name: `🙋 ${me.name} 님의 순위`,
+      value: ['power', 'level', 'gold', 'pets', 'dex'].map((k) => `${RANK_KINDS[k].emoji} ${RANK_KINDS[k].label} **${rankOf(k)}위**/${n}`).join(' · '),
+    });
+  }
+  return {
+    embeds: [{ title: '📊 해정펫 전체 통계', description: '지금까지 쌓인 모든 유저의 기록이에요! (1분마다 갱신)', color: EMBED_COLOR, fields }],
+  };
+}
+
+const statsCmd = {
+  data: { name: '통계', description: '📊 전체 유저의 누적 기록(레벨·골드·펫·도감)과 내 순위를 봐요.', type: 1 },
+  async execute(interaction) {
+    const user = getUser(interaction);
+    const rows = await getRankRows();
+    return reply(statsView(rows, user.id));
   },
 };
 
@@ -7903,7 +7980,7 @@ const equipCmd = {
   components: { equip: equipHandleButton },
 };
 
-const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, train, use, cleanup, attendance, dexReward, duel, trade, rankingCmd, equipCmd, help];
+const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, train, use, cleanup, attendance, dexReward, duel, trade, rankingCmd, statsCmd, equipCmd, help];
 
 // ============================================================
 // 관리자 설정 (admin-config.js) [ADMIN-CONFIG]
