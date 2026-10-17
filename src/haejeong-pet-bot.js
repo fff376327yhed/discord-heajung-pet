@@ -49,7 +49,7 @@ import {
 } from './skill.js';
 
 const SLOT_IDX = Array.from({ length: SLOT_COUNT }, (_, i) => i); // 스킬 슬롯 번호들 (0~4)
-const SKILL_REROLL_MAX_PER_USE = 300; // 🔄 스킬 변경권을 목표(등급·스킬)와 함께 쓸 때, 한 번 명령으로 최대 몇 장까지 반복할지
+const SKILL_REROLL_ASK_TIER = 4; // 🔄 스킬 변경권 목표가 이 ★ 등급 이상이면 쓰기 전에 한 번 물어봐요 (반복 횟수 제한은 없어요)
 
 // ============================================================
 // 설정값 (config.js)
@@ -964,6 +964,18 @@ function sellEquips(player, gradeKey) {
   return { kind: 'sold', commit: true, count: sell.length, gold, total: player.gold };
 }
 
+// 💰 고른 장비만 팔기 (영웅 이상 포함, 등급 제한 없음)
+function sellSelectedEquips(player, uids) {
+  const want = new Set(uids ?? []);
+  const inv = player.equipInv ?? [];
+  const sell = inv.filter((e) => want.has(e.uid));
+  if (sell.length === 0) return { kind: 'sell_none' };
+  const gold = sell.reduce((n, e) => n + equipSellValue(e), 0);
+  player.equipInv = inv.filter((e) => !want.has(e.uid));
+  player.gold += gold;
+  return { kind: 'sold', commit: true, count: sell.length, gold, total: player.gold };
+}
+
 // ============================================================
 // 도구: 디스코드 응답 (utils/discord.js)
 // ============================================================
@@ -977,7 +989,7 @@ const SILENT = 4096; // "알림 없이 조용히 보내기" 표시 (디스코드
 // 🆕 지금 요청이 어떤 명령어/버튼에서 왔는지 기억해요. 동시에 여러 요청이 와도 안 섞이게 AsyncLocalStorage 를 써요.
 //    reply()/postChannelMessage() 가 공개 메시지를 보낼 때 이 이름을 몰래 붙여서, /정리 에서 종류별로 찾아 지울 수 있게 해요.
 const cmdContext = new AsyncLocalStorage();
-const COMPONENT_CMD_NAME = { start: '시작', profile: '정보', explore: '탐험', autohunt: '자동사냥', shop: '상점', pets: '펫', dex: '도감', release: '방생', train: '훈련', rank: '랭킹', duel: '대결', trade: '거래', equip: '장비' };
+const COMPONENT_CMD_NAME = { start: '시작', profile: '정보', explore: '탐험', autohunt: '자동사냥', shop: '상점', pets: '펫', dex: '도감', release: '방생', train: '훈련', rank: '랭킹', duel: '대결', trade: '거래', equip: '장비', use: '사용' };
 
 // 메시지에 "🏷️명령어이름" 이름표를 붙여요 (embeds 가 있으면 footer 에, 없으면 content 맨 아래 작은 글씨로)
 function tagMessage(data, tag) {
@@ -1131,11 +1143,12 @@ function row(...components) {
 
 // 드롭다운(선택 메뉴). options: [{ label, value, description?, emoji?, default? }] (최대 25개)
 // 사용자가 고른 값은 interaction.data.values 로 들어와요.
-function select({ customId, placeholder, options }) {
+function select({ customId, placeholder, options, maxValues = null }) {
   return {
     type: 3,
     custom_id: customId,
     placeholder,
+    ...(maxValues ? { min_values: 1, max_values: Math.max(1, Math.min(maxValues, options.length)) } : {}),
     options: options.map((o) => {
       const opt = { label: o.label, value: o.value, default: o.default === true };
       if (o.description) opt.description = o.description;
@@ -4438,7 +4451,7 @@ function skillItemResultText(out) {
     const body = `${out.before.emoji} **${out.before.name}** → ${out.skill.emoji} **${out.skill.name}** (마나 ${out.skill.cost}) ${tierStars(out.skill.tier)}`;
     const foot = `🎫 변경권 ${out.rolls}장 사용 (남은 ${out.left}장)${tallyText ? `\n📊 ${tallyText}` : ''}`;
     if (out.found) return `${head}\n🎯 **목표 달성!** ${out.rolls}번 만에 나왔어요!\n${body}\n${foot}`;
-    const why = out.stoppedBy === 'out_of_items' ? '변경권이 다 떨어졌어요' : `한 번에 쓸 수 있는 최대(${SKILL_REROLL_MAX_PER_USE}장)에 도달했어요`;
+    const why = out.stoppedBy === 'out_of_items' ? '변경권이 다 떨어졌어요' : '정한 수량까지 다 썼어요';
     return `${head}\n😭 **목표가 안 나왔어요** — ${why}.\n지금 스킬: ${body}\n${foot}`;
   }
   if (out.kind === 'slot_opened') {
@@ -5796,8 +5809,8 @@ async function qtyAutocomplete(interaction, commandName) {
     max = Math.min(owned, needed);
     maxNote = needed <= owned ? `가득 찰 때까지 · ❤${cur}→${hpMax}` : `보유 ${owned}개 전부 · ❤${cur}→${Math.min(hpMax, cur + item.heal * owned)}`;
   } else if (item.skillReroll) {
-    max = Math.min(owned, SKILL_REROLL_MAX_PER_USE); // 🎯 목표(등급·스킬)를 걸면 이 수량까지 반복해요
-    maxNote = `목표를 걸면 최대 ${max}장까지 반복 (목표 없으면 1장)`;
+    max = owned; // 🎯 목표(등급·스킬)를 걸면 목표가 나올 때까지(가진 만큼) 반복해요
+    maxNote = '목표를 걸면 목표가 나올 때까지 반복 (비우면 가진 만큼, 목표 없으면 1장)';
   } else if (!item.boost) {
     max = 1; // 시간 감소·포획·스킬 아이템은 한 번에 1개씩만 써요
     maxNote = '이 아이템은 1개씩 써요';
@@ -6256,6 +6269,53 @@ async function skillGoalAutocomplete(interaction, focusedName) {
   );
 }
 
+function rerollGoalText(goal) {
+  const parts = [];
+  if (goal.minTier > 0) parts.push(`${tierStars(goal.minTier)} 이상`);
+  for (const sid of goal.skillIds) parts.push(`${SKILLS[sid].emoji} ${SKILLS[sid].name}`);
+  return parts.join(' 또는 ');
+}
+
+function rerollConfirmView(userId, ask, pending) {
+  const limit = pending.goal.maxRolls == null ? `가진 변경권 **${ask.owned}장**을 목표가 나올 때까지` : `최대 **${Math.min(ask.owned, pending.goal.maxRolls)}장**까지`;
+  return {
+    embeds: [
+      {
+        title: '🔄 높은 등급 목표예요! 계속할까요?',
+        description: `목표: **${rerollGoalText(pending.goal)}**\n${limit} 계속 돌려요. 목표가 나올 때까지 변경권이 꽤 많이 들 수 있어요!\n\n⚠️ 쓴 변경권은 되돌릴 수 없어요.`,
+        color: 0xed4245,
+      },
+    ],
+    components: [
+      row(
+        button({ label: '시작하기', emoji: '🔄', customId: `use:rrgo:${userId}`, style: 4 }),
+        button({ label: '취소', emoji: '↩️', customId: `use:rrno:${userId}`, style: 2 }),
+      ),
+    ],
+  };
+}
+
+async function useHandleButton(interaction, args) {
+  const [action, ownerId] = args;
+  const user = getUser(interaction);
+  if (user.id !== ownerId) return reply({ content: '이 버튼은 명령어를 쓴 사람만 누를 수 있어요 🙅' }, { ephemeral: true });
+  if (action !== 'rrgo' && action !== 'rrno') return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
+  let pend = null;
+  const out = await updatePlayer(user.id, (p) => {
+    pend = p.rerollPending ?? null;
+    if (!pend) return { commit: false, value: { kind: 'expired' } };
+    delete p.rerollPending;
+    if (action === 'rrno') return { commit: true, value: { kind: 'cancelled' } };
+    if (Date.now() - (pend.at ?? 0) > 10 * 60 * 1000) return { commit: true, value: { kind: 'expired' } };
+    const r = useSkillItem(p, 'skill_reroll_ticket', pend.petUid, pend.slot, Date.now(), pend.goal);
+    return { commit: true, value: r };
+  });
+  if (out === null) return update({ content: NOT_STARTED, embeds: [], components: [] });
+  if (out.kind === 'cancelled') return update({ content: '↩️ 취소했어요. 변경권은 그대로예요!', embeds: [], components: [] });
+  if (out.kind === 'expired') return update({ content: '⌛ 시간이 지났거나 이미 처리됐어요. `/사용` 을 다시 써주세요!', embeds: [], components: [] });
+  return update({ content: skillItemResultText(out), embeds: [], components: [] });
+}
+
 const use = {
   data: {
     name: '사용',
@@ -6371,10 +6431,28 @@ const use = {
             return reply({ content: `못 찾은 스킬: ${unknown.join(', ')} 🤔 칸에 이름을 입력하면 뜨는 목록에서 골라주세요!` }, { ephemeral: true });
           }
           const rawQty = getOption(interaction, '수량');
-          // 수량을 적으면 그 장수까지, 안 적거나 "최대"를 켜면 가진 만큼(최대 SKILL_REROLL_MAX_PER_USE장)까지 반복해요
-          const maxRolls = wantMax || rawQty == null ? SKILL_REROLL_MAX_PER_USE : Math.min(SKILL_REROLL_MAX_PER_USE, Math.max(1, rawQty));
+          // 수량을 적으면 그 장수까지, 안 적거나 "최대"를 켜면 가진 만큼 (제한 없이) 목표가 나올 때까지 반복해요
+          const maxRolls = wantMax || rawQty == null ? null : Math.max(1, rawQty);
           goal = { minTier: goalTier ?? 0, skillIds, maxRolls };
         }
+      }
+      // ❓ 목표가 ★4 이상이면 (많이 쓸 수 있어서) 먼저 물어봐요
+      if (goal && (goal.minTier >= SKILL_REROLL_ASK_TIER || goal.skillIds.some((id) => SKILLS[id].tier >= SKILL_REROLL_ASK_TIER))) {
+        const pending = { petUid: null, slot, goal, at: Date.now() };
+        let probe = null;
+        const res = await updatePlayer(user.id, (p) => {
+          const r = useSkillItem(structuredClone(p), itemId, target, slot, Date.now(), { ...goal, maxRolls: 1 }); // 체험용 복사본이라 변경권은 안 줄어요
+          probe = r;
+          if (r.kind === 'rerolled') {
+            pending.petUid = resolvePetSelector(p, target)?.uid ?? null;
+            p.rerollPending = pending;
+            return { commit: true, value: { kind: 'ask', owned: p.inventory?.[itemId] ?? 0 } };
+          }
+          return { commit: false, value: r };
+        });
+        if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+        if (res.kind !== 'ask') return reply({ content: skillItemResultText(res) }, { ephemeral: true });
+        return reply(rerollConfirmView(user.id, res, pending), { ephemeral: true });
       }
       const res = await updatePlayer(user.id, (p) => {
         const r = useSkillItem(p, itemId, target, slot, Date.now(), goal);
@@ -6454,6 +6532,8 @@ const use = {
     if (focused && focused.startsWith('목표스킬')) return skillGoalAutocomplete(interaction, focused);
     return petAutocomplete(interaction, '대상');
   },
+
+  components: { use: useHandleButton },
 };
 
 // ═════════════════════════════════════════════
@@ -7607,7 +7687,82 @@ function equipSellView(player, userId, petUid, note) {
           }),
         }),
       ),
-      row(button({ label: '돌아가기', emoji: '◀️', customId: `equip:page:${userId}:${petUid}:all:0`, style: 2 })),
+      row(
+        button({ label: '선택해서 팔기 (영웅 이상 포함)', emoji: '🧾', customId: `equip:sellsel:${userId}:${petUid}:all:0`, style: 1 }),
+        button({ label: '돌아가기', emoji: '◀️', customId: `equip:page:${userId}:${petUid}:all:0`, style: 2 }),
+      ),
+    ],
+  };
+}
+
+// 🧾 장비를 골라서 팔기 (등급 제한 없음, 25개씩 페이지)
+function equipSellSelectView(player, userId, petUid, page = 0, note) {
+  const list = equipSortedInv(player, 'all');
+  const size = 25;
+  const pages = Math.max(1, Math.ceil(list.length / size));
+  const cur = Math.max(0, Math.min(pages - 1, page));
+  const slice = list.slice(cur * size, cur * size + size);
+  const components = [];
+  if (slice.length) {
+    components.push(
+      row(
+        select({
+          customId: `equip:sellselpick:${userId}:${petUid}:all:${cur}`,
+          placeholder: '🧾 팔 장비를 골라요 (여러 개 선택 가능)',
+          maxValues: slice.length,
+          options: slice.map((e) => ({
+            label: `${e.name}`.slice(0, 100),
+            value: e.uid,
+            emoji: GRADES[e.grade].emoji,
+            description: `${GRADES[e.grade].name} · ${equipStatText(e)} · 💰 ${equipSellValue(e).toLocaleString('ko-KR')}`.slice(0, 100),
+          })),
+        }),
+      ),
+    );
+  }
+  components.push(
+    row(
+      button({ label: '이전', emoji: '⬅️', customId: `equip:sellsel:${userId}:${petUid}:all:${cur - 1}`, style: 2, disabled: cur <= 0 }),
+      button({ label: `${cur + 1}/${pages}`, customId: `equip:sellsel:${userId}:${petUid}:all:${cur}`, style: 2, disabled: true }),
+      button({ label: '다음', emoji: '➡️', customId: `equip:sellsel:${userId}:${petUid}:all:${cur + 1}`, style: 2, disabled: cur >= pages - 1 }),
+      button({ label: '돌아가기', emoji: '◀️', customId: `equip:sell:${userId}:${petUid}:all:0`, style: 2 }),
+    ),
+  );
+  return {
+    embeds: [
+      {
+        title: '🧾 장비 골라서 팔기',
+        description: `${note ? note + '\n\n' : ''}가방의 장비 **${list.length}개** 중 팔 것을 골라요. **영웅 이상도** 고를 수 있어요!\n끼고 있는 장비는 목록에 없어요.`,
+        color: 0xfee75c,
+      },
+    ],
+    components,
+  };
+}
+
+function equipSellSelectConfirmView(player, userId, petUid, page) {
+  const uids = new Set(player.equipSellPending ?? []);
+  const items = (player.equipInv ?? []).filter((e) => uids.has(e.uid));
+  const gold = items.reduce((n, e) => n + equipSellValue(e), 0);
+  const high = items.filter((e) => equipGradeOrder(e) >= EQUIP_GRADE_KEYS.indexOf('epic') + 1);
+  const lines = items.slice(0, 15).map((e) => `${equipLabel(e)} — ${equipStatText(e)}`);
+  if (items.length > 15) lines.push(`...외 ${items.length - 15}개`);
+  return {
+    embeds: [
+      {
+        title: `🧾 선택한 장비 ${items.length}개를 팔까요?`,
+        description:
+          `${lines.join('\n')}\n\n💰 **${gold.toLocaleString('ko-KR')}골드**를 받아요.` +
+          (high.length ? `\n\n⚠️ **영웅 이상 장비 ${high.length}개**가 들어 있어요! 다시 확인해주세요.` : '') +
+          '\n⚠️ 한 번 팔면 되돌릴 수 없어요!',
+        color: 0xed4245,
+      },
+    ],
+    components: [
+      row(
+        button({ label: `${items.length}개 팔기`, emoji: '💰', customId: `equip:sellselgo:${userId}:${petUid}:all:${page}`, style: 4, disabled: items.length === 0 }),
+        button({ label: '취소', emoji: '↩️', customId: `equip:sellsel:${userId}:${petUid}:all:${page}`, style: 2 }),
+      ),
     ],
   };
 }
@@ -7641,12 +7796,27 @@ async function equipHandleButton(interaction, args) {
   const page = Number(pageStr) || 0;
   const value = interaction.data.values?.[0];
 
+  // 🧾 고른 장비를 임시 저장하고 확인 화면 보여주기
+  if (action === 'sellselpick') {
+    const picks = [...new Set(interaction.data.values ?? [])].slice(0, 25);
+    let latest = null;
+    const out = await updatePlayer(user.id, (p) => {
+      const have = new Set((p.equipInv ?? []).map((e) => e.uid));
+      p.equipSellPending = picks.filter((u) => have.has(u));
+      latest = p;
+      return { commit: true, value: { kind: 'picked' } };
+    });
+    if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    return update(equipSellSelectConfirmView(latest, user.id, petUid, page));
+  }
+
   // 보기만 하는 동작들
-  if (['view', 'page', 'filter', 'sell', 'sellpick'].includes(action)) {
+  if (['view', 'page', 'filter', 'sell', 'sellpick', 'sellsel'].includes(action)) {
     const player = await getPlayer(user.id);
     if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
     if (action === 'filter') return update(equipView(player, user.id, petUid, value === 'all' || EQUIP_SLOTS[value] ? value : 'all', 0));
     if (action === 'sell') return update(equipSellView(player, user.id, petUid));
+    if (action === 'sellsel') return update(equipSellSelectView(player, user.id, petUid, page));
     if (action === 'sellpick') {
       if (!EQUIP_SELL_GRADES.includes(value)) return reply({ content: '그런 등급은 고를 수 없어요 🤔' }, { ephemeral: true });
       if (equipSellPreview(player, value).count === 0) return update(equipSellView(player, user.id, petUid, '그 등급 이하 장비가 없어요!'));
@@ -7662,6 +7832,11 @@ async function equipHandleButton(interaction, args) {
     auto: (p) => autoEquip(p, petUid),
     offall: (p) => unequipAll(p, petUid),
     sellgo: (p) => sellEquips(p, filter0),
+    sellselgo: (p) => {
+      const r = sellSelectedEquips(p, p.equipSellPending ?? []);
+      delete p.equipSellPending;
+      return { ...r, commit: true };
+    },
   };
   if (!Object.hasOwn(ops, action)) return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
 
@@ -7672,7 +7847,7 @@ async function equipHandleButton(interaction, args) {
     return { commit: r.commit === true, value: r };
   });
   if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
-  const sold = action === 'sellgo';
+  const sold = action === 'sellgo' || action === 'sellselgo';
   return update(equipView(latest, user.id, petUid, sold ? 'all' : filter, sold ? 0 : page, equipResultNote(out)));
 }
 
