@@ -1440,13 +1440,42 @@ export function tickSide(X, log, gainMana = true, foe = null) {
   if (gainMana) X.mana = Math.min(X.manaMax, X.mana + SKILL_CFG.manaPerTurn + (st.manaRegenUp?.amt ?? 0));
 }
 
+// 👑 전설 등급 이상(elite) 야생 펫: 전용기는 항상 들고 나오고, 나머지 스킬 칸은 60% 확률로 ★5 스킬이에요
+export const WILD_ELITE_STAR5_CHANCE = 0.6;
+
 // 🆕 야생 펫도 아군처럼 만날 때 랜덤 스킬을 1~3개 배워서 나와요
-export function rollWildSkills(petId, rng = Math.random) {
+// elite=true 면: ① 그 펫의 전용기를 전부 먼저 배워요(전용기가 2개면 최소 2칸) ② 남는 칸은 WILD_ELITE_STAR5_CHANCE(60%) 확률로 ★5, 아니면 ★5 가 아닌 스킬이에요
+export function rollWildSkills(petId, rng = Math.random, elite = false) {
   const count = 1 + Math.floor(rng() * 3); // 1~3개
   const skills = [];
-  for (let i = 0; i < count; i++) {
-    const id = rollSkill({ petId }, rng, skills); // sigChance(1%)로 전용기가 섞여 나올 수도 있어요
-    if (id) skills.push(id);
+  if (elite) {
+    for (const s of Object.values(SKILLS)) if (s.pet === petId && !s.hidden) skills.push(s.id);
+  }
+  const want = Math.max(count, skills.length);
+  const star5 = Object.values(SKILLS).filter((s) => s.tier === 5).map((s) => s.id);
+  // 야생 펫이 전투에서 못 쓰는 스킬(포획 전문가 · 버프 · 스킬 봉인)은 ★5 칸을 낭비하니까 제외해요
+  const wildUsable5 = Object.values(SKILLS).filter((s) => s.tier === 5 && !s.hidden && !s.pet && !s.catchPro && !s.fightBuff && !s.lockSkills);
+  while (skills.length < want) {
+    let id = null;
+    if (elite) {
+      if (rng() < WILD_ELITE_STAR5_CHANCE) {
+        const pool = wildUsable5.filter((s) => !skills.includes(s.id));
+        if (pool.length) {
+          const mine = petElementsOf(petId).filter((e) => e !== 'normal');
+          const aff = SKILL_CFG.elemAffinity ?? 1;
+          const w = pool.map((s) => (aff !== 1 && mine.includes(skillElement(s)) ? aff : 1)); // 같은 속성은 더 잘 나와요
+          let r = rng() * w.reduce((n, x) => n + x, 0);
+          id = pool[pool.length - 1].id;
+          for (let i = 0; i < pool.length; i++) { r -= w[i]; if (r < 0) { id = pool[i].id; break; } }
+        }
+      } else {
+        id = rollSkill({ petId }, rng, [...skills, ...star5]);
+      }
+    } else {
+      id = rollSkill({ petId }, rng, skills); // sigChance(1%)로 전용기가 섞여 나올 수도 있어요
+    }
+    if (!id) break;
+    skills.push(id);
   }
   return skills;
 }

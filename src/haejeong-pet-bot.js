@@ -2203,7 +2203,7 @@ const BALL_ID = 'haejeong_ball';
 function rollEncounter(loc, rng = Math.random) {
   const spawn = weightedPick(loc.spawns, (s) => s.weight, rng);
   const petId = spawn.petId;
-  return { petId, level: randInt(spawn.lv[0], spawn.lv[1], rng), skills: rollWildSkills(petId, rng), equip: rollWildEquip(petId, loc, rng) };
+  return { petId, level: randInt(spawn.lv[0], spawn.lv[1], rng), skills: rollWildSkills(petId, rng, (GRADES[PETS[petId]?.grade]?.order ?? 0) >= GRADES.legendary.order), equip: rollWildEquip(petId, loc, rng) };
 }
 
 // 나올 펫이 얼마나 센지에 따른 대기 시간 배수 (등급이 높을수록, 그 장소에서 높은 레벨일수록 커져요)
