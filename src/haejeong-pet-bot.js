@@ -104,6 +104,8 @@ let AUTO_HUNT_MIN_SETTLE_SEC = 20; // 이 시간(초)보다 짧게 지났으면 
 let AUTO_HUNT_RESUME_RATIO = 0.7; // 펫이 위험해지면 쉬었다가, 체력이 이 비율까지 차면 다시 나가요
 let AUTO_HUNT_CATCH_HP_RATIO = 0.5; // 도감에 없는 펫은 야생 펫 체력이 이 비율 이하가 되면 해정볼을 던져요
 let AUTO_HUNT_MAX_THROWS = 5; // 한 마리에게 던지는 최대 해정볼 수
+let AUTO_HUNT_USE_SKILLS = true; // ✨ 자동사냥 중에도 내 펫이 배운 스킬을 써요 (안전한 스킬만 · 야생 펫은 기본 공격만 해요)
+let AUTO_HUNT_DEFEND_MAX = 2; // ✨ 한 판에 회복·방어 스킬을 쓰는 최대 횟수 (끝없이 버티는 것 방지)
 let AUTO_HUNT_MIN_CATCH = 0.05; // 포획 확률이 이보다 낮으면 던지지 않고 그냥 싸워요 (볼 낭비 방지)
 // ⚔️ 전투력 (펫 1마리) = (체력×0.5 + 공격×3 + 방어×2 + 속도×1.5) × 등급 보너스 × 스킬 보너스
 let POWER_HP_W = 0.5; // 체력 1당 전투력
@@ -1622,10 +1624,64 @@ function stopAutoHunt(player) {
   return { kind: 'off', report, commit: true };
 }
 
-// 야생 펫 1마리와 자동으로 싸워 봐요 (스킬·회복약은 안 써요).
-// opts.balls > 0 이면 해정볼도 던져요: 야생 펫 체력이 깎였거나, 다음 한 대에 쓰러질 것 같을 때. (던지는 턴엔 야생 펫이 반격해요)
+// ✨ 자동사냥에서 내 펫이 안 쓰는 스킬: 내 체력을 깎거나(반동·도박·저주…), 전투 밖 규칙이 필요하거나(조커·포획 전문가·전투 버프…), 자동으로는 의미가 없는 것
+const AUTO_SKILL_BANNED = ['recoil', 'gamble', 'curse', 'curseGrant', 'devilDeal', 'joker', 'catchPro', 'fightBuff', 'lockSkills', 'copy', 'coinflip', 'defToAtk', 'statRoll', 'echo', 'mercy'];
+const autoSkillOk = (sk, me) => !!sk && sk.cost <= me.mana && cdLeft(me.st, sk.id) <= 0 && !AUTO_SKILL_BANNED.some((k) => sk[k]);
+
+// ✨ 자동사냥에서 이번 턴에 쓸 스킬 고르기 (없으면 null → 기본 공격 · 마나가 차요)
+//   · 내 체력이 50% 이하면 회복·방어 스킬 우선 (한 판에 AUTO_HUNT_DEFEND_MAX 번까지)
+//   · 그 밖엔 가장 센 공격 스킬 (상성·마무리 고려), 공격 스킬이 없으면 버프·방해 스킬을 한 번씩
+function pickAutoSkill(me, foe, canDefend = true) {
+  if (me.st.sealed) return null;
+  const myRatio = me.hp / me.max;
+  const foeRatio = foe.hp / foe.max;
+  let best = null;
+  let bestScore = 0;
+  for (const id of me.skills ?? []) {
+    const sk = SKILLS[id];
+    if (!autoSkillOk(sk, me)) continue;
+    let s = 0;
+    if (sk.pow || sk.bomb) {
+      const hits = sk.hits ?? (sk.hitsRange ? (sk.hitsRange[0] + sk.hitsRange[1]) / 2 : 1);
+      s = (sk.pow || 1) * hits * (sk.exec && foeRatio <= 0.3 ? sk.exec : 1);
+      s *= elemClash(skillElement(sk), foe, { ignoreResist: sk.ignoreResist, attacker: me }).mult;
+      if (sk.stun || sk.dot) s += 0.3;
+      if (sk.atkDown || sk.defDown) s += 0.2;
+      if (sk.drain && myRatio < 0.7) s += sk.drain;
+    } else if (sk.heal || sk.regen || sk.shield || sk.guard) {
+      if (canDefend && myRatio <= 0.5) s = 4 + (1 - myRatio);
+    } else if (sk.atkUp || sk.defUp) {
+      if (!me.st.atkUp && !me.st.defUp && foeRatio > 0.5) s = 1.5;
+    } else if (sk.stun || sk.atkDown || sk.defDown || sk.dot) {
+      if (foeRatio > 0.4 && !foe.st.stun && !(sk.atkDown && foe.st.atkDown) && !(sk.defDown && foe.st.defDown) && !(sk.dot && foe.st.dots?.length)) s = 1.2;
+    }
+    if (s > bestScore) { best = sk; bestScore = s; }
+  }
+  return best;
+}
+
+// ✨ 지금 쓸 수 있는 공격 스킬 중 가장 센 한 방(최대치 추정) — 포획하려는 펫을 스킬로 실수로 쓰러뜨리지 않으려고 미리 봐요
+function autoSkillBurst(me, foe, baseHit) {
+  let best = 0;
+  for (const id of me.skills ?? []) {
+    const sk = SKILLS[id];
+    if (!autoSkillOk(sk, me) || !sk.pow) continue;
+    const el = skillElement(sk);
+    const cl = elemClash(el, foe, { ignoreResist: sk.ignoreResist, attacker: me }).mult;
+    const stab = el !== 'normal' && effElems(me).includes(el) ? ELEM_CFG.stab : 1;
+    const elem = cl * (sk.weakBonus && cl > 1 ? 1 + sk.weakBonus : 1) * stab;
+    const hits = sk.hits ?? sk.hitsRange?.[1] ?? 1;
+    const mult = (sk.overload ? 1 + me.mana * sk.overload : 1) * (sk.revenge ? 1 + (1 - me.hp / me.max) * sk.revenge : 1)
+      * Math.max(1, sk.exec ?? 1) * (1 + (me.st.atkUp?.pct ?? 0)) * (1 + (sk.pierce ?? 0));
+    best = Math.max(best, baseHit * sk.pow * hits * elem * mult + (sk.truePct ?? 0) * foe.max);
+  }
+  return best;
+}
+
+// 야생 펫 1마리와 자동으로 싸워 봐요 (회복약은 안 써요 · 내 펫은 배운 스킬을 써요, 야생 펫은 기본 공격만 해요).
+// opts.balls > 0 이면 해정볼도 던져요: 야생 펫 체력이 깎였거나, 다음 한 대(기본 공격이든 스킬이든)에 쓰러질 것 같을 때. (던지는 턴엔 야생 펫이 반격해요)
 // 내 펫이 위험해지면(다음 한 대에 쓰러질 수 있으면) 싸움을 멈추고 물러나서 펫이 사라지는 일은 없어요!
-// timeline: 턴마다 [내 체력, 야생 체력] — 진행 화면에서 "지금 몇 턴째"를 보여줄 때 써요
+// timeline: 턴마다 [내 체력, 야생 체력] — 진행 화면에서 "지금 몇 턴째"를 보여줄 때 써요 (ev: 'hit' 기본 공격 · 'skill' 스킬 · 'throw' 해정볼)
 function autoFight(main, enc, startHp, rng, opts = {}) {
   const mine = calcStats(main.petId, main.level, main);
   const wild = calcStats(enc.petId, enc.level, enc);
@@ -1646,40 +1702,74 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
   let myHp = startHp;
   let wildHp = wild.hp;
   let thrown = 0;
+  let skillUses = 0;
+  let defendUses = 0;
   const timeline = [];
   const order = mine.spd >= wild.spd ? ['me', 'wild'] : ['wild', 'me'];
-  const end = (result, rounds) => ({ result, myHp, rounds, thrown, startHp, wildMax: wild.hp, timeline });
+  const end = (result, rounds) => ({ result, myHp, rounds, thrown, skillUses, startHp, wildMax: wild.hp, timeline });
+
+  // ✨ 스킬 전투용 양쪽 상태 (마나 · 상태이상). 야생 펫은 스킬 없이 기본 공격만 해서 "물러나는 기준(worstHit)"이 그대로 맞아요.
+  const useSkills = AUTO_HUNT_USE_SKILLS && (main.skills ?? []).some((id) => SKILLS[id]);
+  const me = { name: PETS[main.petId].name, emoji: PETS[main.petId].emoji, hp: startHp, max: mine.hp, atk: mine.atk, def: mine.def, spd: mine.spd, crit: myCrit, mana: SKILL_CFG.manaStart, manaMax: maxMana(main), st: {}, elems: petElems(main.petId), skills: [...(main.skills ?? [])] };
+  const foe = { name: PETS[enc.petId].name, emoji: PETS[enc.petId].emoji, hp: wild.hp, max: wild.hp, atk: wild.atk, def: wild.def, spd: wild.spd, crit: wildCrit, mana: SKILL_CFG.manaStart, manaMax: SKILL_CFG.manaMax, st: {}, elems: petElems(enc.petId), skills: [] };
+  const log = []; // 자동사냥은 전투 글을 안 보여줘서 버려요
 
   for (let round = 1; round <= BATTLE_MAX_ROUNDS; round++) {
     if (myHp <= worstHit) return end('retreat', round - 1);
+
+    // ✨ 이번 턴에 쓸 스킬 (없으면 기본 공격)
+    me.hp = myHp; foe.hp = wildHp;
+    const mySk = useSkills ? pickAutoSkill(me, foe, defendUses < AUTO_HUNT_DEFEND_MAX) : null;
+    const burst = useSkills ? autoSkillBurst(me, foe, myMaxHit / Math.max(0.01, myMult)) : 0;
 
     // 🔴 포획 시도
     let threw = false;
     if (thrown < balls && thrown < AUTO_HUNT_MAX_THROWS) {
       const ratio = wildHp / wild.hp;
-      if (ratio <= AUTO_HUNT_CATCH_HP_RATIO || myMaxHit >= wildHp) {
+      if (ratio <= AUTO_HUNT_CATCH_HP_RATIO || Math.max(myMaxHit, burst) >= wildHp) {
         const chance = catchChance(enc.petId, enc.level, main.level, ratio, thrown);
         if (chance >= AUTO_HUNT_MIN_CATCH) {
           threw = true;
           thrown += 1;
           if (rng() < chance) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('caught', round); }
           if (rng() < fleeChance(thrown)) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('fled', round); }
-          if (rng() >= myEvade) myHp -= calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg; // 놓치면 반격!
+          if (rng() >= myEvade) myHp -= mitigate(me, calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg, rng).dmg; // 놓치면 반격!
         }
       }
     }
 
+    let attacked = false; // 기본 공격을 했을 때만 마나가 차요
     if (!threw) {
       for (const who of order) {
         if (wildHp <= 0) break;
         if (who === 'me') {
-          if (rng() >= wildMiss) wildHp -= calcDamage(mine.atk, wild.def, rng, myCrit, myMult).dmg;
+          if (mySk) {
+            me.hp = myHp; foe.hp = wildHp;
+            castSkill(mySk, me, foe, rng, log);
+            myHp = me.hp; wildHp = foe.hp;
+            skillUses += 1;
+            if (!mySk.pow && !mySk.bomb && (mySk.heal || mySk.regen || mySk.shield || mySk.guard)) defendUses += 1;
+          } else {
+            attacked = true;
+            if (rng() >= wildMiss) wildHp -= mitigate(foe, calcDamage(mine.atk, wild.def, rng, myCrit, myMult).dmg, rng).dmg;
+          }
+        } else if (stunned(foe.st, foe.name, log)) {
+          // 💫 기절! 이번 턴은 못 움직여요
         } else if (rng() >= myEvade) {
-          myHp -= calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg;
+          myHp -= mitigate(me, calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg, rng).dmg;
         }
       }
     }
-    timeline.push({ m: Math.max(0, myHp), w: Math.max(0, wildHp), ev: threw ? 'throw' : 'hit' });
+
+    // 턴 끝: 지속 피해 · 재생 · 쿨타임 · 마나 회복 (스킬을 안 쓰는 펫은 건너뛰어요)
+    if (useSkills) {
+      me.hp = myHp; foe.hp = wildHp;
+      tickSide(me, log, attacked, foe);
+      tickSide(foe, log, true, me);
+      myHp = me.hp; wildHp = foe.hp;
+    }
+
+    timeline.push({ m: Math.max(0, myHp), w: Math.max(0, wildHp), ev: threw ? 'throw' : mySk ? 'skill' : 'hit' });
     if (wildHp <= 0) return end('won', round);
     if (rng() < WILD_FLEE_CHANCE) return end('escape', round);
   }
@@ -3968,7 +4058,7 @@ function autoHuntLiveText(player, pet, loc, now) {
   const cur = r > 0 ? f.timeline[r - 1] : { m: f.startHp, w: f.wildMax, ev: null };
   const max = maxHp(pet);
   return [
-    `⚔️ ${w.emoji} **${w.name}** Lv.${run.enc.level} 와(과) 전투 중! (${r + 1}턴째)${cur.ev === 'throw' ? ' 🔴 해정볼을 던졌어요!' : ''}`,
+    `⚔️ ${w.emoji} **${w.name}** Lv.${run.enc.level} 와(과) 전투 중! (${r + 1}턴째)${cur.ev === 'throw' ? ' 🔴 해정볼을 던졌어요!' : cur.ev === 'skill' ? ' ✨ 스킬을 썼어요!' : ''}`,
     `${PETS[pet.petId].emoji} ${autoBar(cur.m, max)} ${cur.m}/${max}`,
     `${w.emoji} ${autoBar(cur.w, f.wildMax)} ${cur.w}/${f.wildMax}`,
   ].join('\n');
@@ -4046,7 +4136,7 @@ const autoHuntCmd = {
       if (selector && !inst) return { commit: false, value: { kind: 'pet_not_found' } };
       const r = controlAutoHunt(player, now, { petUid: inst?.uid ?? null, locId: locOpt ?? null, catchOn: catchOpt ?? null, potionOn: potionOpt ?? null });
       if (['on', 'settings', 'status'].includes(r.kind)) {
-        const note = { on: `🏃 **자동사냥 시작!** 보상은 **-${pct(1 - AUTO_HUNT_REWARD_MULT)}%** 예요. (직접 \`/탐험\` 하는 건 그대로)\n최대 ${AUTO_HUNT_MAX_HOURS}시간 · 펫이 위험하면 회복약을 먹거나 쉬어요 (1분에 체력 +${AUTO_HUNT_REST_HEAL}) · 그래도 안 되면 개인 알림(DM)을 보내고 꺼요 · 스킬은 안 써요`, settings: '✅ 설정을 바꿨어요! 새 설정으로 이어서 해요.', status: null }[r.kind];
+        const note = { on: `🏃 **자동사냥 시작!** 보상은 **-${pct(1 - AUTO_HUNT_REWARD_MULT)}%** 예요. (직접 \`/탐험\` 하는 건 그대로)\n최대 ${AUTO_HUNT_MAX_HOURS}시간 · 펫이 위험하면 회복약을 먹거나 쉬어요 (1분에 체력 +${AUTO_HUNT_REST_HEAL}) · 그래도 안 되면 개인 알림(DM)을 보내고 꺼요 · 배운 스킬도 알아서 써요 (야생 펫은 기본 공격만)`, settings: '✅ 설정을 바꿨어요! 새 설정으로 이어서 해요.', status: null }[r.kind];
         r.msg = autoHuntView(player, now, note);
       }
       return { commit: !!r.commit, value: r };
