@@ -139,6 +139,7 @@ export const PET_ELEMENTS = {
   penguin: ['ice', 'water'], bear: ['ice'], yeti: ['ice', 'earth'], ice_spirit: ['ice'], frost_dragon: ['ice', 'wind'], ice_queen: ['ice', 'light'],
   cloud_sheep: ['wind'], parrot: ['wind'], thunder_bird: ['electric', 'wind'], pegasus: ['wind', 'light'], wyvern: ['wind', 'poison'], angel: ['light'], sun_god: ['light', 'fire'],
   shadow: ['dark'], void_eye: ['dark'], star_whale: ['water', 'light'], comet: ['ice', 'light'], void_dragon: ['dark'], chaos_lord: ['dark', 'fire'], creator: ['light', 'dark'],
+  puppet: ['normal'], mask_actor: ['dark'], clown: ['dark', 'poison'], magician: ['light', 'dark'], ringmaster: ['fire', 'dark'], joker: ['dark', 'poison'],
 };
 export const petElementsOf = (petId) => PET_ELEMENTS[petId] ?? ['normal'];
 
@@ -650,6 +651,16 @@ P('chaos_lord', 'sig_chaos_lord', '혼돈의 소용돌이', '😈', 5, { pow: 0.
 P('chaos_lord', 'sig_chaos_lord2', '군주의 오만', '👿', 5, { atkUp: [0.9, 3], mana: 40 }, '"모든 것이 내 뜻대로."');
 P('creator', 'sig_creator', '천지창조', '🌌', 5, { pow: 3.7, pierce: 0.5, stun: 0.3 }, '별이 태어나는 순간의 폭발.');
 P('creator', 'sig_creator2', '태초의 숨결', '✨', 5, { heal: 0.6, cleanse: true, mana: 40, regen: [0.08, 4] }, '모든 것이 처음으로 돌아가요.');
+// 트릭스터 극장
+P('puppet', 'sig_puppet', '줄 끊기', '🪆', 3, { pow: 2.0, defDown: [0.2, 3] }, '보이지 않는 줄에 매달려 춤추듯 달려들어요.');
+P('mask_actor', 'sig_mask_actor', '가면 바꿔쓰기', '🎭', 4, { evade: 1, atkUp: [0.45, 3] }, '새 가면을 쓰면 새 사람이 돼요.');
+P('clown', 'sig_clown', '깜짝 상자', '🤡', 4, { pow: 2.4, stun: 0.45 }, '뚜껑을 열면… 으악!');
+P('magician', 'sig_magician', '비둘기 대폭발', '🕊️', 5, { pow: 3.1, stun: 0.3 }, '모자 속에서 하얀 비둘기가 쏟아져 나와요.');
+P('magician', 'sig_magician2', '손재주 부리기', '🎩', 4, { stealMana: 30, atkDown: [0.2, 3] }, '어? 내 마나가 어디 갔지?');
+P('ringmaster', 'sig_ringmaster', '불의 링 통과', '🎪', 5, { pow: 3.2, dot: ['burn', 0.08, 3, 1] }, '활활 타는 링 사이로 돌진해요!');
+P('ringmaster', 'sig_ringmaster2', '채찍 신호', '🪄', 4, { atkUp: [0.6, 3], defUp: [0.3, 3] }, '짝! 소리에 모두가 한 몸처럼 움직여요.');
+P('joker', 'sig_joker', '광대의 마지막 웃음', '🃏', 5, { pow: 3.5, stun: 0.3, crit: 0.2 }, '마지막에 웃는 자가 이기는 거예요.');
+P('joker', 'sig_joker2', '속임수 패', '🂡', 5, { atkDown: [0.35, 4], defDown: [0.3, 4], drainMana: 40 }, '카드는 이미 바뀌어 있었어요.');
 
 // 스킬 속성 배정 (여기에 없는 스킬은 무속성이에요 · 전용기는 펫 속성을 따라가요)
 const ELEM_SKILLS = {

@@ -339,6 +339,14 @@ const PETS = {
   void_dragon: { id: 'void_dragon', name: '공허용', emoji: '🌑', grade: 'legendary', baseStats: stats(360, 72, 52, 32), expYield: 584, catchRate: 0.035 },
   chaos_lord: { id: 'chaos_lord', name: '혼돈군주', emoji: '😈', grade: 'mythic', baseStats: stats(440, 84, 60, 40), expYield: 973, catchRate: 0.02 },
   creator: { id: 'creator', name: '태초의 별', emoji: '🌌', grade: 'divine', baseStats: stats(600, 100, 70, 45), expYield: 1556, catchRate: 0.008 },
+
+  // ── 트릭스터 극장 ──
+  puppet: { id: 'puppet', name: '꼭두각시', emoji: '🪆', grade: 'common', baseStats: stats(220, 46, 38, 24), expYield: 105, catchRate: 0.45 },
+  mask_actor: { id: 'mask_actor', name: '가면 배우', emoji: '🎭', grade: 'uncommon', baseStats: stats(250, 52, 42, 28), expYield: 145, catchRate: 0.4 },
+  clown: { id: 'clown', name: '어릿광대', emoji: '🤡', grade: 'rare', baseStats: stats(320, 62, 48, 26), expYield: 205, catchRate: 0.27 },
+  magician: { id: 'magician', name: '마술사', emoji: '🎩', grade: 'epic', baseStats: stats(350, 72, 52, 42), expYield: 305, catchRate: 0.1 },
+  ringmaster: { id: 'ringmaster', name: '서커스 단장', emoji: '🎪', grade: 'legendary', baseStats: stats(440, 86, 62, 38), expYield: 610, catchRate: 0.033 },
+  joker: { id: 'joker', name: '조커', emoji: '🃏', grade: 'divine', baseStats: stats(650, 104, 74, 48), expYield: 1700, catchRate: 0.007 },
 };
 
 const STARTER_IDS = Object.values(PETS).filter((p) => p.starter).map((p) => p.id);
@@ -645,6 +653,18 @@ const LOCATIONS = {
       { petId: 'void_dragon', weight: 6, lv: [60, 68] },
       { petId: 'chaos_lord', weight: 3, lv: [62, 70] },
       { petId: 'creator', weight: 1, lv: [66, 75] },
+    ],
+  },
+  theater: {
+    id: 'theater', name: '트릭스터 극장', emoji: '🎭', minLevel: 70, expMultiplier: 18.0,
+    description: '막이 오르면 아무도 웃지 않는 극장이에요. 관객석에서 누가 지켜보고 있어요…',
+    spawns: [
+      { petId: 'puppet', weight: 30, lv: [69, 75] },
+      { petId: 'mask_actor', weight: 28, lv: [70, 76] },
+      { petId: 'clown', weight: 22, lv: [72, 80] },
+      { petId: 'magician', weight: 12, lv: [74, 82] },
+      { petId: 'ringmaster', weight: 6, lv: [76, 85] },
+      { petId: 'joker', weight: 0.7, lv: [82, 92] },
     ],
   },
 };
