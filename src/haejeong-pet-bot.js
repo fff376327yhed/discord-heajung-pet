@@ -4224,12 +4224,12 @@ function catchItemRows(snap, userId) {
   return btns.length ? [row(...btns)] : [];
 }
 
-// 🆕 전투 중 스킬 버튼 줄 (비어 있지 않은 슬롯만 보여줘요, 마나가 모자라면 회색)
+// 🆕 전투 중 스킬 버튼 줄 (비어 있지 않은 슬롯만 보여줘요, 쿨타임 중인 스킬은 숨겨요, 마나가 모자라면 회색)
 function skillRows(snap, userId) {
   const b = snap.battle;
   if (!b) return [];
   const btns = SLOT_IDX
-    .filter((i) => SKILLS[b.skills?.[i]])
+    .filter((i) => SKILLS[b.skills?.[i]] && cdLeft(b.mySt, b.skills[i]) <= 0) // ⏳ 쿨타임 중인 스킬은 버튼을 안 보여줘요 (남은 쿨은 상태 줄에 떠요)
     .map((i) => {
       const sk = SKILLS[b.skills[i]];
       const cdn = cdLeft(b.mySt, sk.id); // ⏳ 남은 쿨타임
@@ -4289,7 +4289,6 @@ function exploreViewEncounter(snap, userId, note) {
         title: `❗ 야생의 ${pet.emoji} ${pet.name}(이)가 나타났다!`,
         description:
           `${note ? note + '\n\n' : ''}${grade.emoji} **${grade.name}** 등급 · **Lv.${snap.encounter.level}** · 🧬 ${elemTags(petElems(snap.encounter.petId))}` +
-          (snap.myPetId ? `\n${matchupText(snap.myPetId, snap.encounter.petId)}` : '') +
           wildEquipText(snap.encounter) +
           (GRADE_EFFECTS[pet.grade].aura ? `\n\n**${GRADE_EFFECTS[pet.grade].aura}**\n(내 공격이 빗나가기 쉽고, 도망치기도 어려워요!)` : '') +
           catchInfoText(snap),
