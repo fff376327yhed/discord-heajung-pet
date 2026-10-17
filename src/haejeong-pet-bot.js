@@ -945,7 +945,7 @@ function autoEquip(player, petUid, now = Date.now()) {
 }
 
 // 가방(안 입고 있는 장비)에서 gradeKey 등급 이하를 전부 팔아요
-const EQUIP_SELL_GRADES = ['common', 'uncommon', 'rare', 'epic'];
+const EQUIP_SELL_GRADES = [...EQUIP_GRADE_KEYS]; // 일반 ~ 초월 전부 (전설·신화·초월 이하 전부 팔기도 가능)
 function equipSellPreview(player, gradeKey) {
   const max = EQUIP_GRADE_KEYS.indexOf(gradeKey) + 1;
   const list = (player.equipInv ?? []).filter((e) => equipGradeOrder(e) <= max);
@@ -7904,7 +7904,7 @@ function equipSellView(player, userId, petUid, note) {
       {
         title: '💰 장비 판매',
         description:
-          `${note ? note + '\n\n' : ''}가방에 있는 장비 **${inv.length}개** 중에서, 고른 등급 **이하**를 한꺼번에 팔아요.\n` +
+          `${note ? note + '\n\n' : ''}가방에 있는 장비 **${inv.length}개** 중에서, 고른 등급 **이하**를 한꺼번에 팔아요. (전설·신화·초월 포함 전체도 가능해요!)\n` +
           '지금 끼고 있는 장비는 팔리지 않아요!\n\n' +
           EQUIP_SELL_GRADES.map((g) => `${GRADES[g].emoji} ${GRADES[g].name}: 1개당 💰 ${EQUIP_SELL_VALUE[g].toLocaleString('ko-KR')}`).join('\n'),
         color: 0xfee75c,
@@ -7917,7 +7917,7 @@ function equipSellView(player, userId, petUid, note) {
           placeholder: '💰 어느 등급 이하를 팔까요?',
           options: EQUIP_SELL_GRADES.map((g) => {
             const p = equipSellPreview(player, g);
-            return { label: `${GRADES[g].name} 등급 이하 전부`, value: g, emoji: GRADES[g].emoji, description: `${p.count}개 · 💰 ${p.gold.toLocaleString('ko-KR')}골드` };
+            return { label: g === 'divine' ? `${GRADES[g].name} 등급 이하 전부 (= 전체 종류)` : `${GRADES[g].name} 등급 이하 전부`, value: g, emoji: GRADES[g].emoji, description: `${p.count}개 · 💰 ${p.gold.toLocaleString('ko-KR')}골드` };
           }),
         }),
       ),
@@ -8003,11 +8003,20 @@ function equipSellSelectConfirmView(player, userId, petUid, page) {
 
 function equipSellConfirmView(player, userId, petUid, gradeKey) {
   const p = equipSellPreview(player, gradeKey);
+  // ⚠️ 전설 이상 장비가 같이 팔리면 한 번 더 경고해요 (등급별 개수도 보여줘요)
+  const max = EQUIP_GRADE_KEYS.indexOf(gradeKey) + 1;
+  const legendOrder = EQUIP_GRADE_KEYS.indexOf('legendary') + 1;
+  const going = (player.equipInv ?? []).filter((e) => equipGradeOrder(e) <= max);
+  const highByGrade = EQUIP_GRADE_KEYS.slice(legendOrder - 1)
+    .map((g) => [g, going.filter((e) => e.grade === g).length])
+    .filter(([, n]) => n > 0)
+    .map(([g, n]) => `${GRADES[g].emoji} ${GRADES[g].name} ${n}개`);
+  const warn = highByGrade.length ? `\n\n⚠️ **전설 이상 장비**가 들어 있어요! (${highByGrade.join(' · ')})\n정말 팔아도 괜찮은지 다시 확인해주세요.` : '';
   return {
     embeds: [
       {
         title: `💰 ${GRADES[gradeKey].emoji} ${GRADES[gradeKey].name} 등급 이하 장비를 팔까요?`,
-        description: `장비 **${p.count}개**를 팔아서 💰 **${p.gold.toLocaleString('ko-KR')}골드**를 받아요.\n\n⚠️ 한 번 팔면 되돌릴 수 없어요!`,
+        description: `장비 **${p.count}개**를 팔아서 💰 **${p.gold.toLocaleString('ko-KR')}골드**를 받아요.${warn}\n\n⚠️ 한 번 팔면 되돌릴 수 없어요!`,
         color: 0xed4245,
       },
     ],
