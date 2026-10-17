@@ -1,6 +1,7 @@
 // 해정펫 봇 — 모든 파일을 하나로 합친 버전 🐾
 // (ES Module 이라서 package.json 에 "type": "module" 이 필요해요)
 import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks'; // 🆕 /정리 용: 메시지에 "어느 명령어에서 왔는지" 이름표를 붙이는 데 써요
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { createConfigManager } from './admin-config.js';
@@ -973,11 +974,31 @@ const ResponseType = { PONG: 1, MESSAGE: 4, UPDATE: 7, AUTOCOMPLETE_RESULT: 8, M
 const EPHEMERAL = 64; // "나한테만 보이는 메시지" 표시
 const SILENT = 4096; // "알림 없이 조용히 보내기" 표시 (디스코드 알림/푸시가 안 가요)
 
+// 🆕 지금 요청이 어떤 명령어/버튼에서 왔는지 기억해요. 동시에 여러 요청이 와도 안 섞이게 AsyncLocalStorage 를 써요.
+//    reply()/postChannelMessage() 가 공개 메시지를 보낼 때 이 이름을 몰래 붙여서, /정리 에서 종류별로 찾아 지울 수 있게 해요.
+const cmdContext = new AsyncLocalStorage();
+const COMPONENT_CMD_NAME = { start: '시작', profile: '정보', explore: '탐험', autohunt: '자동사냥', shop: '상점', pets: '펫', dex: '도감', release: '방생', train: '훈련', rank: '랭킹', duel: '대결', trade: '거래', equip: '장비' };
+
+// 메시지에 "🏷️명령어이름" 이름표를 붙여요 (embeds 가 있으면 footer 에, 없으면 content 맨 아래 작은 글씨로)
+function tagMessage(data, tag) {
+  if (!tag) return data;
+  if (Array.isArray(data.embeds) && data.embeds.length) {
+    const embeds = data.embeds.map((e, i) =>
+      i === 0 ? { ...e, footer: { text: `🏷️${tag}${e.footer?.text ? ` · ${e.footer.text}` : ''}` } } : e,
+    );
+    return { ...data, embeds };
+  }
+  if (typeof data.content === 'string' && data.content) {
+    return { ...data, content: `${data.content}\n-# 🏷️${tag}` };
+  }
+  return data;
+}
+
 function reply(data, { ephemeral = false } = {}) {
   const flags = SILENT | (ephemeral ? EPHEMERAL : 0);
   return {
     type: ResponseType.MESSAGE,
-    data: { ...data, flags },
+    data: { ...tagMessage(data, ephemeral ? null : cmdContext.getStore()), flags },
   };
 }
 
@@ -1001,7 +1022,7 @@ async function postChannelMessage(channelId, data) {
         'Content-Type': 'application/json',
         Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
       },
-      body: JSON.stringify({ ...data, flags: SILENT }),
+      body: JSON.stringify({ ...tagMessage(data, cmdContext.getStore()), flags: SILENT }),
       signal: AbortSignal.timeout(2500), // ⚡ 디스코드가 느려도 3초 제한에 걸리지 않게 2.5초에서 포기해요
     });
     if (!res.ok) {
@@ -6436,6 +6457,194 @@ const use = {
 };
 
 // ═════════════════════════════════════════════
+// /정리 (관리자 전용) — 아이템 사용 등으로 채널에 공개로 쌓인 봇 메시지를 종류별로, 또는 특정 메시지만 지워요
+// ═════════════════════════════════════════════
+
+const CLEANUP_PERMISSION = String(1 << 3); // ADMINISTRATOR 권한 비트 — 관리자가 아닌 멤버에겐 이 명령어가 아예 안 보여요
+const BULK_DELETE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 디스코드 일괄삭제는 14일 이내 메시지만 돼요
+const snowflakeCreatedAt = (id) => Number((BigInt(id) >> 22n) + 1420070400000n); // 메시지 id에서 생성 시각을 뽑아요
+
+// 채널 메시지를 최근 것부터 가져와요 (100개씩 여러 번 나눠서, limit 개까지)
+async function fetchChannelMessages(channelId, limit) {
+  const headers = { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` };
+  const out = [];
+  let before;
+  while (out.length < limit) {
+    const batchSize = Math.min(100, limit - out.length);
+    const url = `https://discord.com/api/v10/channels/${channelId}/messages?limit=${batchSize}${before ? `&before=${before}` : ''}`;
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(2500) });
+    if (!res.ok) {
+      console.error('메시지 목록 가져오기 실패:', res.status, await res.text());
+      break;
+    }
+    const batch = await res.json();
+    if (!batch.length) break;
+    out.push(...batch);
+    before = batch[batch.length - 1].id;
+    if (batch.length < batchSize) break; // 채널에 더 이상 메시지가 없어요
+  }
+  return out;
+}
+
+// 메시지 id들을 지워요. 100개씩 끊어서 여러 번 (1개면 단일 삭제 API를 써요)
+async function deleteMessages(channelId, ids) {
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` };
+  let deleted = 0;
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    if (chunk.length === 1) {
+      const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${chunk[0]}`, {
+        method: 'DELETE',
+        headers,
+        signal: AbortSignal.timeout(2500),
+      });
+      if (res.ok) deleted += 1;
+      continue;
+    }
+    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/bulk-delete`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ messages: chunk }),
+      signal: AbortSignal.timeout(2500),
+    });
+    if (res.ok) deleted += chunk.length;
+    else console.error('일괄 삭제 실패:', res.status, await res.text());
+  }
+  return deleted;
+}
+
+// /정리 의 "종류" — 콤마로 여러 개를 섞어 적을 수 있어요 (예: "사용,도감,탐험")
+const CLEANUP_SPECIAL_KINDS = ['전체', '최근명령어', '태그없음']; // 표시용 이름
+const CLEANUP_KIND_ALIASES = { 전체: '__all__', 최근명령어: '__recent__', '최근 명령어': '__recent__', 태그없음: '__none__', '태그 없음': '__none__' };
+const CLEANUP_COMMAND_NAMES = ['사용', '자동사냥', '탐험', '도감', '상점', '구매', '가방', '펫', '방생', '훈련', '랭킹', '출석', '도감보상', '대결', '거래', '장비', '정보', '장소', '별명', '시작', '도움말'];
+const CLEANUP_KNOWN_KINDS = ['__all__', '__recent__', '__none__', ...CLEANUP_COMMAND_NAMES];
+
+// 메시지에 붙여둔 "🏷️명령어이름" 이름표를 읽어요. 못 찾으면 태그 없음.
+function extractTag(message) {
+  const footer = message.embeds?.[0]?.footer?.text;
+  const m1 = footer?.match(/🏷️([^\s·]+)/);
+  if (m1) return m1[1];
+  const m2 = message.content?.match(/-# 🏷️(\S+)/);
+  if (m2) return m2[1];
+  return '__none__';
+}
+
+const labelFor = (tag) => (tag === '__none__' ? '태그없음' : tag);
+
+// "사용,도감, 탐험" 처럼 콤마로 적은 글을 내부 종류값 배열로 풀어내요 (중복 제거, 별칭 변환)
+function parseCleanupKinds(text) {
+  const tokens = String(text ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => CLEANUP_KIND_ALIASES[s] ?? s);
+  return [...new Set(tokens)];
+}
+
+const cleanup = {
+  data: {
+    name: '정리',
+    description: '🧹 (관리자 전용) 이 채널에서 봇이 공개로 남긴 메시지를 종류별로, 또는 특정 메시지만 지워요',
+    type: 1,
+    default_member_permissions: CLEANUP_PERMISSION,
+    options: [
+      {
+        type: 3,
+        name: '종류',
+        description: '지울 종류를 콤마로 여러 개 적어도 돼요 (예: 사용,도감,탐험 · 전체/최근명령어/태그없음도 가능) 비우면 현황만 보여줘요',
+        required: false,
+        autocomplete: true,
+      },
+      { type: 4, name: '개수', description: '최근 몇 개의 채널 메시지를 살펴볼까요? (비우면 200, 최대 500)', required: false, min_value: 1, max_value: 500 },
+      { type: 3, name: '메시지id', description: '이 채널의 특정 메시지 하나만 지울 때 — 메시지 우클릭 > ID 복사', required: false },
+    ],
+  },
+
+  async execute(interaction) {
+    const channelId = interaction.channel_id;
+    const botId = interaction.application_id;
+    const msgId = String(getOption(interaction, '메시지id') ?? '').trim();
+
+    // 🎯 메시지ID 를 직접 적으면: 종류/개수와 상관없이 그 메시지 하나만 지워요
+    if (msgId) {
+      const deleted = await deleteMessages(channelId, [msgId]);
+      return reply(
+        { content: deleted > 0 ? '🧹 그 메시지 하나를 지웠어요!' : '❌ 못 지웠어요 (이미 지워졌거나, 이 채널 메시지가 아니거나, 14일이 넘었어요)' },
+        { ephemeral: true },
+      );
+    }
+
+    const scanLimit = Math.min(500, Math.max(1, getOption(interaction, '개수') ?? 200));
+    const kinds = parseCleanupKinds(getOption(interaction, '종류'));
+
+    const messages = await fetchChannelMessages(channelId, scanLimit);
+    const tagged = messages.filter((m) => m.author?.id === botId && !m.pinned).map((m) => ({ ...m, _tag: extractTag(m) }));
+
+    const counts = new Map();
+    for (const m of tagged) counts.set(m._tag, (counts.get(m._tag) ?? 0) + 1);
+    const breakdown =
+      [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => `${labelFor(t)} ${n}개`).join(' · ') || '없음';
+
+    // 종류를 안 골랐으면: 지우지 않고 현황만 보여줘요
+    if (kinds.length === 0) {
+      return reply(
+        { content: `📋 최근 ${messages.length}개 메시지 중 봇이 보낸 공개 메시지 ${tagged.length}개\n${breakdown}\n\n지울 종류를 \`종류\` 칸에 콤마로 적어 다시 실행해주세요! (예: 사용,도감,탐험)` },
+        { ephemeral: true },
+      );
+    }
+
+    const unknown = kinds.filter((t) => !CLEANUP_KNOWN_KINDS.includes(t));
+    if (unknown.length) {
+      return reply({ content: `못 찾은 종류: ${unknown.join(', ')} 🤔 \`종류\` 칸에 입력하면 뜨는 목록에서 골라주세요!` }, { ephemeral: true });
+    }
+
+    let selected;
+    let kindLabel;
+    if (kinds.includes('__all__')) {
+      selected = new Set(tagged.map((m) => m._tag));
+      kindLabel = '전체';
+    } else {
+      const resolved = [...new Set(kinds.map((t) => (t === '__recent__' ? tagged[0]?._tag ?? '__none__' : t)))];
+      selected = new Set(resolved);
+      kindLabel = resolved.map(labelFor).join(', ');
+    }
+
+    const targets = tagged.filter((m) => selected.has(m._tag));
+
+    const now = Date.now();
+    const deletable = targets.filter((m) => now - snowflakeCreatedAt(m.id) < BULK_DELETE_MAX_AGE_MS);
+    const tooOld = targets.length - deletable.length;
+    const oldNote = tooOld > 0 ? `\n(14일이 지난 메시지 ${tooOld}개는 일괄삭제가 안 돼서 건너뛰었어요)` : '';
+
+    if (deletable.length === 0) {
+      return reply({ content: `**${kindLabel}** 메시지는 지울 게 없어요! (이미 깨끗해요 🧹)${oldNote}\n\n${breakdown}` }, { ephemeral: true });
+    }
+
+    const deleted = await deleteMessages(channelId, deletable.map((m) => m.id));
+    return reply(
+      { content: `🧹 **${kindLabel}** 메시지 ${deleted}개를 지웠어요! (최근 ${messages.length}개 중 확인)${oldNote}\n\n${breakdown}` },
+      { ephemeral: true },
+    );
+  },
+
+  // "종류" 칸에 콤마로 이어 적는 동안, 마지막 토막만 남은 선택지에서 골라 자동완성해요
+  async autocomplete(interaction) {
+    const typed = String(getOption(interaction, '종류') ?? '');
+    const parts = typed.split(',');
+    const prefix = parts.slice(0, -1).map((s) => s.trim()).filter(Boolean);
+    const current = (parts[parts.length - 1] ?? '').trim().toLowerCase();
+    const pool = [...CLEANUP_SPECIAL_KINDS, ...CLEANUP_COMMAND_NAMES].filter((name) => !prefix.includes(name));
+    const matches = (current ? pool.filter((name) => name.toLowerCase().includes(current)) : pool).slice(0, 25);
+    return autocompleteResult(
+      matches.map((name) => {
+        const value = [...prefix, name].join(',');
+        return { name: value.slice(0, 100), value: value.slice(0, 100) };
+      }),
+    );
+  },
+};
+
+// ═════════════════════════════════════════════
 // /도움말
 // ═════════════════════════════════════════════
 
@@ -7491,7 +7700,7 @@ const equipCmd = {
   components: { equip: equipHandleButton },
 };
 
-const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, train, use, attendance, dexReward, duel, trade, rankingCmd, equipCmd, help];
+const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, train, use, cleanup, attendance, dexReward, duel, trade, rankingCmd, equipCmd, help];
 
 // ============================================================
 // 관리자 설정 (admin-config.js) [ADMIN-CONFIG]
@@ -7668,7 +7877,7 @@ async function handleInteractionInner(interaction) {
     case InteractionType.COMMAND: {
       const cmd = commands.get(interaction.data.name);
       if (!cmd) return reply({ content: '모르는 명령어예요 🤔' }, { ephemeral: true });
-      return cmd.execute(interaction);
+      return cmdContext.run(interaction.data.name, () => cmd.execute(interaction));
     }
 
     case InteractionType.AUTOCOMPLETE: {
@@ -7682,7 +7891,7 @@ async function handleInteractionInner(interaction) {
       const [prefix, ...args] = interaction.data.custom_id.split(':');
       const handler = componentHandlers.get(prefix);
       if (!handler) return reply({ content: '이 버튼은 이제 쓸 수 없어요 🥲' }, { ephemeral: true });
-      return handler(interaction, args);
+      return cmdContext.run(COMPONENT_CMD_NAME[prefix] ?? prefix, () => handler(interaction, args));
     }
 
     default:
