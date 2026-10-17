@@ -6313,7 +6313,12 @@ async function useHandleButton(interaction, args) {
   if (out === null) return update({ content: NOT_STARTED, embeds: [], components: [] });
   if (out.kind === 'cancelled') return update({ content: '↩️ 취소했어요. 변경권은 그대로예요!', embeds: [], components: [] });
   if (out.kind === 'expired') return update({ content: '⌛ 시간이 지났거나 이미 처리됐어요. `/사용` 을 다시 써주세요!', embeds: [], components: [] });
-  return update({ content: skillItemResultText(out), embeds: [], components: [] });
+  const text = skillItemResultText(out);
+  // 📢 결과는 채널 모두에게 보이게 (알림 없는 조용한 메시지로) 새로 보내고, 내 확인창은 짧게 마무리해요
+  if (out.kind === 'rerolled' && interaction.channel_id && (await postChannelMessage(interaction.channel_id, { content: text }))) {
+    return update({ content: '✅ 끝났어요! 결과는 채널에 올렸어요.', embeds: [], components: [] });
+  }
+  return update({ content: text, embeds: [], components: [] });
 }
 
 const use = {
@@ -6567,28 +6572,49 @@ async function fetchChannelMessages(channelId, limit) {
 }
 
 // 메시지 id들을 지워요. 100개씩 끊어서 여러 번 (1개면 단일 삭제 API를 써요)
-async function deleteMessages(channelId, ids) {
+async function deleteMessages(channelId, ids, errors = []) {
   const headers = { 'Content-Type': 'application/json', Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` };
+  const base = `https://discord.com/api/v10/channels/${channelId}/messages`;
   let deleted = 0;
+
+  // 한 개씩 지우기: 봇이 자기가 보낸 메시지는 "메시지 관리" 권한 없이도 지울 수 있어요
+  const deleteOne = async (id) => {
+    try {
+      const res = await fetch(`${base}/${id}`, { method: 'DELETE', headers, signal: AbortSignal.timeout(2500) });
+      if (res.ok || res.status === 404) return res.ok;
+      errors.push(`${res.status} ${(await res.text()).slice(0, 120)}`);
+    } catch (error) {
+      errors.push(String(error?.message ?? error));
+    }
+    return false;
+  };
+  const deleteEach = async (list) => {
+    for (let i = 0; i < list.length; i += 8) {
+      const results = await Promise.all(list.slice(i, i + 8).map(deleteOne)); // 8개씩 동시에
+      deleted += results.filter(Boolean).length;
+    }
+  };
+
   for (let i = 0; i < ids.length; i += 100) {
     const chunk = ids.slice(i, i + 100);
     if (chunk.length === 1) {
-      const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${chunk[0]}`, {
-        method: 'DELETE',
-        headers,
-        signal: AbortSignal.timeout(2500),
-      });
-      if (res.ok) deleted += 1;
+      await deleteEach(chunk);
       continue;
     }
-    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/bulk-delete`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ messages: chunk }),
-      signal: AbortSignal.timeout(2500),
-    });
-    if (res.ok) deleted += chunk.length;
-    else console.error('일괄 삭제 실패:', res.status, await res.text());
+    let ok = false;
+    try {
+      const res = await fetch(`${base}/bulk-delete`, { method: 'POST', headers, body: JSON.stringify({ messages: chunk }), signal: AbortSignal.timeout(2500) });
+      ok = res.ok;
+      if (!ok) {
+        const text = await res.text();
+        console.error('일괄 삭제 실패:', res.status, text);
+        errors.push(`일괄삭제 ${res.status} ${text.slice(0, 120)}`);
+      }
+    } catch (error) {
+      errors.push(`일괄삭제 ${String(error?.message ?? error)}`);
+    }
+    if (ok) deleted += chunk.length;
+    else await deleteEach(chunk); // 일괄삭제가 막혀도(권한 부족 등) 한 개씩이라도 지워요
   }
   return deleted;
 }
@@ -6700,9 +6726,11 @@ const cleanup = {
       return reply({ content: `**${kindLabel}** 메시지는 지울 게 없어요! (이미 깨끗해요 🧹)${oldNote}\n\n${breakdown}` }, { ephemeral: true });
     }
 
-    const deleted = await deleteMessages(channelId, deletable.map((m) => m.id));
+    const errors = [];
+    const deleted = await deleteMessages(channelId, deletable.map((m) => m.id), errors);
+    const failNote = deleted < deletable.length && errors.length ? `\n⚠️ ${deletable.length - deleted}개는 못 지웠어요: ${[...new Set(errors)].slice(0, 2).join(' / ')}` : '';
     return reply(
-      { content: `🧹 **${kindLabel}** 메시지 ${deleted}개를 지웠어요! (최근 ${messages.length}개 중 확인)${oldNote}\n\n${breakdown}` },
+      { content: `🧹 **${kindLabel}** 메시지 ${deleted}개를 지웠어요! (최근 ${messages.length}개 중 확인)${oldNote}${failNote}\n\n${breakdown}` },
       { ephemeral: true },
     );
   },
