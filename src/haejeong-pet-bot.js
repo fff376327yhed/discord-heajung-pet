@@ -7870,7 +7870,12 @@ function equipView(player, userId, petUid, filter = 'all', page = 0, note) {
       button({ label: '전체 해제', emoji: '🧹', customId: `equip:offall:${idTail}`, style: 2, disabled: wornSlots.length === 0 }),
     ),
   );
-  components.push(row(button({ label: '장비 판매', emoji: '💰', customId: `equip:sell:${idTail}`, style: 4, disabled: (player.equipInv ?? []).length === 0 })));
+  components.push(
+    row(
+      button({ label: '펫 바꾸기', emoji: '🔀', customId: `equip:petsel:${userId}:${inst.uid}:all:0`, style: 1, disabled: (player.pets ?? []).length <= 1 }),
+      button({ label: '장비 판매', emoji: '💰', customId: `equip:sell:${idTail}`, style: 4, disabled: (player.equipInv ?? []).length === 0 }),
+    ),
+  );
 
   const filterName = filter === 'all' ? '전체' : EQUIP_SLOTS[filter].name;
   return {
@@ -7890,6 +7895,54 @@ function equipView(player, userId, petUid, filter = 'all', page = 0, note) {
           },
         ],
         footer: { text: '🆕 빈 칸 · 🔼 지금 끼고 있는 것보다 좋음 · 🔽 더 나쁨 · 장비는 펫마다 따로 입혀요 (/장비 펫:이름)' },
+      },
+    ],
+    components,
+  };
+}
+
+// 🔀 장비를 입힐 펫 고르기 (전투력 높은 순, 25마리씩 쪽 나눔)
+function equipPetPickView(player, userId, petUid, page = 0) {
+  const list = (player.pets ?? []).filter((x) => PETS[x.petId]).sort((a, b) => petPower(b) - petPower(a));
+  const size = 25;
+  const pages = Math.max(1, Math.ceil(list.length / size));
+  const cur = Math.max(0, Math.min(pages - 1, page));
+  const slice = list.slice(cur * size, cur * size + size);
+  const components = [];
+  if (slice.length) {
+    components.push(
+      row(
+        select({
+          customId: `equip:petpick:${userId}:${petUid}:all:${cur}`,
+          placeholder: '🔀 장비를 입힐 펫을 골라요',
+          options: slice.map((x, i) => {
+            const pd = PETS[x.petId];
+            return {
+              label: `${cur * size + i + 1}. ${x.uid === player.mainPetUid ? '👑 ' : ''}${nameOf(x)}`.slice(0, 100),
+              value: x.uid,
+              emoji: pd.emoji,
+              description: `${GRADES[pd.grade].name} · Lv.${x.level} · ⚔️ ${fmtNum(petPower(x))} · 장비 ${equippedCount(x)}/4`.slice(0, 100),
+              default: x.uid === petUid,
+            };
+          }),
+        }),
+      ),
+    );
+  }
+  components.push(
+    row(
+      button({ label: '이전', emoji: '⬅️', customId: `equip:petsel:${userId}:${petUid}:all:${cur - 1}`, style: 2, disabled: cur <= 0 }),
+      button({ label: `${cur + 1}/${pages}`, customId: `equip:petsel:${userId}:${petUid}:all:${cur}`, style: 2, disabled: true }),
+      button({ label: '다음', emoji: '➡️', customId: `equip:petsel:${userId}:${petUid}:all:${cur + 1}`, style: 2, disabled: cur >= pages - 1 }),
+      button({ label: '돌아가기', emoji: '◀️', customId: `equip:view:${userId}:${petUid}:all:0`, style: 2 }),
+    ),
+  );
+  return {
+    embeds: [
+      {
+        title: '🔀 어느 펫의 장비를 볼까요?',
+        description: `펫 **${list.length}마리** 중에서 골라요. 고르면 그 펫의 장비창으로 바뀌어요!\n(전투력이 높은 순서예요 · 👑 = 대표 펫)`,
+        color: EMBED_COLOR,
       },
     ],
     components,
@@ -8054,9 +8107,15 @@ async function equipHandleButton(interaction, args) {
   }
 
   // 보기만 하는 동작들
-  if (['view', 'page', 'filter', 'sell', 'sellpick', 'sellsel'].includes(action)) {
+  if (['view', 'page', 'filter', 'sell', 'sellpick', 'sellsel', 'petsel', 'petpick'].includes(action)) {
     const player = await getPlayer(user.id);
     if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    if (action === 'petsel') return update(equipPetPickView(player, user.id, petUid, page));
+    if (action === 'petpick') {
+      const picked = (player.pets ?? []).find((x) => x.uid === value && PETS[x.petId]);
+      if (!picked) return update(equipPetPickView(player, user.id, petUid, page));
+      return update(equipView(player, user.id, picked.uid));
+    }
     if (action === 'filter') return update(equipView(player, user.id, petUid, value === 'all' || EQUIP_SLOTS[value] ? value : 'all', 0));
     if (action === 'sell') return update(equipSellView(player, user.id, petUid));
     if (action === 'sellsel') return update(equipSellSelectView(player, user.id, petUid, page));
