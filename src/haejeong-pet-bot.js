@@ -989,7 +989,7 @@ const SILENT = 4096; // "알림 없이 조용히 보내기" 표시 (디스코드
 // 🆕 지금 요청이 어떤 명령어/버튼에서 왔는지 기억해요. 동시에 여러 요청이 와도 안 섞이게 AsyncLocalStorage 를 써요.
 //    reply()/postChannelMessage() 가 공개 메시지를 보낼 때 이 이름을 몰래 붙여서, /정리 에서 종류별로 찾아 지울 수 있게 해요.
 const cmdContext = new AsyncLocalStorage();
-const COMPONENT_CMD_NAME = { start: '시작', profile: '정보', explore: '탐험', autohunt: '자동사냥', shop: '상점', pets: '펫', dex: '도감', release: '방생', train: '훈련', rank: '랭킹', duel: '대결', trade: '거래', equip: '장비', use: '사용' };
+const COMPONENT_CMD_NAME = { stat: '통계', start: '시작', profile: '정보', explore: '탐험', autohunt: '자동사냥', shop: '상점', pets: '펫', dex: '도감', release: '방생', train: '훈련', rank: '랭킹', duel: '대결', trade: '거래', equip: '장비', use: '사용' };
 
 // 메시지에 "🏷️명령어이름" 이름표를 붙여요 (embeds 가 있으면 footer 에, 없으면 content 맨 아래 작은 글씨로)
 function tagMessage(data, tag) {
@@ -2096,8 +2096,8 @@ function useSkillItem(player, itemId, selector, slot, now = Date.now(), goal = n
   }
   const minTier = goal.minTier ?? 0;
   const isHit = (s) => !!s && ((minTier > 0 && s.tier >= minTier) || skillIds.includes(s.id));
-  // 지금 슬롯 스킬이 이미 목표를 만족하면 변경권을 아끼도록 막아요
-  if (isHit(before)) return { kind: 'goal_met', skill: before, inst: { ...inst } };
+  // 지금 슬롯 스킬이 이미 목표를 만족해도 막지 않아요! (경고는 /사용 확인창에서 띄워요)
+  const alreadyMet = isHit(before);
 
   const order = petGradeOrder(inst);
   const cap = Math.min(owned, Math.max(1, Math.floor(goal.maxRolls ?? owned)));
@@ -2119,7 +2119,7 @@ function useSkillItem(player, itemId, selector, slot, now = Date.now(), goal = n
   player.inventory[itemId] = owned - rolls;
   return {
     kind: 'rerolled', commit: true, item, inst: { ...inst }, before, skill: SKILLS[current],
-    goal: { minTier, skillIds }, rolls, found, left: owned - rolls, tally,
+    goal: { minTier, skillIds }, alreadyMet, rolls, found, left: owned - rolls, tally,
     stoppedBy: found ? 'hit' : rolls >= owned ? 'out_of_items' : 'limit',
   };
 }
@@ -4437,9 +4437,6 @@ function skillItemResultText(out) {
       ? `${out.skill.emoji} **${out.skill.name}** 은(는) 이 펫이 얻을 수 없는 스킬이에요 (다른 펫의 전용기예요). 목표에서 빼주세요!`
       : '목표로 건 스킬을 찾을 수 없어요 🤔';
   }
-  if (out.kind === 'goal_met') {
-    return `이 슬롯의 ${out.skill.emoji} **${out.skill.name}** ${tierStars(out.skill.tier)} 은(는) 이미 목표 조건을 만족해요! 변경권을 아껴뒀어요 😊`;
-  }
   const pet = PETS[out.inst.petId];
   const name = out.inst.nickname ?? pet.name;
   if (out.kind === 'rerolled' && out.goal) {
@@ -6278,11 +6275,16 @@ function rerollGoalText(goal) {
 
 function rerollConfirmView(userId, ask, pending) {
   const limit = pending.goal.maxRolls == null ? `가진 변경권 **${ask.owned}장**을 목표가 나올 때까지` : `최대 **${Math.min(ask.owned, pending.goal.maxRolls)}장**까지`;
+  // ⚠️ 지금 스킬이 이미 목표를 만족하면 경고만 띄워요 (막지는 않아요 — [시작하기] 를 누르면 그대로 돌려요)
+  const cur = ask.alreadyMet && ask.current ? SKILLS[ask.current] : null;
+  const warn = cur
+    ? `⚠️ **경고!** 지금 이 슬롯의 ${cur.emoji} **${cur.name}** ${tierStars(cur.tier)} 은(는) **이미 목표 조건을 만족하고 있어요.**\n그래도 돌리면 지금 스킬은 사라지고, 변경권이 들어요. 정말 괜찮을 때만 눌러주세요!\n\n`
+    : '';
   return {
     embeds: [
       {
-        title: '🔄 높은 등급 목표예요! 계속할까요?',
-        description: `목표: **${rerollGoalText(pending.goal)}**\n${limit} 계속 돌려요. 목표가 나올 때까지 변경권이 꽤 많이 들 수 있어요!\n\n⚠️ 쓴 변경권은 되돌릴 수 없어요.`,
+        title: cur ? '⚠️ 이미 목표를 만족하고 있어요! 그래도 할까요?' : '🔄 높은 등급 목표예요! 계속할까요?',
+        description: `${warn}목표: **${rerollGoalText(pending.goal)}**\n${limit} 계속 돌려요. 목표가 나올 때까지 변경권이 꽤 많이 들 수 있어요!\n\n⚠️ 쓴 변경권은 되돌릴 수 없어요.`,
         color: 0xed4245,
       },
     ],
@@ -6441,23 +6443,24 @@ const use = {
           goal = { minTier: goalTier ?? 0, skillIds, maxRolls };
         }
       }
-      // ❓ 목표가 ★4 이상이면 (많이 쓸 수 있어서) 먼저 물어봐요
-      if (goal && (goal.minTier >= SKILL_REROLL_ASK_TIER || goal.skillIds.some((id) => SKILLS[id].tier >= SKILL_REROLL_ASK_TIER))) {
+      // ❓ 목표가 ★4 이상이거나, 지금 스킬이 이미 목표를 만족하면 → 먼저 물어봐요 (경고만 띄우고, 막지는 않아요!)
+      if (goal) {
+        const highGoal = goal.minTier >= SKILL_REROLL_ASK_TIER || goal.skillIds.some((id) => SKILLS[id].tier >= SKILL_REROLL_ASK_TIER);
         const pending = { petUid: null, slot, goal, at: Date.now() };
-        let probe = null;
         const res = await updatePlayer(user.id, (p) => {
-          const r = useSkillItem(structuredClone(p), itemId, target, slot, Date.now(), { ...goal, maxRolls: 1 }); // 체험용 복사본이라 변경권은 안 줄어요
-          probe = r;
-          if (r.kind === 'rerolled') {
+          const probe = useSkillItem(structuredClone(p), itemId, target, slot, Date.now(), { ...goal, maxRolls: 1 }); // 체험용 복사본이라 변경권은 안 줄어요
+          if (probe.kind !== 'rerolled') return { commit: false, value: probe };
+          if (highGoal || probe.alreadyMet) {
             pending.petUid = resolvePetSelector(p, target)?.uid ?? null;
             p.rerollPending = pending;
-            return { commit: true, value: { kind: 'ask', owned: p.inventory?.[itemId] ?? 0 } };
+            return { commit: true, value: { kind: 'ask', owned: p.inventory?.[itemId] ?? 0, alreadyMet: probe.alreadyMet, current: probe.before.id } };
           }
-          return { commit: false, value: r };
+          const r = useSkillItem(p, itemId, target, slot, Date.now(), goal); // 묻지 않아도 되면 바로 써요
+          return { commit: r.commit === true, value: r };
         });
         if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
-        if (res.kind !== 'ask') return reply({ content: skillItemResultText(res) }, { ephemeral: true });
-        return reply(rerollConfirmView(user.id, res, pending), { ephemeral: true });
+        if (res.kind === 'ask') return reply(rerollConfirmView(user.id, res, pending), { ephemeral: true });
+        return reply({ content: skillItemResultText(res) }, { ephemeral: res.commit !== true });
       }
       const res = await updatePlayer(user.id, (p) => {
         const r = useSkillItem(p, itemId, target, slot, Date.now(), goal);
@@ -7035,12 +7038,131 @@ function statsView(rows, viewerId) {
   };
 }
 
+// 👤 유저 한 명의 통계 화면 (전체 평균과 비교해요)
+function statsUserView(rows, targetId, viewerId) {
+  const n = rows.length;
+  const t = rows.find((r) => r.userId === targetId);
+  if (!t) return { content: '그 유저를 찾을 수 없어요 🤔 `/통계` 의 **유저** 칸에 이름을 입력하면 뜨는 목록에서 골라주세요!' };
+  const rankOf = (kind) => sortRankRows(rows, kind).findIndex((r) => r.userId === targetId) + 1;
+  const avg = (key) => rows.reduce((sum, r) => sum + (r[key] ?? 0), 0) / n;
+  const diff = (v, a) => (v >= a ? `평균보다 ▲${fmtNum(Math.round(v - a))}` : `평균보다 ▼${fmtNum(Math.round(a - v))}`);
+  const gradeLine = Object.keys(GRADES)
+    .sort((a, b) => (GRADES[a].order ?? 0) - (GRADES[b].order ?? 0))
+    .filter((g) => t.gradeCounts?.[g])
+    .map((g) => `${GRADES[g].emoji}${fmtNum(t.gradeCounts[g])}`)
+    .join(' · ') || '없음';
+  const isMe = targetId === viewerId;
+  const fields = [
+    {
+      name: '⭐ 레벨 · ⚔️ 전투력',
+      value:
+        `트레이너 **Lv.${t.level}** (${diff(t.level, avg('level'))})\n` +
+        `전투력 **${fmtNum(t.power)}** (${diff(t.power, avg('power'))})`,
+    },
+    {
+      name: '💰 골드 · 🐾 펫',
+      value:
+        `골드 **${fmtNum(t.gold)}** (${diff(t.gold, avg('gold'))})\n` +
+        `펫 **${fmtNum(t.petCount)}마리** (${diff(t.petCount, avg('petCount'))})\n` +
+        `등급별: ${gradeLine}\n최고 등급: ${t.gradeText}`,
+    },
+    { name: '📖 도감', value: `**${t.dexFound}/${t.dexTotal}** (평균 ${avg('dexFound').toFixed(1)})` },
+    { name: '🐾 대표 · 최강 펫', value: [t.mainText, t.bestText ? `🏅 최강 펫 ${t.bestText}` : null].filter(Boolean).join('\n') },
+    {
+      name: '🏆 순위',
+      value: ['power', 'level', 'gold', 'pets', 'dex', 'grade'].map((k) => `${RANK_KINDS[k].emoji} ${RANK_KINDS[k].label} **${rankOf(k)}위**/${n}`).join('\n'),
+    },
+  ];
+  return {
+    embeds: [
+      {
+        title: `👤 ${t.name} 님의 통계${isMe ? ' (나)' : ''}`,
+        description: '전체 유저 평균과 비교해서 보여줘요! (1분마다 갱신)',
+        color: EMBED_COLOR,
+        fields,
+      },
+    ],
+  };
+}
+
+// 🔀 "다른 유저 통계 보기" 선택창 + "전체 통계" 버튼 (전투력 높은 25명, 지금 보는 사람/나는 꼭 넣어요)
+function statsComponents(rows, viewerId, currentId = null) {
+  const top = sortRankRows(rows, 'power');
+  const keep = [currentId, viewerId].filter((id, i, arr) => id && arr.indexOf(id) === i).map((id) => rows.find((x) => x.userId === id)).filter(Boolean);
+  const pick = sortRankRows([...keep, ...top.filter((r) => !keep.includes(r))].slice(0, 25), 'power');
+  const comps = [];
+  if (pick.length) {
+    comps.push(
+      row(
+        select({
+          customId: `stat:usersel:${viewerId}`,
+          placeholder: '👤 다른 유저의 통계를 골라요 (전투력 순 25명)',
+          options: pick.map((r) => ({
+            label: String(r.name).slice(0, 100),
+            value: r.userId,
+            description: `Lv.${r.level} · ⚔️ ${fmtNum(r.power)} · 🐾 ${r.petCount}마리`.slice(0, 100),
+            default: r.userId === currentId,
+          })),
+        }),
+      ),
+    );
+  }
+  comps.push(
+    row(
+      button({ label: '전체 통계', emoji: '📊', customId: `stat:all:${viewerId}`, style: 1, disabled: currentId == null }),
+      button({ label: '내 통계', emoji: '🙋', customId: `stat:me:${viewerId}`, style: 2, disabled: !rows.some((r) => r.userId === viewerId) || currentId === viewerId }),
+    ),
+  );
+  return comps;
+}
+
+// 입력한 값(자동완성에서 고른 유저 ID, 또는 직접 적은 이름)으로 유저를 찾아요
+function findStatsRow(rows, raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+  return rows.find((r) => r.userId === text) ?? rows.find((r) => String(r.name).toLowerCase() === text.toLowerCase()) ?? null;
+}
+
 const statsCmd = {
-  data: { name: '통계', description: '📊 전체 유저의 누적 기록(레벨·골드·펫·도감)과 내 순위를 봐요.', type: 1 },
+  data: {
+    name: '통계',
+    description: '📊 전체 유저의 누적 기록과 내 순위를 봐요. 유저를 고르면 그 사람의 통계만 볼 수 있어요!',
+    type: 1,
+    options: [
+      { type: 3, name: '유저', description: '이 유저의 통계만 볼래요 (이름을 입력하면 목록이 떠요, 비우면 전체 통계)', required: false, autocomplete: true },
+    ],
+  },
+  async autocomplete(interaction) {
+    const rows = await getRankRows();
+    const focused = interaction.data.options?.find((o) => o.focused);
+    const typed = String(focused?.value ?? '').trim().toLowerCase();
+    const list = sortRankRows(rows, 'power')
+      .filter((r) => !typed || String(r.name).toLowerCase().includes(typed))
+      .slice(0, 25);
+    return autocompleteResult(list.map((r) => ({ name: `${r.name} · Lv.${r.level} · ⚔️ ${fmtNum(r.power)}`.slice(0, 100), value: r.userId })));
+  },
   async execute(interaction) {
     const user = getUser(interaction);
     const rows = await getRankRows();
-    return reply(statsView(rows, user.id));
+    const raw = getOption(interaction, '유저');
+    if (raw != null && String(raw).trim()) {
+      const target = findStatsRow(rows, raw);
+      if (!target) return reply({ content: `'${String(raw).slice(0, 30)}' 유저를 못 찾았어요 🤔 칸에 이름을 입력하면 뜨는 목록에서 골라주세요!` }, { ephemeral: true });
+      return reply({ ...statsUserView(rows, target.userId, user.id), components: statsComponents(rows, user.id, target.userId) });
+    }
+    return reply({ ...statsView(rows, user.id), components: statsComponents(rows, user.id, null) });
+  },
+  components: {
+    stat: async function statsHandleButton(interaction, args) {
+      const [action, ownerId] = args;
+      const user = getUser(interaction);
+      if (user.id !== ownerId) return reply({ content: '이 버튼은 연 사람만 쓸 수 있어요 🙅 `/통계` 로 직접 열어보세요!' }, { ephemeral: true });
+      const rows = await getRankRows();
+      if (action === 'all') return update({ ...statsView(rows, user.id), components: statsComponents(rows, user.id, null) });
+      const targetId = action === 'me' ? user.id : interaction.data.values?.[0];
+      if (!rows.some((r) => r.userId === targetId)) return update({ content: '그 유저를 찾을 수 없어요 🤔 `/통계` 를 다시 열어주세요!', embeds: [], components: [] });
+      return update({ content: '', ...statsUserView(rows, targetId, user.id), components: statsComponents(rows, user.id, targetId) });
+    },
   },
 };
 
