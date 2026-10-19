@@ -61,12 +61,20 @@ function startClient(token, index) {
       reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
     });
 
-    client.login(token).catch((err) => {
-      console.error(`${label} 로그인 실패`, err?.message ?? err);
-      clearInterval(keepInvisible);
-      setTimeout(connect, reconnectDelay);
-      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
-    });
+    // 수정 후
+client.login(token).catch((err) => {
+  console.error(`${label} 로그인 실패`, err?.message ?? err);
+  clearInterval(keepInvisible);
+
+  // 토큰 자체가 잘못된 경우 재시도해도 절대 성공하지 않으므로 바로 포기
+  if (err?.code === 'TokenInvalid' || /invalid token/i.test(err?.message ?? '')) {
+    console.error(`${label} 토큰이 유효하지 않습니다. 재시도를 중단합니다. DISCORD_TOKENS 값을 확인해주세요.`);
+    return;
+  }
+
+  setTimeout(connect, reconnectDelay);
+  reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+});
   }
 
   connect();
