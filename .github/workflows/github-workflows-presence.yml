@@ -1,0 +1,37 @@
+# 이 파일은 저장소의 .github/workflows/presence.yml 위치로 옮겨야 깃허브가 인식합니다.
+# (presence-bot 폴더 안이 아니라, 저장소 최상위의 .github/workflows/ 폴더입니다)
+#
+# 하는 일: presence-bot/index.js 를 돌려서 봇을 계속 "오프라인(invisible)"으로 유지한다.
+# GitHub Actions는 한 번 실행에 최대 6시간 제한이 있어서, 5시간 50분(350분)짜리 작업을
+# 5시간마다 새로 시작시켜 겹치게 만든다. 재시작되는 짧은 순간(수십 초)만 빼고 계속 오프라인 상태.
+
+name: Discord presence (오프라인 유지)
+
+on:
+  schedule:
+    # UTC 기준 5시간마다 실행 (0, 5, 10, 15, 20시 UTC = 한국시간 9, 14, 19, 0, 5시)
+    - cron: '0 */5 * * *'
+  workflow_dispatch: {} # 저장소의 Actions 탭에서 수동으로 바로 실행도 가능
+
+jobs:
+  stay-invisible:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350 # 5시간 50분. 6시간 하드 리밋 전에 깔끔하게 끝낸다.
+    steps:
+      - name: 저장소 코드 가져오기
+        uses: actions/checkout@v4
+
+      - name: Node.js 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 의존성 설치
+        working-directory: presence-bot
+        run: npm install --omit=dev
+
+      - name: 프레즌스 유지 실행 (최대 5시간 50분)
+        working-directory: presence-bot
+        env:
+          DISCORD_TOKENS: ${{ secrets.DISCORD_TOKENS }}
+        run: node index.js

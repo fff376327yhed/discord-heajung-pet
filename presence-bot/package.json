@@ -1,0 +1,16 @@
+{
+  "name": "presence-bot",
+  "version": "1.0.0",
+  "description": "디스코드 봇을 멤버 목록에서 오프라인으로 보이게만 하는 프레즌스 전용 상시 프로세스",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
