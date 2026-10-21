@@ -2498,7 +2498,7 @@ function useCatchItem(player, itemId, now = Date.now(), rng = Math.random, opts 
   if (costsTurn) {
     const c = context(player, ex);
     const log = [`${note} (한 턴을 썼어요)`];
-    wildAttack(c, ex.battle, log, rng);
+    wildAct(c, ex.battle, log, rng);
     return { ...finishTurn(player, ex, c, log, now, rng), commit: true };
   }
   return { kind: 'item_used', commit: true, item, note, left: player.inventory[itemId], snap: snapshot(player, now) };
@@ -2644,7 +2644,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
   if (ex.battle) {
     const c = context(player, ex);
     const log = [`${BALL.emoji} ${BALL.name}을(를) 던졌지만 빠져나왔어요! (남은 ${BALL.name} ${balls - 1}개)`, ...holdLog];
-    wildAttack(c, ex.battle, log, rng);
+    wildAct(c, ex.battle, log, rng);
     return { ...finishTurn(player, ex, c, log, now, rng), ballsLeft: balls - 1 };
   }
 
@@ -2670,7 +2670,7 @@ function attemptFlee(player, id, now = Date.now(), rng = Math.random) {
   if (ex.battle && rng() < fleeFx.fleeFail) {
     const c = context(player, ex);
     const log = [fleeFx.aura ? '🏃 도망치려 했지만 위압감에 다리가 풀려서 **실패했어요!**' : '🏃 도망치려 했지만 **실패했어요!**'];
-    wildAttack(c, ex.battle, log, rng);
+    wildAct(c, ex.battle, log, rng);
     return finishTurn(player, ex, c, log, now, rng);
   }
 
@@ -2798,24 +2798,42 @@ function myAttack(c, b, log, rng) {
   reactHit(c, b, false, hit.dmg, log);
 }
 
-function wildAttack(c, b, log, rng) {
-  if (b.mySt.whoIs && rng() < b.mySt.whoIs.pct) { // 🎭 내가 건 "누구게?" — 야생 펫이 자기 자신을 때려요
-    b.wildHp = Math.max(0, b.wildHp - whoIsSelfHit(c.wildPet.name, c.wildPet.emoji, c.wild.atk, c.wild.def, b.wildSt, rng, log));
-    return;
-  }
-  if (rng() < EVADE_CHANCE + c.mineEq.evade) {
-    log.push(`${c.myPet.emoji} ${c.myName}(이)가 **회피했다!** 공격을 피했어요.`);
-    return;
-  }
-  const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b), { attacker: wildSideOf(c, b) });
-  const dv = !!b.wildSt.devil; // 😈 야생 펫이 악마와 거래했다면 똑같이 확정 급소 + 약점
-  const weak = dv && clash.mult < ELEM_CFG.strong;
-  const { dmg: raw, crit } = calcDamage(c.wild.atk, c.mine.def, rng, dv ? 1 : GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, weak ? ELEM_CFG.strong : clash.mult);
-  const hit = mitigate({ st: b.mySt }, raw, rng);
-  b.myHp = Math.max(0, b.myHp - hit.dmg);
-  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${hit.dmg}** 데미지${weak ? ' 😈 **악마의 거래: 약점 확정!**' : clash.note}${hit.note}`);
-  reactHit(c, b, true, hit.dmg, log);
+// 🆕 야생 펫의 한 번 행동: 상황에 맞는 스킬이 있으면 스킬, 없으면 기본 공격
+// (공격·회복·잡기·도망·교체·아이템·스킬 턴 어디서든 이걸 불러요)
+function wildAct(c, b, log, rng) {
+  if (b.myHp <= 0 || b.wildHp <= 0) return;
+  if (stunned(b.wildSt, c.wildPet.name, log)) return; // 💫 기절
+
+  const main = c.main;
+  const mySkills = b.mySkillOv ?? main.skills ?? [];
+  const me = {
+    name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp,
+    atk: c.mine.atk, def: c.mine.def, spd: c.mine.spd,
+    crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main),
+    st: b.mySt, elems: petElems(main.petId), skills: [...mySkills], fight: b,
+  };
+  const origWild = [...(b.wildSkillOv ?? c.wildInfo.skills ?? [])];
+  const wild = {
+    name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp,
+    atk: c.wild.atk, def: c.wild.def, spd: c.wild.spd,
+    crit: GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit,
+    mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt,
+    elems: petElems(c.wildInfo.petId), skills: [...origWild], fight: b,
+  };
+
+  const wsk = pickWildSkill(wild.skills, wild, me, rng);
+  if (!wsk) { wildAttack(c, b, log, rng); return; } // 쓸 스킬이 없으면 기본 공격
+
+  castSkill(wsk, wild, me, rng, log);
+
+  // 결과를 전투 상태에 되돌려 담아요
+  b.myHp = me.hp; b.myMana = me.mana;
+  b.wildHp = wild.hp; b.wildMana = wild.mana;
+  const same = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
+  if (!same(me.skills, mySkills)) b.mySkillOv = [...me.skills];   // 🃏 조커 · 🧿 저주 등으로 바뀐 칸
+  if (!same(wild.skills, origWild)) b.wildSkillOv = [...wild.skills];
 }
+
 
 // 🆕 야생 펫의 한 방이 최대 얼마나 아플지 (급소 제외, 랜덤 최대치 기준) — 확인창 판단용이에요
 function wildHitEstimate(player, ex) {
@@ -3057,7 +3075,7 @@ function battleTurn(player, id, now = Date.now(), rng = Math.random) {
   for (const who of order) {
     if (b.myHp <= 0 || b.wildHp <= 0) break; // 이미 쓰러졌으면 반격 못 해요
     if (who === 'me') { if (!stunned(b.mySt, c.myName, log)) { myAttack(c, b, log, rng); attacked = true; } }
-    else { if (!stunned(b.wildSt, c.wildPet.name, log)) wildAttack(c, b, log, rng); }
+    else { wildAct(c, b, log, rng); }
   }
   if (attacked && b.myHp > 0 && b.wildHp > 0) log.push(`🔋 기본 공격으로 마나 **+${SKILL_CFG.manaPerTurn}** 회복!`);
   return finishTurn(player, ex, c, log, now, rng, attacked);
@@ -3114,7 +3132,7 @@ function battleHeal(player, id, now = Date.now(), rng = Math.random, qty = 1, po
       : `🧪 ${potionSummary(used)} 를 썼어요! ${c.myName} 체력 +${b.myHp - before}`,
   ];
   if (qty !== 'full' && total < want && b.myHp < b.myMax) log.push(`(회복약이 모자라서 ${total}개만 썼어요)`);
-  if (!stunned(b.wildSt, c.wildPet.name, log)) wildAttack(c, b, log, rng);
+  wildAct(c, b, log, rng);
   return finishTurn(player, ex, c, log, now, rng);
 }
 
@@ -3146,7 +3164,7 @@ function battleSwap(player, id, uid, now = Date.now(), rng = Math.random) {
     `🔄 ${oldName}(이)가 물러나고 ${c.myPet.emoji} ${c.myName}(이)가 나왔어요! (한 턴을 써요)`,
     `교체하는 틈을 노려 ${c.wildPet.emoji} ${c.wildPet.name}(이)가 공격해요!`,
   ];
-  if (!stunned(b.wildSt, c.wildPet.name, log)) wildAttack(c, b, log, rng);
+  wildAct(c, b, log, rng);
   return finishTurn(player, ex, c, log, now, rng);
 }
 
@@ -3190,17 +3208,12 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
   };
   // 야생 펫 차례: 배운 스킬 중 상황에 맞는 걸 우선 써요 (마나만 되면 거의 항상 스킬)
   const wildTurn = () => {
-    if (b.myHp <= 0 || b.wildHp <= 0) return;
-    if (stunned(b.wildSt, c.wildPet.name, log)) return;
-    me.hp = b.myHp; wild.hp = b.wildHp;
-    const wsk = pickWildSkill(wild.skills, wild, me, rng);
-    if (wsk) {
-      castSkill(wsk, wild, me, rng, log);
-      sync();
-    } else {
-      wildAttack(c, b, log, rng); // b.myHp 가 직접 바뀌어요
-      me.hp = b.myHp; wild.hp = b.wildHp;
-    }
+    // 내 스킬(me)이 바꾼 결과를 먼저 전투 상태에 반영하고, 야생 행동은 wildAct 에게 맡겨요
+    wildAct(c, b, log, rng);
+    me.hp = b.myHp; me.mana = b.myMana;
+    wild.hp = b.wildHp; wild.mana = b.wildMana;
+    if (b.mySkillOv) me.skills = [...b.mySkillOv];
+    if (b.wildSkillOv) wild.skills = [...b.wildSkillOv];
   };
 
   if (iMoveFirst(c, b)) { myTurn(); wildTurn(); }
