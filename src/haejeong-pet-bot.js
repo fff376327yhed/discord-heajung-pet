@@ -548,6 +548,10 @@ const LOCATIONS = {
       { petId: 'bee', weight: 10, lv: [3, 6] },
       { petId: 'butterfly', weight: 8, lv: [3, 7] },
       { petId: 'clover_fairy', weight: 12, lv: [2, 6] },
+      // 🐣 스타팅 펫도 야생에서 만날 수 있어요!
+      { petId: 'pyro_cat', weight: 8, lv: [1, 4] },
+      { petId: 'aqua_pup', weight: 8, lv: [1, 4] },
+      { petId: 'leaf_bun', weight: 8, lv: [1, 4] },
     ],
   },
   forest: {
@@ -562,6 +566,10 @@ const LOCATIONS = {
       { petId: 'treant', weight: 12, lv: [8, 12] },
       { petId: 'wolf', weight: 8, lv: [9, 13] },
       { petId: 'boar', weight: 20, lv: [6, 11] },
+      // 🐣 스타팅 펫도 야생에서 만날 수 있어요!
+      { petId: 'pyro_cat', weight: 5, lv: [5, 9] },
+      { petId: 'aqua_pup', weight: 5, lv: [5, 9] },
+      { petId: 'leaf_bun', weight: 5, lv: [5, 9] },
       { petId: 'unicorn', weight: 2, lv: [12, 16] },
     ],
   },
@@ -3252,13 +3260,13 @@ function buyItem(player, itemId, qty) {
 // 시스템: 도감 (systems/dex.js)
 // ============================================================
 
-// 도감 규칙 📖 — 스타팅 펫은 셋 중 하나만 고를 수 있어서, 전체 칸 수는 "야생 펫 + 1" 이에요.
+// 도감 규칙 📖 — 스타팅 펫도 초원·숲에서 잡을 수 있어서, 전체 칸 수는 "야생 펫 + 스타팅 펫 전부" 예요.
 
 let WILD_COUNT = Object.values(PETS).filter((p) => !p.starter).length;
 
 function dexProgress(player) {
   const found = Object.keys(player.dex ?? {}).filter((id) => PETS[id]).length;
-  return { found, total: WILD_COUNT + 1 };
+  return { found, total: WILD_COUNT + STARTER_IDS.length };
 }
 
 // ============================================================
