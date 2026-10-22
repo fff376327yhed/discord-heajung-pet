@@ -1636,6 +1636,8 @@ function stopAutoHunt(player) {
 // ✨ 자동사냥에서 내 펫이 안 쓰는 스킬: 내 체력을 깎거나(반동·도박·저주…), 전투 밖 규칙이 필요하거나(조커·포획 전문가·전투 버프…), 자동으로는 의미가 없는 것
 const AUTO_SKILL_BANNED = ['recoil', 'gamble', 'curse', 'curseGrant', 'devilDeal', 'joker', 'catchPro', 'fightBuff', 'lockSkills', 'copy', 'coinflip', 'defToAtk', 'statRoll', 'echo', 'mercy'];
 const autoSkillOk = (sk, me) => !!sk && sk.cost <= me.mana && cdLeft(me.st, sk.id) <= 0 && !AUTO_SKILL_BANNED.some((k) => sk[k]);
+// 🆕 눈덩이(설인)·깜짝 상자(광대)처럼 "쓸수록/카드 운에 따라 세지는" 스킬의 위력 보정 (자동사냥 계산용 · worst=true 면 최대치)
+const autoSkillBoost = (sk, me, worst = false) => (sk.snowball ? Math.min(sk.snowball[2], sk.snowball[0] + sk.snowball[1] * (me.st?.snowCount ?? 0)) : 1) * (sk.jackBox ? (worst ? 2 : 1.25) : 1);
 
 // ✨ 자동사냥에서 이번 턴에 쓸 스킬 고르기 (없으면 null → 기본 공격 · 마나가 차요)
 //   · 내 체력이 50% 이하면 회복·방어 스킬 우선 (한 판에 AUTO_HUNT_DEFEND_MAX 번까지)
@@ -1652,7 +1654,7 @@ function pickAutoSkill(me, foe, canDefend = true) {
     let s = 0;
     if (sk.pow || sk.bomb) {
       const hits = sk.hits ?? (sk.hitsRange ? (sk.hitsRange[0] + sk.hitsRange[1]) / 2 : 1);
-      s = (sk.pow || 1) * hits * (sk.exec && foeRatio <= 0.3 ? sk.exec : 1);
+      s = (sk.pow || 1) * hits * (sk.exec && foeRatio <= 0.3 ? sk.exec : 1) * autoSkillBoost(sk, me);
       s *= elemClash(skillElement(sk), foe, { ignoreResist: sk.ignoreResist, attacker: me }).mult;
       if (sk.stun || sk.dot) s += 0.3;
       if (sk.atkDown || sk.defDown) s += 0.2;
@@ -1681,7 +1683,7 @@ function autoSkillBurst(me, foe, baseHit) {
     const elem = cl * (sk.weakBonus && cl > 1 ? 1 + sk.weakBonus : 1) * stab;
     const hits = sk.hits ?? sk.hitsRange?.[1] ?? 1;
     const mult = (sk.overload ? 1 + me.mana * sk.overload : 1) * (sk.revenge ? 1 + (1 - me.hp / me.max) * sk.revenge : 1)
-      * Math.max(1, sk.exec ?? 1) * (1 + (me.st.atkUp?.pct ?? 0)) * (1 + (sk.pierce ?? 0));
+      * Math.max(1, sk.exec ?? 1) * (1 + (me.st.atkUp?.pct ?? 0)) * (1 + (sk.pierce ?? 0)) * autoSkillBoost(sk, me, true);
     best = Math.max(best, baseHit * sk.pow * hits * elem * mult + (sk.truePct ?? 0) * foe.max);
   }
   return best;
@@ -2753,10 +2755,13 @@ function iMoveFirst(c, b) {
 
 // 🆕 기본 공격으로 피해를 받은 직후: 반사 · 이번 턴 받은 피해 기록. toMe=true 면 내가 맞은 거예요.
 function reactHit(c, b, toMe, dmg, log) {
-  const X = toMe ? { name: c.myName, st: b.mySt } : { name: c.wildPet.name, st: b.wildSt };
-  const Y = toMe ? { name: c.wildPet.name, hp: b.wildHp, st: b.wildSt } : { name: c.myName, hp: b.myHp, st: b.mySt };
-  afterHit(X, Y, dmg, log);
-  if (toMe) b.wildHp = Y.hp; else b.myHp = Y.hp;
+  // 맞은 쪽(X)·때린 쪽(Y)을 공격력·최대 체력·속성까지 갖춘 모습으로 넘겨요 (서리 반격·사냥 표식·피해 전이·부활 폭발이 써요)
+  const mine = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, elems: petElems(c.main.petId), st: b.mySt };
+  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, elems: petElems(c.wildInfo.petId), st: b.wildSt };
+  afterHit(toMe ? mine : wild, toMe ? wild : mine, dmg, log);
+  (toMe ? wild : mine).st.act = 'other'; // 👁️ 때린 쪽의 마지막 행동은 "공격" (급강하 폭격의 읽기 판정)
+  b.myHp = mine.hp; // 반사·표식·전이로 양쪽 체력이 모두 바뀔 수 있어요
+  b.wildHp = wild.hp;
 }
 
 // 데미지 = 공격력 - 방어력의 절반 (최소 공격력의 25%) × 랜덤(0.85~1.15), 가끔 급소(×1.5)
@@ -2790,6 +2795,7 @@ function context(player, ex) {
 function whoIsSelfHit(atkName, atkEmoji, atkStat, defStat, selfSt, rng, log) {
   const { dmg: raw } = calcDamage(atkStat, defStat, rng, 0, 1);
   const hit = mitigate({ st: selfSt }, raw, rng);
+  if (selfSt.transfer) selfSt.transfer.pending = 0; // 🕳️ 자기 자신을 때린 피해는 전이하지 않아요
   log.push(`🎭 **누구게?** ${atkEmoji} ${atkName}(이)가 헷갈려서 **자기 자신**을 때렸어요! **${hit.dmg}** 데미지${hit.note}`);
   return hit.dmg;
 }
@@ -2972,10 +2978,10 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   const locationId = ex.locationId;
   b.round += 1;
   // 🪽 이번 턴에 쓰러진 쪽이 부활 효과를 갖고 있으면 되살려요 (기본 공격으로 쓰러진 경우 포함)
-  const rvMe = { name: myName, hp: b.myHp, max: c.mine.hp, st: b.mySt };
-  const rvWild = { name: wildPet.name, hp: b.wildHp, max: c.wild.hp, st: b.wildSt };
-  tryRevive(rvMe, log);
-  tryRevive(rvWild, log);
+  const rvMe = { name: myName, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, elems: petElems(main.petId), st: b.mySt };
+  const rvWild = { name: wildPet.name, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, elems: petElems(wildInfo.petId), st: b.wildSt };
+  tryRevive(rvMe, log, rvWild); // 🔥 환생의 불길은 부활하는 순간 상대에게 폭발 피해를 줘요
+  tryRevive(rvWild, log, rvMe);
   b.myHp = rvMe.hp;
   b.wildHp = rvWild.hp;
   setHp(main, b.myHp, now); // ❤️ 전투가 끝나도 체력이 이어져요
@@ -3063,8 +3069,8 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   }
 
   // 🆕 턴 끝: 지속 피해 · 재생 · 상태이상 턴 감소는 항상 적용돼요. 내 마나는 기본 공격을 한 턴에만 차요!
-  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, mana: b.myMana, manaMax: maxMana(main), st: b.mySt };
-  const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt };
+  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, mana: b.myMana, manaMax: maxMana(main), elems: petElems(main.petId), st: b.mySt };
+  const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, elems: petElems(wildInfo.petId), st: b.wildSt };
   tickSide(tMe, log, myManaGain, tWild);
   tickSide(tWild, log, true, tMe);
   b.myHp = tMe.hp; b.myMana = tMe.mana;
