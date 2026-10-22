@@ -2806,6 +2806,25 @@ function myAttack(c, b, log, rng) {
   reactHit(c, b, false, hit.dmg, log);
 }
 
+// 🐾 야생 펫의 기본 공격 (쓸 스킬이 없을 때) — myAttack 의 "반대편" 버전이에요
+function wildAttack(c, b, log, rng) {
+  if (b.mySt.whoIs && rng() < b.mySt.whoIs.pct) { // 🎭 내가 "누구게?"를 걸어둔 상태: 야생 펫이 자기 자신을 때려요
+    b.wildHp = Math.max(0, b.wildHp - whoIsSelfHit(c.wildPet.name, c.wildPet.emoji, c.wild.atk, c.wild.def, b.wildSt, rng, log));
+    return;
+  }
+  if (rng() < EVADE_CHANCE + c.mineEq.evade) { // 🌀 내 펫이 회피
+    log.push(`${c.myPet.emoji} ${c.myName}(이)가 **회피했다!** ${c.wildPet.name}의 공격이 빗나갔어요.`);
+    return;
+  }
+  const fx = GRADE_EFFECTS[c.wildPet.grade];
+  const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b), { attacker: wildSideOf(c, b) });
+  const { dmg: raw, crit } = calcDamage(c.wild.atk, c.mine.def, rng, fx.critChance + c.wildEq.crit, clash.mult);
+  const hit = mitigate({ st: b.mySt }, raw, rng);
+  b.myHp = Math.max(0, b.myHp - hit.dmg);
+  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${hit.dmg}** 데미지${clash.note}${hit.note}`);
+  reactHit(c, b, true, hit.dmg, log);
+}
+
 // 🆕 야생 펫의 한 번 행동: 상황에 맞는 스킬이 있으면 스킬, 없으면 기본 공격
 // (공격·회복·잡기·도망·교체·아이템·스킬 턴 어디서든 이걸 불러요)
 function wildAct(c, b, log, rng) {
