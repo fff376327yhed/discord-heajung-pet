@@ -42,6 +42,7 @@ import {
   mitigate,
   afterHit,
   actsFirst,
+  effSpd, // ⚡ 속도 표시용
   revertCurseSlots, // 🆕 저주부여 → 금단의 저주 복귀
   catchProHold, // 🆕 배치 5: 포획 전문가 (도망 붙잡기)
   fightBuffOf, // 🆕 배치 5: 전투 중 버프 값
@@ -2512,6 +2513,16 @@ function useCatchItem(player, itemId, now = Date.now(), rng = Math.random, opts 
   return { kind: 'item_used', commit: true, item, note, left: player.inventory[itemId], snap: snapshot(player, now) };
 }
 
+// ⚡ 적과 나의 속도 (화면에 보여줘요). 전투 중이면 스피드↑↓ 같은 상태이상이 반영된 값(myNow/wildNow)도 같이 계산해요.
+function speedInfo(main, enc, b) {
+  const mine = calcStats(main.petId, main.level, main).spd;
+  const wild = calcStats(enc.petId, enc.level, enc).spd;
+  if (!b) return { mine, wild, myNow: mine, wildNow: wild, first: mine >= wild };
+  const A = { spd: mine, st: b.mySt ?? {} };
+  const B = { spd: wild, st: b.wildSt ?? {} };
+  return { mine, wild, myNow: Math.round(effSpd(A)), wildNow: Math.round(effSpd(B)), first: actsFirst(A, B) };
+}
+
 // 지금 탐험 상태를 한 장의 "사진"으로 찍어요 (화면 그릴 때 써요)
 function snapshot(player, now = Date.now()) {
   const ex = player.exploration;
@@ -2528,6 +2539,7 @@ function snapshot(player, now = Date.now()) {
       rawChance: exCatchRaw(player, ex),
       items: catchItemState(player, ex),
       myPetId: main?.petId ?? null, // 🌈 만났을 때 화면에서 속성 상성을 보여줄 때 써요
+      spd: main ? speedInfo(main, ex.encounter, b) : null, // ⚡ 속도 (적과 나)
     };
     if (b) {
       snap.battle = {
@@ -3499,6 +3511,7 @@ function checkTradeSide(p, gives, gets, now) {
   if (p.exploration?.battle) return `${who} 지금 전투 중이라 거래할 수 없어요.`;
   if (tradeCountToday(p, now) >= TRADE_DAILY_LIMIT) return `${who} 오늘 거래 횟수(**${TRADE_DAILY_LIMIT}회**)를 다 썼어요. 한국 시간 0시에 초기화돼요.`;
   if (gives.uid === p.mainPetUid) return `${who} 대표 펫(👑)은 내보낼 수 없어요. \`/펫\` 에서 대표 펫을 바꿔주세요.`;
+  if (gives.locked) return `${who} 🔐 잠긴 펫(**${tradeNameOf(gives)}**)은 내보낼 수 없어요. \`/잠금\` 으로 먼저 풀어주세요.`;
   const cd = tradeCooldownLeftMs(gives, now);
   if (cd > 0) return `${who} **${tradeNameOf(gives)}**(이)가 거래로 받은 지 얼마 안 돼서 **${fmtCooldown(cd)}** 뒤에 다시 거래할 수 있어요.`;
   const gotPet = PETS[gets.petId];
@@ -3586,6 +3599,30 @@ function renamePet(player, selector, name) {
   return { kind: 'renamed', commit: true, inst: { ...inst } };
 }
 
+// ───────── 🔐 펫 잠금 ─────────
+// 잠긴 펫(inst.locked)은 방생·거래가 안 돼요. want 가 비어 있으면 지금 상태를 뒤집어요.
+function setPetLock(player, uid, want = null) {
+  const inst = player.pets.find((p) => p.uid === uid);
+  if (!inst) return { kind: 'not_found' };
+  const lock = want === null || want === undefined ? !inst.locked : !!want;
+  inst.locked = lock;
+  return { kind: lock ? 'locked' : 'unlocked', commit: true, inst: { ...inst } };
+}
+
+// 여러 마리를 한번에 잠그거나 풀어요 (이미 그 상태인 펫은 same 으로 세요)
+function setPetLockBulk(player, uids, lock) {
+  const changed = [];
+  let same = 0;
+  for (const uid of [...new Set(uids)]) {
+    const inst = player.pets.find((p) => p.uid === uid);
+    if (!inst) continue;
+    if (!!inst.locked === lock) { same++; continue; }
+    inst.locked = lock;
+    changed.push({ petId: inst.petId, nickname: inst.nickname, level: inst.level });
+  }
+  return { changed, same, lock };
+}
+
 // ───────── 방생 ─────────
 function releaseValue(inst) {
   const base = RELEASE_BASE_GOLD[PETS[inst.petId].grade] ?? 10;
@@ -3596,6 +3633,7 @@ function releasePet(player, uid) {
   const inst = player.pets.find((p) => p.uid === uid);
   if (!inst) return { kind: 'not_found' };
   if (uid === player.mainPetUid) return { kind: 'is_main' };
+  if (inst.locked) return { kind: 'locked' }; // 🔐 잠긴 펫은 못 보내요
   const returnedEquip = stripEquip(player, inst).length; // 🛡️ 장비는 가방으로
   const gold = releaseValue(inst);
   player.pets = player.pets.filter((p) => p.uid !== uid);
@@ -3606,6 +3644,7 @@ function releasePet(player, uid) {
 // 🆕 여러 마리를 한번에 보내줘요. 대표 펫은 섞여 있어도 자동으로 건너뛰어요.
 function releasePetsBulk(player, uids) {
   let skippedMain = false;
+  let skippedLocked = 0; // 🔐 잠겨 있어서 건너뛴 마리 수
   let returnedEquip = 0;
   let totalGold = 0;
   const released = [];
@@ -3613,6 +3652,7 @@ function releasePetsBulk(player, uids) {
     if (uid === player.mainPetUid) { skippedMain = true; continue; }
     const inst = player.pets.find((p) => p.uid === uid);
     if (!inst) continue;
+    if (inst.locked) { skippedLocked++; continue; } // 🔐 잠긴 펫은 건너뛰어요
     returnedEquip += stripEquip(player, inst).length; // 🛡️ 장비는 가방으로
     const gold = releaseValue(inst);
     player.pets = player.pets.filter((p) => p.uid !== uid);
@@ -3620,7 +3660,7 @@ function releasePetsBulk(player, uids) {
     totalGold += gold;
     released.push({ petId: inst.petId, nickname: inst.nickname, level: inst.level, gold });
   }
-  return { released, totalGold, total: player.gold, skippedMain, returnedEquip };
+  return { released, totalGold, total: player.gold, skippedMain, skippedLocked, returnedEquip };
 }
 
 // ───────── 훈련 ─────────
@@ -4336,6 +4376,7 @@ function exploreViewEncounter(snap, userId, note) {
         fields: [
           { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개`, inline: true },
           { name: '📍 장소', value: `${loc.emoji} ${loc.name}`, inline: true },
+          ...(snap.spd ? [{ name: '⚡ 속도', value: `내 **${snap.spd.mine}** · 상대 **${snap.spd.wild}**\n${snap.spd.first ? '내가 먼저 움직여요' : '상대가 먼저 움직여요'}`, inline: true }] : []),
         ],
       },
     ],
@@ -4349,6 +4390,19 @@ function exploreViewEncounter(snap, userId, note) {
       ...catchItemRows(snap, userId),
     ],
   };
+}
+
+// ⚡ 속도 한 줄 (기본값과 다르면 🔼/🔽 로 알려줘요). 값이 없으면 빈 글자예요.
+function spdLine(now, base) {
+  if (typeof now !== 'number') return '';
+  const mark = now > base ? ` (기본 ${base} 🔼)` : now < base ? ` (기본 ${base} 🔽)` : '';
+  return `\n⚡ 속도 **${now}**${mark}`;
+}
+
+// ⏱️ 이번 턴 누가 먼저 움직이는지
+function turnOrderText(spd) {
+  if (!spd) return '';
+  return `\n⏱️ 이번 턴은 ${spd.first ? '**내가 먼저**' : '**상대가 먼저**'} 움직여요! (⚡ 내 ${spd.myNow} · 상대 ${spd.wildNow})`;
 }
 
 function exploreHpBar(cur, max, size = 10) {
@@ -4366,14 +4420,14 @@ function exploreViewBattle(snap, userId, note) {
         title: `⚔️ ${mine.emoji} ${b.myName} VS ${wild.emoji} ${wild.name}`,
         description:
           `${note ? note + '\n\n' : ''}${b.round}턴째 · 🔋 마나 ${b.myMana}/${maxMana(getMainPetFromSnap(snap))}` +
-          `\n${matchupTextShort(b.myPetId, snap.encounter.petId, b.mySt, b.wildSt)}` +
+          `\n${matchupTextShort(b.myPetId, snap.encounter.petId, b.mySt, b.wildSt)}${turnOrderText(snap.spd)}` +
           wildEquipTextShort(snap.encounter) +
           (GRADE_EFFECTS[wild.grade].aura ? `\n${GRADE_EFFECTS[wild.grade].aura}` : '') +
           catchInfoText(snap),
         color: 0xed4245,
         fields: [
-          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIconsOf({ elems: petElems(b.myPetId), st: b.mySt })}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
-          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIconsOf({ elems: petElems(snap.encounter.petId), st: b.wildSt })}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
+          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIconsOf({ elems: petElems(b.myPetId), st: b.mySt })}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${spdLine(snap.spd?.myNow, snap.spd?.mine)}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
+          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIconsOf({ elems: petElems(snap.encounter.petId), st: b.wildSt })}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${spdLine(snap.spd?.wildNow, snap.spd?.wild)}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
         ],
         footer: { text: `${BALL.emoji} 해정볼 ${snap.balls}개 · 약해질수록 잡기가 쉬워져요!` },
       },
@@ -4436,8 +4490,8 @@ function exploreViewSkillConfirm(snap, userId, slot) {
           (jokerUsed ? '\n\n🃏 **조커는 이번 전투에서 이미 썼어요!** (전투당 1번)' : ''),
         color: 0x5865f2,
         fields: [
-          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIconsOf({ elems: petElems(b.myPetId), st: b.mySt })}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
-          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIconsOf({ elems: petElems(snap.encounter.petId), st: b.wildSt })}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
+          { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIconsOf({ elems: petElems(b.myPetId), st: b.mySt })}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${spdLine(snap.spd?.myNow, snap.spd?.mine)}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
+          { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIconsOf({ elems: petElems(snap.encounter.petId), st: b.wildSt })}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${spdLine(snap.spd?.wildNow, snap.spd?.wild)}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
         ],
       },
     ],
@@ -5397,7 +5451,7 @@ function petsView(player, userId, page = 0, note) {
   const lines = slice.map(({ inst, no }) => {
     const pet = PETS[inst.petId];
     const s = calcStats(inst.petId, inst.level, inst);
-    const crown = inst.uid === player.mainPetUid ? '👑 ' : '';
+    const crown = `${inst.uid === player.mainPetUid ? '👑 ' : ''}${inst.locked ? '🔐 ' : ''}`;
     const learned = SLOT_IDX.filter((k) => SKILLS[inst.skills?.[k]]).length;
     return (
       `**${no}.** ${crown}${GRADES[pet.grade].emoji} ${pet.emoji} **${inst.nickname ?? pet.name}** Lv.${inst.level} ${elemIcons(petElems(inst.petId))}\n` +
@@ -5479,7 +5533,7 @@ function petsView(player, userId, page = 0, note) {
         title: `🐾 ${player.name}님의 해정펫 (${player.pets.length}마리)`,
         description: `${note ? note + '\n\n' : ''}${lines.join('\n')}`,
         color: EMBED_COLOR,
-        footer: { text: `${PET_SORTS[sortMode].emoji} ${PET_SORTS[sortMode].label} · 번호는 /별명 · /방생 · /훈련 에서 써요 (정렬해도 번호는 그대로) · 👑 대표 펫이 전투에 나서요` },
+        footer: { text: `${PET_SORTS[sortMode].emoji} ${PET_SORTS[sortMode].label} · 번호는 /별명 · /방생 · /훈련 에서 써요 (정렬해도 번호는 그대로) · 👑 대표 펫이 전투에 나서요 · 🔐 잠긴 펫은 방생·거래가 안 돼요 (/잠금)` },
       },
     ],
     components,
@@ -5587,7 +5641,7 @@ function petSkillsView(player, userId, page, inst) {
 
   const description =
     `${GRADES[pet.grade].emoji} ${pet.emoji} **${name}** Lv.${inst.level} ${elemIcons(petElems(inst.petId))}` +
-    `${inst.uid === player.mainPetUid ? ' 👑 대표 펫' : ''}\n` +
+    `${inst.uid === player.mainPetUid ? ' 👑 대표 펫' : ''}${inst.locked ? ' 🔐 잠금' : ''}\n` +
     `❤️ ${currentHp(inst)}/${s.hp} · 공격 ${s.atk} · 방어 ${s.def} · 속도 ${s.spd}\n` +
     `🔋 최대 마나 **${maxMana(inst)}** · ✨ 스킬 **${learned}/${SLOT_COUNT}**`;
   const footer = `기본 공격을 하면 마나가 +${SKILL_CFG.manaPerTurn} 차요 · 스킬은 전투 중에 쓸 수 있어요`;
@@ -5623,7 +5677,17 @@ function petSkillsView(player, userId, page, inst) {
       ),
     );
   }
-  components.push(row(button({ label: '펫 목록으로', emoji: '◀️', customId: `pets:page:${userId}:${page}`, style: 2 })));
+  components.push(
+    row(
+      button({ label: '펫 목록으로', emoji: '◀️', customId: `pets:page:${userId}:${page}`, style: 2 }),
+      button({
+        label: inst.locked ? '잠금 풀기' : '잠그기',
+        emoji: inst.locked ? '🔓' : '🔐',
+        customId: `pets:lock:${userId}:${page}:${inst.uid}`,
+        style: inst.locked ? 2 : 1,
+      }),
+    ),
+  );
 
   return {
     embeds: [{ title: `✨ ${name}의 스킬`, description, color: EMBED_COLOR, fields, footer: { text: footer } }],
@@ -5689,6 +5753,20 @@ const pets = {
         });
         if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
         return update(petsView(latest, user.id, 0, `🔀 **${PET_SORTS[mode].label}** 으로 정렬했어요!`));
+      }
+
+      // 🔐 스킬 화면의 [잠그기/잠금 풀기] 버튼
+      if (action === 'lock') {
+        let latest = null;
+        const out = await updatePlayer(user.id, (p) => {
+          const r = setPetLock(p, uidArg);
+          latest = p;
+          return { commit: r.commit === true, value: r };
+        });
+        if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+        if (out.kind === 'not_found') return reply({ content: '그 펫을 찾을 수 없어요 🤔 `/펫` 을 다시 열어보세요!' }, { ephemeral: true });
+        const inst = latest.pets.find((x) => x.uid === uidArg);
+        return update(petSkillsView(latest, user.id, page, inst));
       }
 
       // ✨ 펫을 고르면 그 펫의 스킬 전체 보기
@@ -5888,7 +5966,7 @@ async function petAutocomplete(interaction, optionName) {
     .map((c) => {
       const cur = currentHp(c.inst, now);
       const max = maxHp(c.inst);
-      const crown = c.inst.uid === player.mainPetUid ? '👑 ' : '';
+      const crown = `${c.inst.uid === player.mainPetUid ? '👑 ' : ''}${c.inst.locked ? '🔐 ' : ''}`;
       return {
         name: `${crown}${c.index}. ${PETS[c.inst.petId].emoji} ${c.label} Lv.${c.inst.level} (❤${cur}/${max})`,
         value: c.inst.uid,
@@ -6049,11 +6127,14 @@ async function releaseMultiPreview(userId, player, listText) {
   }
 
   const { insts, notFound } = resolvePetSelectors(player, listText);
-  const targets = insts.filter((i) => i.uid !== player.mainPetUid);
-  const skippedMain = targets.length !== insts.length;
+  const noMain = insts.filter((i) => i.uid !== player.mainPetUid);
+  const skippedMain = noMain.length !== insts.length;
+  const targets = noMain.filter((i) => !i.locked); // 🔐 잠긴 펫은 빼요
+  const skippedLocked = noMain.length - targets.length;
 
   if (targets.length === 0) {
     const extra = notFound.length ? `\n못 찾은 항목: ${notFound.slice(0, 10).join(', ')}${notFound.length > 10 ? ' 외' : ''}` : '';
+    if (skippedLocked > 0) return reply({ content: `🔐 고른 펫이 모두 잠겨 있어요! 보내려면 \`/잠금\` 으로 먼저 풀어주세요.${extra}` }, { ephemeral: true });
     return reply({ content: `${PET_NOT_FOUND}${extra}` }, { ephemeral: true });
   }
 
@@ -6066,6 +6147,7 @@ async function releaseMultiPreview(userId, player, listText) {
 
   const notes = [];
   if (skippedMain) notes.push('👑 대표 펫은 자동으로 제외했어요.');
+  if (skippedLocked) notes.push(`🔐 잠긴 펫 ${skippedLocked}마리는 자동으로 제외했어요.`);
   if (notFound.length) notes.push(`못 찾은 항목: ${notFound.slice(0, 10).join(', ')}${notFound.length > 10 ? ' 외' : ''}`);
 
   return reply(
@@ -6119,6 +6201,9 @@ const release = {
     if (inst.uid === player.mainPetUid) {
       return reply({ content: '👑 대표 펫은 보내줄 수 없어요! `/펫` 에서 다른 펫을 대표로 바꾼 뒤에 해주세요.' }, { ephemeral: true });
     }
+    if (inst.locked) {
+      return reply({ content: '🔐 잠긴 펫이라 보내줄 수 없어요! 정말 보내려면 `/잠금` 으로 먼저 풀어주세요.' }, { ephemeral: true });
+    }
 
     const pet = PETS[inst.petId];
     return reply(
@@ -6165,6 +6250,7 @@ const release = {
       const gone = (title, desc) => update({ embeds: [{ title, description: desc, color: 0x99aab5 }], components: [] });
       if (out.kind === 'not_found') return gone('🍃 이미 없는 펫이에요', '`/펫` 으로 목록을 다시 확인해주세요!');
       if (out.kind === 'is_main') return gone('👑 대표 펫이에요', '대표 펫은 보내줄 수 없어요. 취소했어요.');
+      if (out.kind === 'locked') return gone('🔐 잠긴 펫이에요', '잠긴 펫은 보내줄 수 없어요. `/잠금` 으로 풀면 보낼 수 있어요.');
 
       const pet = PETS[out.petId];
       return update({
@@ -6202,7 +6288,7 @@ const release = {
 
       if (out.released.length === 0) {
         return update({
-          embeds: [{ title: '🍃 보낼 펫이 없어요', description: '이미 없어졌거나 대표 펫만 골랐을 수 있어요. `/펫` 으로 다시 확인해주세요!', color: 0x99aab5 }],
+          embeds: [{ title: '🍃 보낼 펫이 없어요', description: '이미 없어졌거나 대표 펫·잠긴 펫만 골랐을 수 있어요. `/펫` 으로 다시 확인해주세요!', color: 0x99aab5 }],
           components: [],
         });
       }
@@ -6217,6 +6303,7 @@ const release = {
             description:
               `${lines.join('\n')}\n\n💰 받은 골드 합계: **${out.totalGold}** (보유 ${out.total.toLocaleString('ko-KR')})` +
               (out.skippedMain ? '\n👑 대표 펫은 자동으로 제외했어요.' : '') +
+              (out.skippedLocked ? `\n🔐 잠긴 펫 ${out.skippedLocked}마리는 자동으로 제외했어요.` : '') +
               (out.returnedEquip ? `\n🎒 끼고 있던 장비 ${out.returnedEquip}개는 가방으로 돌아왔어요.` : ''),
             color: 0x57f287,
           },
@@ -6224,6 +6311,92 @@ const release = {
         components: [],
       });
     },
+  },
+};
+
+// ═════════════════════════════════════════════
+// /잠금 🔐 — 아끼는 펫을 실수로 방생·거래하지 않게 잠가요
+// ═════════════════════════════════════════════
+
+const lockCmd = {
+  data: {
+    name: '잠금',
+    description: '아끼는 해정펫을 잠가서 실수로 방생·거래하지 않게 해요. (다시 쓰면 풀려요)',
+    type: 1,
+    options: [
+      PET_OPTION('잠그거나 풀 펫 (번호나 이름, 입력하면 목록이 떠요 · 비우면 대표 펫)', false),
+      { type: 3, name: '목록', description: '여러 마리를 한번에: 번호를 콤마·범위로 (예: 2,4,7-9) 또는 "전체"', required: false, max_length: 60 },
+      {
+        type: 3,
+        name: '상태',
+        description: '잠글까요, 풀까요? (비우면 한 마리는 지금 상태를 뒤집고, 목록은 잠가요)',
+        required: false,
+        choices: [{ name: '🔐 잠그기', value: 'lock' }, { name: '🔓 풀기', value: 'unlock' }],
+      },
+    ],
+  },
+
+  async autocomplete(interaction) {
+    return petAutocomplete(interaction, '펫');
+  },
+
+  async execute(interaction) {
+    const user = getUser(interaction);
+    const player = await getPlayer(user.id);
+    if (!player) return reply({ content: NOT_STARTED }, { ephemeral: true });
+
+    const listText = String(getOption(interaction, '목록') ?? '').trim();
+    const state = getOption(interaction, '상태'); // 'lock' | 'unlock' | 없음
+
+    // 여러 마리 한번에
+    if (listText) {
+      if (listText.includes(':')) {
+        return reply({ content: '목록에는 `:` 글자를 쓸 수 없어요. 콤마(,)와 번호·범위(예: 2,4,7-9)로 입력해주세요!' }, { ephemeral: true });
+      }
+      const { insts, notFound } = resolvePetSelectors(player, listText);
+      if (insts.length === 0) {
+        const extra = notFound.length ? `\n못 찾은 항목: ${notFound.slice(0, 10).join(', ')}` : '';
+        return reply({ content: `${PET_NOT_FOUND}${extra}` }, { ephemeral: true });
+      }
+      const lock = state !== 'unlock';
+      const out = await updatePlayer(user.id, (p) => {
+        const r = setPetLockBulk(p, insts.map((i) => i.uid), lock);
+        return { commit: r.changed.length > 0, value: r };
+      });
+      if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+
+      const lines = out.changed.slice(0, 15).map((r) => `${PETS[r.petId].emoji} ${r.nickname ?? PETS[r.petId].name} Lv.${r.level}`);
+      if (out.changed.length > 15) lines.push(`...외 ${out.changed.length - 15}마리`);
+      const head = out.changed.length
+        ? `${lock ? '🔐' : '🔓'} **${out.changed.length}마리**를 ${lock ? '잠갔어요' : '풀었어요'}!`
+        : `${lock ? '🔐 이미 모두 잠겨 있어요' : '🔓 이미 모두 풀려 있어요'}!`;
+      const notes = [];
+      if (out.same && out.changed.length) notes.push(`(이미 ${lock ? '잠겨' : '풀려'} 있던 ${out.same}마리는 그대로예요)`);
+      if (notFound.length) notes.push(`못 찾은 항목: ${notFound.slice(0, 10).join(', ')}${notFound.length > 10 ? ' 외' : ''}`);
+      return reply({ content: [head, ...lines, ...notes].join('\n') }, { ephemeral: true });
+    }
+
+    // 한 마리
+    const inst = resolvePetSelector(player, getOption(interaction, '펫'));
+    if (!inst) return reply({ content: PET_NOT_FOUND }, { ephemeral: true });
+    const want = state === 'lock' ? true : state === 'unlock' ? false : null;
+    const out = await updatePlayer(user.id, (p) => {
+      const r = setPetLock(p, inst.uid, want);
+      return { commit: r.commit === true, value: r };
+    });
+    if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+    if (out.kind === 'not_found') return reply({ content: PET_NOT_FOUND }, { ephemeral: true });
+
+    const pet = PETS[out.inst.petId];
+    const name = out.inst.nickname ?? pet.name;
+    return reply(
+      {
+        content: out.kind === 'locked'
+          ? `🔐 ${pet.emoji} **${name}**(을)를 잠갔어요! 이제 방생·거래가 안 돼요. (풀려면 \`/잠금\` 을 한 번 더!)`
+          : `🔓 ${pet.emoji} **${name}**의 잠금을 풀었어요. 이제 방생·거래할 수 있어요.`,
+      },
+      { ephemeral: true },
+    );
   },
 };
 
@@ -7772,7 +7945,7 @@ function tradeChoices(player, typed, now) {
   const t = String(typed ?? '').trim().toLowerCase();
   return player.pets
     .map((inst, i) => ({ inst, index: i + 1, label: tradeNameOf(inst) }))
-    .filter((c) => c.inst.uid !== player.mainPetUid && tradeCooldownLeftMs(c.inst, now) === 0)
+    .filter((c) => c.inst.uid !== player.mainPetUid && !c.inst.locked && tradeCooldownLeftMs(c.inst, now) === 0)
     .filter((c) => !t || `${c.index} ${c.label}`.toLowerCase().includes(t))
     .slice(0, 25)
     .map((c) => ({
@@ -8344,7 +8517,7 @@ const equipCmd = {
   components: { equip: equipHandleButton },
 };
 
-const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, train, use, cleanup, attendance, dexReward, duel, trade, rankingCmd, statsCmd, equipCmd, help];
+const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy, bag, pets, dexCmd, nickname, release, lockCmd, train, use, cleanup, attendance, dexReward, duel, trade, rankingCmd, statsCmd, equipCmd, help];
 
 // ============================================================
 // 관리자 설정 (admin-config.js) [ADMIN-CONFIG]
