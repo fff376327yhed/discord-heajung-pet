@@ -4399,12 +4399,6 @@ function spdLine(now, base) {
   return `\n⚡ 속도 **${now}**${mark}`;
 }
 
-// ⏱️ 이번 턴 누가 먼저 움직이는지
-function turnOrderText(spd) {
-  if (!spd) return '';
-  return `\n⏱️ 이번 턴은 ${spd.first ? '**내가 먼저**' : '**상대가 먼저**'} 움직여요! (⚡ 내 ${spd.myNow} · 상대 ${spd.wildNow})`;
-}
-
 function exploreHpBar(cur, max, size = 10) {
   const filled = cur <= 0 ? 0 : Math.max(1, Math.min(size, Math.ceil((cur / max) * size)));
   return '▰'.repeat(filled) + '▱'.repeat(size - filled);
@@ -4420,7 +4414,7 @@ function exploreViewBattle(snap, userId, note) {
         title: `⚔️ ${mine.emoji} ${b.myName} VS ${wild.emoji} ${wild.name}`,
         description:
           `${note ? note + '\n\n' : ''}${b.round}턴째 · 🔋 마나 ${b.myMana}/${maxMana(getMainPetFromSnap(snap))}` +
-          `\n${matchupTextShort(b.myPetId, snap.encounter.petId, b.mySt, b.wildSt)}${turnOrderText(snap.spd)}` +
+          `\n${matchupTextShort(b.myPetId, snap.encounter.petId, b.mySt, b.wildSt)}` +
           wildEquipTextShort(snap.encounter) +
           (GRADE_EFFECTS[wild.grade].aura ? `\n${GRADE_EFFECTS[wild.grade].aura}` : '') +
           catchInfoText(snap),
