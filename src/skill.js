@@ -632,7 +632,7 @@ P('salamander', 'sig_salamander', '불꽃 꼬리채찍', '🦎', 3, { pow: 1.2, 
 P('flame_lord', 'sig_flame_lord', '화염 군림', '👹', 5, { pow: 3.2, dot: ['burn', 0.09, 4, 1], atkDown: [0.25, 3] }, '불꽃의 왕이 내려보면 모두 움츠러들어요.');
 P('flame_lord', 'sig_flame_lord2', '마왕의 포효', '😈', 4, { pow: 2.0, rage: [0.15, 0.9], stun: 0.3, cd: 4 }, '화산이 부르르 떨리는 포효!');
 P('fire_dragon', 'sig_fire_dragon', '용왕의 업화', '🐉', 5, { pow: 3.2, dot: ['burn', 0.08, 4, 1], pierce: 0.3 }, '모든 것을 재로 만드는 용왕의 불꽃.');
-P('fire_dragon', 'sig_fire_dragon2', '용의 위엄', '👑', 4, { atkUp: [0.6, 4], guard: [0.5, 3] }, '날개를 펴면 하늘이 붉게 물들어요.');
+P('fire_dragon', 'sig_fire_dragon2', '용의 위엄', '👑', 4, { atkUp: [0.6, 4], guard: [0.5, 3], reflect: [0.3, 3], cd: 5 }, '날개를 펴면 하늘이 붉게 물들어요.');
 // 안개 늪
 P('frog', 'sig_frog', '개굴 합창', '🐸', 2, { pow: 1.5, stun: 0.35 }, '개굴개굴! 시끄러워서 깜짝 놀라요.');
 P('snake', 'sig_snake', '독니 일격', '🐍', 3, { pow: 1.8, dot: ['poison', 0.05, 4, 0.9] }, '송곳니에서 맹독이 퍼져요.');
@@ -656,7 +656,7 @@ P('ice_spirit', 'sig_ice_spirit', '얼음 감옥', '🧊', 4, { pow: 2.0, defDow
 P('frost_dragon', 'sig_frost_dragon', '서리 숨결', '❄️', 5, { pow: 3.2, stun: 0.3, dot: ['burn', 0.07, 3, 0.8] }, '닿는 곳마다 얼음꽃이 피어요.');
 P('frost_dragon', 'sig_frost_dragon2', '서리 비늘', '🛡️', 4, { shield: 0.4, shieldCounter: [1.8, 0.35, 3, 4], mana: 10, cd: 4 }, '얼음 비늘이 모든 공격을 튕겨요.');
 P('ice_queen', 'sig_ice_queen', '영원한 겨울', '👸', 5, { pow: 2.8, stun: 0.4, atkDown: [0.35, 4], defDown: [0.3, 4] }, '세상이 하얗게, 아주 조용해져요.');
-P('ice_queen', 'sig_ice_queen2', '여왕의 칙령', '👑', 4, { shield: 0.4, mana: 30 }, '"감히 내 앞에서."');
+P('ice_queen', 'sig_ice_queen2', '여왕의 칙령', '👑', 4, { shield: 0.4, mana: 30, reflectDebuff: 3, cd: 4 }, '"감히 내 앞에서."');
 // 구름 하늘섬
 P('cloud_sheep', 'sig_cloud_sheep', '구름 이불', '🐑', 2, { heal: 0.3, evade: 1 }, '포근한 구름이 감싸 안아요.');
 P('parrot', 'sig_parrot', '따라쟁이 합창', '🦜', 3, { pow: 0.8, hits: 3, atkDown: [0.2, 3] }, '상대의 말을 따라 하며 약을 올려요.');
@@ -670,7 +670,7 @@ P('sun_god', 'sig_sun_god', '태양의 심판', '☀️', 5, { pow: 3.4, pierce:
 P('sun_god', 'sig_sun_god2', '일출의 가호', '🌅', 5, { heal: 0.35, atkUp: [0.6, 4], defUp: [0.4, 4] }, '해가 떠오르면 힘이 끝없이 솟아요.');
 // 별빛 심연
 P('shadow', 'sig_shadow', '그림자 삼키기', '👤', 3, { pow: 2.2, drain: 0.4 }, '발밑 그림자가 기운을 삼켜요.');
-P('void_eye', 'sig_void_eye', '허공의 응시', '👁️', 4, { stun: 0.65, defDown: [0.35, 4], drainMana: 30 }, '눈이 마주친 순간, 몸이 굳어요.');
+P('void_eye', 'sig_void_eye', '허공의 응시', '👁️', 4, { stun: 0.65, defDown: [0.35, 4], drainMana: 30, truePct: 0.06, cd: 4 }, '눈이 마주친 순간, 몸이 굳어요.');
 P('star_whale', 'sig_star_whale', '별빛 파도', '🐳', 4, { pow: 2.4, shieldDrain: [0.5, 0.4], mana: 15, cd: 3 }, '반짝이는 파도가 아군은 안고 적은 밀어내요.');
 P('comet', 'sig_comet', '혜성 충돌', '☄️', 5, { pow: 3.3, recoil: 0.1, stun: 0.3 }, '긴 꼬리를 끌고 쾅!');
 P('void_dragon', 'sig_void_dragon', '공허의 숨결', '🌑', 5, { pow: 3.3, pierce: 0.5 }, '닿은 곳이 사라져요.');
@@ -684,7 +684,7 @@ P('puppet', 'sig_puppet', '줄 끊기', '🪆', 3, { pow: 2.0, defDown: [0.2, 3]
 P('mask_actor', 'sig_mask_actor', '가면 바꿔쓰기', '🎭', 4, { maskSwap: 3, atkUp: [0.4, 3], evade: 1, mana: 10, cd: 4 }, '새 가면을 쓰면 새 사람이 돼요.');
 P('clown', 'sig_clown', '깜짝 상자', '🤡', 4, { pow: 1.5, jackBox: true, mana: 10, cd: 3 }, '뚜껑을 열면… 으악!');
 P('magician', 'sig_magician', '비둘기 대폭발', '🕊️', 5, { pow: 3.1, stun: 0.3 }, '모자 속에서 하얀 비둘기가 쏟아져 나와요.');
-P('magician', 'sig_magician2', '손재주 부리기', '🎩', 4, { stealMana: 30, atkDown: [0.2, 3] }, '어? 내 마나가 어디 갔지?');
+P('magician', 'sig_magician2', '손재주 부리기', '🎩', 4, { stealMana: 30, atkDown: [0.2, 3], buffXfer: ['swap', 3], cd: 4 }, '어? 내 마나가 어디 갔지?');
 P('ringmaster', 'sig_ringmaster', '불의 링 통과', '🎪', 5, { pow: 3.2, dot: ['burn', 0.08, 3, 1] }, '활활 타는 링 사이로 돌진해요!');
 P('ringmaster', 'sig_ringmaster2', '채찍 신호', '🪄', 4, { clone: [0.6, 0.78, 3], cloneBoom: 2.3, cd: 5 }, '짝! 소리에 모두가 한 몸처럼 움직여요.');
 P('joker', 'sig_joker', '광대의 마지막 웃음', '🃏', 5, { pow: 3.5, stun: 0.3, crit: 0.2 }, '마지막에 웃는 자가 이기는 거예요.');
