@@ -58,7 +58,7 @@ const SKILL_REROLL_ASK_TIER = 4; // 🔄 스킬 변경권 목표가 이 ★ 등�
 
 // 게임의 기본 설정값 모음 ⚙️ (숫자만 바꾸면 게임 느낌이 바뀌어요)
 const pct = (v) => Math.round(v * 100);
-let MAX_LEVEL = 100;
+let MAX_LEVEL = 1000;
 let START_GOLD = 1000;
 let START_BALLS = 5;
 const EMBED_COLOR = 0x5865f2;
