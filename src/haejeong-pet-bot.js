@@ -213,7 +213,7 @@ let TRADE_FEE_MIN = 50; // 수수료 최소 금액
 let TRADE_TTL_MS = 5 * 60 * 1000; // 거래 신청은 이 시간(5분) 안에 수락해야 해요
 
 // ───────── 포획 아이템 🍖 ─────────
-// 야생 펫을 만난 뒤(싸우는 중에도) 써서 이번 만남의 포획 확률을 올려요. 다음 펫을 만나면 효과가 사라져요.
+// 전투 중에만 써서 이번 만남의 포획 확률을 올려요. (싸우기 전에는 못 써요 → 전투 전에 미리 아이템을 다 써두는 꼼수 방지) 다음 펫을 만나면 효과가 사라져요.
 // 포획 확률은 "곱셈"으로 올라서, 원래 잘 안 잡히는 펫(전설·신화·초월)은 아이템을 써도 여전히 어려워요!
 // 🎯 포획 보너스 한도 (%p)
 let CATCH_STACK_CAP = 0.25; // 아이템·스킬 보너스는 합쳐서 최대 +25%p
@@ -478,7 +478,7 @@ const ITEMS = {
     description: '고른 펫의 스킬 슬롯 하나(1~5번, `/사용` 의 "슬롯" 칸)를 다른 랜덤 스킬로 다시 뽑아요. 전용기도 다시 나올 수 있어요. "목표등급"(★ 이상) · "목표스킬"(최대 3개)을 걸면 조건이 나올 때까지 자동으로 반복해요 (둘 중 하나만 맞아도 멈춰요).',
   },
 
-  // 🍖 포획 아이템: 야생 펫을 만난 뒤 써요 (전투 중엔 전투 화면 아이템 버튼). 포획 확률은 곱셈으로 올라가고, 최대 98%예요.
+  // 🍖 포획 아이템: 전투 중에만 써요 (전투 화면 아이템 버튼). 포획 확률은 곱셈으로 올라가고, 최대 98%예요.
   catch_scanner: {
     id: 'catch_scanner',
     name: '포획 분석기',
@@ -2465,6 +2465,7 @@ function useCatchItem(player, itemId, now = Date.now(), rng = Math.random, opts 
   if (!ex) return { kind: 'no_explore', item };
   if (opts.expectId && ex.id !== opts.expectId) return { kind: 'no_explore', item };
   if (!ex.encounter) return { kind: 'no_encounter', item };
+  if (!ex.battle) return { kind: 'no_battle', item }; // 전투 중에만 쓸 수 있어요
 
   const costsTurn = !!ex.battle && CATCH_ITEM_COSTS_TURN && item.catchItem !== 'scanner';
   if (costsTurn && !opts.viaPanel) return { kind: 'use_button', item };
@@ -4303,6 +4304,7 @@ function catchInfoText(snap) {
 
 // 가진 포획 아이템 버튼 줄 (하나도 없으면 줄이 안 생겨요)
 function catchItemRows(snap, userId) {
+  if (!snap.battle) return []; // 전투 중에만 아이템 버튼이 보여요
   const owned = snap.items?.owned ?? {};
   const btns = CATCH_ITEMS.filter((i) => owned[i.id] > 0).map((i) =>
     button({ label: `${i.short} ×${owned[i.id]}`, emoji: i.emoji, customId: `explore:citem:${userId}:${snap.id}:${i.id}`, style: 2 }),
@@ -4342,6 +4344,7 @@ function catchItemFailText(out) {
     case 'bait_max': return `${out.item.emoji} 이번 만남의 미끼 효과가 이미 **최대**예요! 더 줘도 소용없어서 아껴뒀어요 😊`;
     case 'charm_active': return `${out.item.emoji} 부적이 이미 켜져 있어요! 한 번 던진 뒤에 다시 쓸 수 있어요. (아이템은 안 줄었어요)`;
     case 'net_active': return `${out.item.emoji} 그물이 이미 쳐져 있어요! (아이템은 안 줄었어요)`;
+    case 'no_battle': return '⚔️ 아이템은 **전투 중에만** 쓸 수 있어요! 먼저 **싸우기** 를 눌러 전투를 시작해요. (아이템은 안 줄었어요)';
     case 'use_button': return '⚔️ 전투 중에는 전투 화면 아래의 **아이템 버튼**으로 써요! (한 턴을 써요)';
     default: return '지금은 쓸 수 없어요 🤔';
   }
@@ -6816,7 +6819,7 @@ const use = {
       return reply({ content: skillItemResultText(res) }, { ephemeral: res.commit !== true });
     }
 
-    // 🍖 포획 아이템 (야생 펫을 만난 뒤에 써요. 전투 중에는 전투 화면의 아이템 버튼으로 써요)
+    // 🍖 포획 아이템 (전투 중에만 써요. 전투 화면의 아이템 버튼으로 써요)
     if (picked?.catchItem) {
       const res = await updatePlayer(user.id, (p) => {
         const r = useCatchItem(p, itemId, Date.now(), Math.random, { viaPanel: false });
@@ -7585,7 +7588,7 @@ const help = {
               {
                 name: '🍖 포획 아이템',
                 value:
-                  '야생 펫을 만난 뒤(싸우는 중에도) 탐험 화면 맨 아래 **아이템 버튼**이나 `/사용` 으로 써요. 다음 펫을 만나면 효과가 사라져요.\n' +
+                  '**전투 중에만** 전투 화면 맨 아래 **아이템 버튼**으로 써요. 다음 펫을 만나면 효과가 사라져요.\n' +
                   `🔬 **포획 분석기** — 포획 확률과 난이도(${catchDifficulty(0.9).label} ~ ${catchDifficulty(0, -0.1).label})를 보여줘요. 턴을 안 써요.\n` +
                   `🍖 **간식**(×1.2) · 🍯 **황금 꿀**(×1.5) — 포획 확률을 올려요. 아이템·스킬 보너스는 합쳐서 최대 **+${pct(CATCH_STACK_CAP)}%p**, 체력 보너스까지 합쳐 최대 **+${pct(CATCH_TOTAL_BONUS_CAP)}%p**\n` +
 `🩸 야생 펫 체력이 ${pct(CATCH_HP_T3)}% 이하면 +${pct(CATCH_HP_B3)}%p · ${pct(CATCH_HP_T2)}% 이하면 +${pct(CATCH_HP_B2)}%p · **${pct(CATCH_HP_T1)}% 이하면 +${pct(CATCH_HP_B1)}%p**\n` +
