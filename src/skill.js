@@ -1,4 +1,5 @@
 // 해정펫 스킬 ✨ — 스킬 데이터 + 전투 규칙 (디스코드와 상관없는 순수한 규칙)
+// 🪐 외계행성 제타-9 (Lv.100) 추가 (2026-10-25) — 새 펫 7마리 + 전용기 11개, 보스는 액괴 정아영 (아래 "외계행성" 구역)
 // 🛠️ 밸런스 조정판 (2026-10-11)
 //   · 낮은 등급인데 사기였던 연타기·전용기·방어기 하향
 //   · 높은 등급인데 약했던 ★4·★5 공격기 상향, 쓸모없던 스킬(피의계약·프리즘 방벽·마나증폭 등) 보강
@@ -180,6 +181,7 @@ export const PET_ELEMENTS = {
   cloud_sheep: ['wind'], parrot: ['wind'], thunder_bird: ['electric', 'wind'], pegasus: ['wind', 'light'], wyvern: ['wind', 'poison'], angel: ['light'], sun_god: ['light', 'fire'],
   shadow: ['dark'], void_eye: ['dark'], star_whale: ['water', 'light'], comet: ['ice', 'light'], void_dragon: ['dark'], chaos_lord: ['dark', 'fire'], creator: ['light', 'dark'],
   puppet: ['normal'], mask_actor: ['dark'], clown: ['dark', 'poison'], magician: ['light', 'dark'], ringmaster: ['fire', 'dark'], joker: ['dark', 'poison'],
+  zeta_larva: ['poison'], ufo_drone: ['electric'], tentacle: ['water', 'dark'], gray_alien: ['light', 'electric'], xeno_queen: ['poison', 'earth'], star_devourer: ['dark', 'electric'], slime_ayoung: ['poison', 'water'],
 };
 export const petElementsOf = (petId) => PET_ELEMENTS[petId] ?? ['normal'];
 
@@ -706,6 +708,22 @@ P('ringmaster', 'sig_ringmaster', '불의 링 통과', '🎪', 5, { pow: 3.2, do
 P('ringmaster', 'sig_ringmaster2', '채찍 신호', '🪄', 4, { clone: [0.6, 0.78, 3], cloneBoom: 2.3, cd: 5 }, '짝! 소리에 모두가 한 몸처럼 움직여요.');
 P('joker', 'sig_joker', '광대의 마지막 웃음', '🃏', 5, { lastLaugh: [10, 8] }, '맞은 만큼 무대가 커지고, 마지막에 웃는 자가 이기는 거예요. 한 번 웃고 나면 이 카드는 조커가 돼요.');
 P('joker', 'sig_joker2', '속임수 패', '🂡', 5, { trickster: { boost: 1.2 }, cd: 99 }, '카드는 이미 바뀌어 있었어요. 상대의 마지막 수를 그대로 돌려주고, 가장 아끼던 카드를 빈 조커로 바꿔 놓아요.');
+
+// ───────── 🪐 외계행성 제타-9 (Lv.100) 전용기 ─────────
+// 📏 Lv.100 능력치로 "스킬 1번 쓰면 속성 없는 상대 체력이 몇 % 깎이나"를 재서 기존 전용기와 맞췄어요 (3턴 지속피해 포함)
+//    ★3 제타 유충 ≈26% (줄 끊기 18 · 그림자 삼키기 22) / ★4 비행접시·촉수 ≈22~30% (깜짝 상자 24 · 별빛 파도 28) / ★5 그레이 ≈44% (비둘기 마술 42)
+//    ★5 제노 여왕 ≈64% (불의 링 통과 72) / ★5 성운 포식자 ≈59% + 흡혈 / ★5 액괴 정아영 ≈82% + 체력 회복 ≈16% (용왕의 업화 82 · 반동 -15%, 태양의 심판 97 · 2턴 충전)
+P('zeta_larva', 'sig_zeta_larva', '산성 침', '🧪', 3, { pow: 1.8, dot: ['poison', 0.03, 3, 0.5] }, '꿈틀꿈틀 기어와서 따끔한 산성 침을 톡! 쏘아요.');
+P('ufo_drone', 'sig_ufo_drone', '광선 납치', '🛸', 4, { pow: 1.8, stun: 0.4, drainMana: 20, cd: 3 }, '푸른 빛줄기가 내려오면 몸이 둥실… 기운까지 쏙 빨려 올라가요.');
+P('tentacle', 'sig_tentacle', '촉수 휘감기', '🦑', 4, { pow: 2.2, spdDown: [0.3, 3], defDown: [0.2, 3], cd: 3 }, '끈적한 촉수가 다리를 칭칭! 움직임도 방어도 둔해져요.');
+P('gray_alien', 'sig_gray_alien', '정신 지배 광선', '👽', 5, { pow: 3.0, stun: 0.3, drainMana: 25, cd: 6 }, '커다란 까만 눈이 반짝! 머릿속이 멍해지고 기운이 빠져나가요.');
+P('gray_alien', 'sig_gray_alien2', '기억 조작', '🧠', 4, { pow: 1.4, stealMana: 25, atkDown: [0.3, 3], cd: 4 }, '어? 내가 뭘 하려고 했더라… 마나를 슬쩍 가져가요.');
+P('xeno_queen', 'sig_xeno_queen', '여왕의 산성 폭풍', '👾', 5, { pow: 2.8, dot: ['poison', 0.06, 3, 1], cd: 7 }, '여왕이 포효하면 하늘에서 초록 산성비가 쏟아져요.');
+P('xeno_queen', 'sig_xeno_queen2', '알 부화', '🥚', 4, { clone: [0.6, 0.78, 3], cloneBoom: 2.0, cd: 5 }, '톡, 톡! 알에서 새끼들이 쏟아져 나와 같이 싸워요. 마지막엔 펑!');
+P('star_devourer', 'sig_star_devourer', '성운 삼키기', '🌀', 5, { pow: 3.3, drain: 0.25, stun: 0.25, cd: 6 }, '별빛 구름을 통째로 꿀꺽! 삼킨 만큼 힘이 차올라요.');
+P('star_devourer', 'sig_star_devourer2', '중력 붕괴', '🕳️', 4, { spdDown: [0.4, 3], defDown: [0.3, 3], drainMana: 30, cd: 4 }, '몸이 무겁게 짓눌려요. 발도, 방패도, 기운도 가라앉아요.');
+P('slime_ayoung', 'sig_ayoung', '외계 액괴 대폭주', '🫠', 5, { pow: 3.3, drain: 0.3, dot: ['poison', 0.08, 3, 1], defDown: [0.35, 3], cd: 8 }, '우주 끝에서 밀려온 보랏빛 액괴가 와르르! 닿는 순간 방어가 녹아내리고, 녹은 기운은 전부 아영의 힘이 돼요.');
+P('slime_ayoung', 'sig_ayoung2', '분열 점액막', '🫧', 5, { shield: 0.25, regen: [0.05, 4], guard: [0.35, 3], cleanse: true, cd: 8 }, '말랑한 몸이 둘로 셋으로 갈라졌다가 다시 합쳐져요. 상처도, 나쁜 기운도 쏙 녹아 사라져요.');
 
 // 스킬 속성 배정 (여기에 없는 스킬은 무속성이에요 · 전용기는 펫 속성을 따라가요)
 const ELEM_SKILLS = {

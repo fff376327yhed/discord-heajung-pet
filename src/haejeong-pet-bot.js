@@ -362,6 +362,15 @@ const PETS = {
   magician: { id: 'magician', name: '마술사', emoji: '🎩', grade: 'epic', baseStats: stats(350, 72, 52, 42), expYield: 305, catchRate: 0.1 },
   ringmaster: { id: 'ringmaster', name: '서커스 단장', emoji: '🎪', grade: 'legendary', baseStats: stats(440, 86, 62, 38), expYield: 610, catchRate: 0.033 },
   joker: { id: 'joker', name: '조커', emoji: '🃏', grade: 'divine', baseStats: stats(650, 104, 74, 48), expYield: 1700, catchRate: 0.007 },
+
+  // ── 외계행성 제타-9 (Lv.100) ──
+  zeta_larva: { id: 'zeta_larva', name: '제타 유충', emoji: '🐛', grade: 'common', baseStats: stats(260, 54, 44, 28), expYield: 108, catchRate: 0.45 },
+  ufo_drone: { id: 'ufo_drone', name: '비행접시 드론', emoji: '🛸', grade: 'uncommon', baseStats: stats(290, 60, 48, 32), expYield: 150, catchRate: 0.4 },
+  tentacle: { id: 'tentacle', name: '촉수 변이체', emoji: '🦑', grade: 'rare', baseStats: stats(370, 72, 55, 30), expYield: 212, catchRate: 0.26 },
+  gray_alien: { id: 'gray_alien', name: '그레이 외계인', emoji: '👽', grade: 'epic', baseStats: stats(410, 84, 60, 48), expYield: 315, catchRate: 0.095 },
+  xeno_queen: { id: 'xeno_queen', name: '제노 여왕', emoji: '👾', grade: 'legendary', baseStats: stats(510, 100, 70, 42), expYield: 630, catchRate: 0.03 },
+  star_devourer: { id: 'star_devourer', name: '성운 포식자', emoji: '🌀', grade: 'mythic', baseStats: stats(600, 114, 80, 46), expYield: 1040, catchRate: 0.018 },
+  slime_ayoung: { id: 'slime_ayoung', name: '액괴 정아영', emoji: '🫠', grade: 'divine', baseStats: stats(720, 112, 80, 52), expYield: 1900, catchRate: 0.006 },
 };
 
 const STARTER_IDS = Object.values(PETS).filter((p) => p.starter).map((p) => p.id);
@@ -688,6 +697,19 @@ const LOCATIONS = {
       { petId: 'magician', weight: 12, lv: [74, 82] },
       { petId: 'ringmaster', weight: 6, lv: [76, 85] },
       { petId: 'joker', weight: 0.7, lv: [82, 92] },
+    ],
+  },
+  alien_planet: {
+    id: 'alien_planet', name: '외계행성 제타-9', emoji: '🪐', minLevel: 100, expMultiplier: 28.0,
+    description: '하늘이 보랏빛으로 물든 낯선 행성이에요. 바닥이 말랑말랑 꿀렁거리고… 아주 크고 끈적한 무언가가 이쪽을 지켜보고 있어요.',
+    spawns: [
+      { petId: 'zeta_larva', weight: 30, lv: [99, 105] },
+      { petId: 'ufo_drone', weight: 28, lv: [100, 106] },
+      { petId: 'tentacle', weight: 22, lv: [102, 110] },
+      { petId: 'gray_alien', weight: 12, lv: [104, 112] },
+      { petId: 'xeno_queen', weight: 6, lv: [106, 115] },
+      { petId: 'star_devourer', weight: 3, lv: [108, 118] },
+      { petId: 'slime_ayoung', weight: 0.6, lv: [112, 125] },
     ],
   },
 };
