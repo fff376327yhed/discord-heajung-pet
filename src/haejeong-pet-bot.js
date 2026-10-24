@@ -17,6 +17,9 @@ import {
   castSkill,
   tickSide,
   tryRevive, // 🆕 부활
+  berserkMult, // 🔥 광폭화 (공허의 숨결)
+  berserkFinish,
+  frozenBlocks, // 🧊 동결 (서리 숨결)
   cdLeft, // 🆕 쿨타임
   pickWildSkill,
   statusText,
@@ -1744,7 +1747,7 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
           thrown += 1;
           if (rng() < chance) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('caught', round); }
           if (rng() < fleeChance(thrown)) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('fled', round); }
-          if (rng() >= myEvade) myHp -= mitigate(me, calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg, rng).dmg; // 놓치면 반격!
+          if (rng() >= myEvade) myHp -= mitigate(me, calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg, rng, { basic: true }).dmg; // 놓치면 반격!
         }
       }
     }
@@ -1762,12 +1765,12 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
             if (!mySk.pow && !mySk.bomb && (mySk.heal || mySk.regen || mySk.shield || mySk.guard)) defendUses += 1;
           } else {
             attacked = true;
-            if (rng() >= wildMiss) wildHp -= mitigate(foe, calcDamage(mine.atk, wild.def, rng, myCrit, myMult).dmg, rng).dmg;
+            if (rng() >= wildMiss) wildHp -= mitigate(foe, calcDamage(mine.atk, wild.def, rng, myCrit, myMult).dmg, rng, { basic: true }).dmg;
           }
         } else if (stunned(foe.st, foe.name, log)) {
           // 💫 기절! 이번 턴은 못 움직여요
         } else if (rng() >= myEvade) {
-          myHp -= mitigate(me, calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg, rng).dmg;
+          myHp -= mitigate(me, calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg, rng, { basic: true }).dmg;
         }
       }
     }
@@ -2757,8 +2760,8 @@ function iMoveFirst(c, b) {
 // 🆕 기본 공격으로 피해를 받은 직후: 반사 · 이번 턴 받은 피해 기록. toMe=true 면 내가 맞은 거예요.
 function reactHit(c, b, toMe, dmg, log) {
   // 맞은 쪽(X)·때린 쪽(Y)을 공격력·최대 체력·속성까지 갖춘 모습으로 넘겨요 (서리 반격·사냥 표식·피해 전이·부활 폭발이 써요)
-  const mine = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, elems: petElems(c.main.petId), st: b.mySt };
-  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, elems: petElems(c.wildInfo.petId), st: b.wildSt };
+  const mine = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0), atk: c.mine.atk, def: c.mine.def, elems: petElems(c.main.petId), st: b.mySt };
+  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp + (b.wildSt?.maxBonus ?? 0), atk: c.wild.atk, def: c.wild.def, elems: petElems(c.wildInfo.petId), st: b.wildSt };
   afterHit(toMe ? mine : wild, toMe ? wild : mine, dmg, log);
   (toMe ? wild : mine).st.act = 'other'; // 👁️ 때린 쪽의 마지막 행동은 "공격" (급강하 폭격의 읽기 판정)
   b.myHp = mine.hp; // 반사·표식·전이로 양쪽 체력이 모두 바뀔 수 있어요
@@ -2818,11 +2821,16 @@ function myAttack(c, b, log, rng) {
   const clash = elemClash(effElems(mySideOf(c, b))[0], wildSideOf(c, b), { attacker: mySideOf(c, b) });
   const dv = !!b.mySt.devil; // 😈 악마의 거래 중: 확정 급소 + 약점 확정
   const weak = dv && clash.mult < ELEM_CFG.strong;
-  const { dmg: raw, crit } = calcDamage(c.mine.atk, c.wild.def, rng, dv ? 1 : CRIT_CHANCE + c.mineEq.crit, weak ? ELEM_CFG.strong : clash.mult);
-  const hit = mitigate({ st: b.wildSt }, raw, rng);
+  const { dmg: raw0, crit } = calcDamage(c.mine.atk, c.wild.def, rng, dv ? 1 : CRIT_CHANCE + c.mineEq.crit, weak ? ELEM_CFG.strong : clash.mult);
+  const bzm = berserkMult(b.mySt, 'atk'); // 🔥 광폭화: 다음 기본 공격 1회 위력 보너스
+  const raw = Math.max(1, Math.round(raw0 * bzm));
+  const hit = mitigate({ st: b.wildSt }, raw, rng, { basic: true }); // 🕊️ 기본 공격 표시 (비둘기 도발)
   b.wildHp = Math.max(0, b.wildHp - hit.dmg);
-  log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${hit.dmg}** 데미지${weak ? ' 😈 **악마의 거래: 약점 확정!**' : clash.note}${hit.note}`);
+  log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${hit.dmg}** 데미지${weak ? ' 😈 **악마의 거래: 약점 확정!**' : clash.note}${hit.note}${bzm > 1 ? ' 🔥 **광폭화!**' : ''}`);
   reactHit(c, b, false, hit.dmg, log);
+  const bzFoe = { name: c.wildPet.name, hp: b.wildHp, st: b.wildSt }; // 🔥 광폭화 중이면 확률로 상대 체력이 5만 남아요
+  berserkFinish(b.mySt, bzFoe, rng, log);
+  b.wildHp = bzFoe.hp;
 }
 
 // 🐾 야생 펫의 기본 공격 (쓸 스킬이 없을 때) — myAttack 의 "반대편" 버전이에요
@@ -2837,11 +2845,16 @@ function wildAttack(c, b, log, rng) {
   }
   const fx = GRADE_EFFECTS[c.wildPet.grade];
   const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b), { attacker: wildSideOf(c, b) });
-  const { dmg: raw, crit } = calcDamage(c.wild.atk, c.mine.def, rng, fx.critChance + c.wildEq.crit, clash.mult);
-  const hit = mitigate({ st: b.mySt }, raw, rng);
+  const { dmg: raw0, crit } = calcDamage(c.wild.atk, c.mine.def, rng, fx.critChance + c.wildEq.crit, clash.mult);
+  const bzm = berserkMult(b.wildSt, 'atk'); // 🔥 야생 펫이 광폭화 중이면 기본 공격도 세져요
+  const raw = Math.max(1, Math.round(raw0 * bzm));
+  const hit = mitigate({ st: b.mySt }, raw, rng, { basic: true });
   b.myHp = Math.max(0, b.myHp - hit.dmg);
-  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${hit.dmg}** 데미지${clash.note}${hit.note}`);
+  log.push(`${c.wildPet.emoji} ${c.wildPet.name}의 공격! ${crit ? '💥 급소! ' : ''}${c.myName}에게 **${hit.dmg}** 데미지${clash.note}${hit.note}${bzm > 1 ? ' 🔥 **광폭화!**' : ''}`);
   reactHit(c, b, true, hit.dmg, log);
+  const bzFoe = { name: c.myName, hp: b.myHp, st: b.mySt };
+  berserkFinish(b.wildSt, bzFoe, rng, log);
+  b.myHp = bzFoe.hp;
 }
 
 // 🆕 야생 펫의 한 번 행동: 상황에 맞는 스킬이 있으면 스킬, 없으면 기본 공격
@@ -2853,17 +2866,17 @@ function wildAct(c, b, log, rng) {
   const main = c.main;
   const mySkills = b.mySkillOv ?? main.skills ?? [];
   const me = {
-    name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp,
+    name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0),
     atk: c.mine.atk, def: c.mine.def, spd: c.mine.spd,
-    crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main),
+    crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main) - (b.mySt?.manaDown?.cut ?? 0),
     st: b.mySt, elems: petElems(main.petId), skills: [...mySkills], fight: b,
   };
   const origWild = [...(b.wildSkillOv ?? c.wildInfo.skills ?? [])];
   const wild = {
-    name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp,
+    name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp + (b.wildSt?.maxBonus ?? 0),
     atk: c.wild.atk, def: c.wild.def, spd: c.wild.spd,
     crit: GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit,
-    mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt,
+    mana: b.wildMana, manaMax: SKILL_CFG.manaMax - (b.wildSt?.manaDown?.cut ?? 0), st: b.wildSt,
     elems: petElems(c.wildInfo.petId), skills: [...origWild], fight: b,
   };
 
@@ -2965,6 +2978,7 @@ function exploreViewDangerConfirm(snap, userId, hit) {
 
 // 🆕 기절 상태면 이번 행동을 건너뛰고(한 번만) 상태를 풀어줘요. true 를 돌려주면 행동을 못 한 거예요.
 function stunned(st, name, log) {
+  if (frozenBlocks(st, name, log)) return true; // 🧊 얼음에 갇혀 있으면 행동 불가 (행동하려 할 때마다 확률로 깨져요)
   if (!st.stun) return false;
   delete st.stun;
   log.push(`💫 ${name}(이)가 기절해서 움직이지 못했어요!`);
@@ -2979,12 +2993,14 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   const locationId = ex.locationId;
   b.round += 1;
   // 🪽 이번 턴에 쓰러진 쪽이 부활 효과를 갖고 있으면 되살려요 (기본 공격으로 쓰러진 경우 포함)
-  const rvMe = { name: myName, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, elems: petElems(main.petId), st: b.mySt };
-  const rvWild = { name: wildPet.name, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, elems: petElems(wildInfo.petId), st: b.wildSt };
+  const rvMe = { name: myName, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0), atk: c.mine.atk, def: c.mine.def, elems: petElems(main.petId), st: b.mySt };
+  const rvWild = { name: wildPet.name, hp: b.wildHp, max: c.wild.hp + (b.wildSt?.maxBonus ?? 0), atk: c.wild.atk, def: c.wild.def, elems: petElems(wildInfo.petId), st: b.wildSt };
   tryRevive(rvMe, log, rvWild); // 🔥 환생의 불길은 부활하는 순간 상대에게 폭발 피해를 줘요
   tryRevive(rvWild, log, rvMe);
   b.myHp = rvMe.hp;
   b.wildHp = rvWild.hp;
+  b.myMax = rvMe.max; // ⬆️ 부활로 늘어난 최대 체력 (화면·회복약 계산용)
+  b.wildMax = rvWild.max;
   setHp(main, b.myHp, now); // ❤️ 전투가 끝나도 체력이 이어져요
 
   // 승리!
@@ -3070,8 +3086,8 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   }
 
   // 🆕 턴 끝: 지속 피해 · 재생 · 상태이상 턴 감소는 항상 적용돼요. 내 마나는 기본 공격을 한 턴에만 차요!
-  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, mana: b.myMana, manaMax: maxMana(main), elems: petElems(main.petId), st: b.mySt };
-  const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, elems: petElems(wildInfo.petId), st: b.wildSt };
+  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0), atk: c.mine.atk, def: c.mine.def, mana: b.myMana, manaMax: maxMana(main) - (b.mySt?.manaDown?.cut ?? 0), elems: petElems(main.petId), st: b.mySt };
+  const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp + (b.wildSt?.maxBonus ?? 0), atk: c.wild.atk, def: c.wild.def, mana: b.wildMana, manaMax: SKILL_CFG.manaMax - (b.wildSt?.manaDown?.cut ?? 0), elems: petElems(wildInfo.petId), st: b.wildSt };
   tickSide(tMe, log, myManaGain, tWild);
   tickSide(tWild, log, true, tMe);
   b.myHp = tMe.hp; b.myMana = tMe.mana;
@@ -3234,8 +3250,8 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
 
   const c = context(player, ex);
   const log = [];
-  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp, atk: c.mine.atk, def: c.mine.def, spd: c.mine.spd, crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main), st: b.mySt, elems: petElems(c.main.petId), skills: [...mySkills], fight: b };
-  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp, atk: c.wild.atk, def: c.wild.def, spd: c.wild.spd, crit: GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, mana: b.wildMana, manaMax: SKILL_CFG.manaMax, st: b.wildSt, elems: petElems(c.wildInfo.petId), skills: [...(b.wildSkillOv ?? c.wildInfo.skills ?? [])], fight: b };
+  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0), atk: c.mine.atk, def: c.mine.def, spd: c.mine.spd, crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main) - (b.mySt?.manaDown?.cut ?? 0), st: b.mySt, elems: petElems(c.main.petId), skills: [...mySkills], fight: b };
+  const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp + (b.wildSt?.maxBonus ?? 0), atk: c.wild.atk, def: c.wild.def, spd: c.wild.spd, crit: GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, mana: b.wildMana, manaMax: SKILL_CFG.manaMax - (b.wildSt?.manaDown?.cut ?? 0), st: b.wildSt, elems: petElems(c.wildInfo.petId), skills: [...(b.wildSkillOv ?? c.wildInfo.skills ?? [])], fight: b };
   const origWild = [...wild.skills];
   const sameArr = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
   const sync = () => {
@@ -4422,7 +4438,7 @@ function exploreViewBattle(snap, userId, note) {
       {
         title: `⚔️ ${mine.emoji} ${b.myName} VS ${wild.emoji} ${wild.name}`,
         description:
-          `${note ? note + '\n\n' : ''}${b.round}턴째 · 🔋 마나 ${b.myMana}/${maxMana(getMainPetFromSnap(snap))}` +
+          `${note ? note + '\n\n' : ''}${b.round}턴째 · 🔋 마나 ${b.myMana}/${maxMana(getMainPetFromSnap(snap)) - (b.mySt?.manaDown?.cut ?? 0)}` +
           `\n${matchupTextShort(b.myPetId, snap.encounter.petId, b.mySt, b.wildSt)}` +
           wildEquipTextShort(snap.encounter) +
           (GRADE_EFFECTS[wild.grade].aura ? `\n${GRADE_EFFECTS[wild.grade].aura}` : '') +
@@ -4458,7 +4474,7 @@ function exploreViewSkillConfirm(snap, userId, slot) {
   const sk = SKILLS[b.skills?.[slot]];
   const wild = PETS[snap.encounter.petId];
   const mine = PETS[b.myPetId];
-  const maxM = maxMana(getMainPetFromSnap(snap));
+  const maxM = maxMana(getMainPetFromSnap(snap)) - (b.mySt?.manaDown?.cut ?? 0);
   const enough = b.myMana >= sk.cost;
   const cdn = cdLeft(b.mySt, sk.id); // ⏳ 남은 쿨타임
   const sealed = !!b.mySt?.sealed; // 🔒 스킬 봉인

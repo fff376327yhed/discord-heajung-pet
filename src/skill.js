@@ -39,7 +39,7 @@
 //   statRoll [모드,대상,턴] 능력치 룰렛 (모드: 'swap' 두 능력치 맞바꿈 · 'random' 랜덤 배수 / 대상: 'self'|'foe') — 등급별 상한(ROLL_CAP)
 //   cdReset 숫자 내 스킬 쿨타임을 전부(99) 또는 숫자만큼 줄여요 · cd 숫자 이 스킬의 쿨타임(턴)
 //   revive [비율,턴] 쓰러지면 비율만큼 체력으로 부활 (턴이 지나면 사라져요) · skillImmune 턴 스킬로 취급되는 효과 전부 무효
-//   archBless [회복배율,추가피해비율] 받은 피해 × 배율 회복 + 회복량의 비율만큼 상대에게 추가 피해
+//   archBless [회복배율,추가피해비율,넘친배수] 받은 피해 × 배율 회복 + 회복량의 비율만큼 상대에게 추가 피해 (넘친 회복량은 비율 × 넘친배수 만큼)
 //   🆕 4차 확장 효과 칸 (배치 4):
 //   joker true 내 스킬 하나 ↔ 상대 스킬 하나 랜덤 맞교환 (전투 안에서만 · 전투당 1번 = ex.battle.jokerUsed) — 상대가 받는 게 조커 카드면 상대 마나 전부 삭제 + 스킬 봉인
 //   curse [개수,턴] 나 자신에게 랜덤 디버프를 개수만큼 걸고, 이 스킬 칸이 curse_grant(저주부여)로 바뀌어요 · curseGrant 배수 저주로 받은 디버프를 배수 위력으로 상대에게
@@ -80,6 +80,13 @@
 //   drowsy 턴 상대에게 "졸음": 턴째 끝에 잠들어 다음 행동 1회 불가, 그 전에 직접 피해를 맞으면 졸음이 깨져요 (이미 기절 중이면 불발) (인어의 자장가)
 //   readBonus 배수 "읽기": 상대가 직전에 회복·방어·버프 스킬을 썼으면(st.act) 위력 × 배수 + 상대의 좋은 효과를 전부 지워요 (급강하 폭격)
 //   cloneBoom 배수 clone 과 같이 쓰면 분신이 쓰러지거나 끝날 때 공격력 × 배수 방어 무시 폭발, 분신이 남아 있는 동안은 다시 못 써요 (채찍 신호)
+//   🆕 11차 확장 효과 칸 (★5 개편):
+//   pigeon [체력비율(상대 최대체력),스킬피해 대신 맞는 비율,턴마다 마나 강탈,기본공격 도발 배수,턴] 비둘기를 소환해요: 상대 스킬 피해의 일부를 대신 맞고, 기본 공격은 전부 배수 위력으로 대신 맞아요 (mitigate 의 opts.basic · 비둘기 마술)
+//   freeze 턴 적을 얼려요: 행동이 막히고 받는 피해 ×2, 행동하려 할 때마다 35% 확률로 깨져요 (FROZEN_CFG · 서리 숨결)
+//   berserk 턴 상대가 살아 있으면 내게 광폭화: 최대 체력 30% 이하 피해 무시 · 다음 기본 공격/공격 스킬 위력 +60% · 공격마다 5% 확률로 상대 체력 5 (BERSERK_CFG · 공허의 숨결)
+//   stealSpd [빠를 때 능력치, 같거나 느릴 때 능력치, 비율, 턴] 상대 스피드가 나보다 빠르면 앞의 능력치, 같거나 느리면 뒤의 능력치(atk|def)를 훔쳐요 (불의 링 통과)
+//   powDown [비율,턴] 적이 쓰는 스킬 위력(공격 스킬의 타격 배율)을 비율만큼 깎아요 · manaDown [비율,턴] 적의 현재 마나를 비율만큼 깎고, 턴 동안 최대 마나도 비율만큼 깎아요 (st.manaDown.cut · 봇이 매 턴 manaMax 에서 빼줘요) (늪 마녀의 저주)
+//   reviveMaxUp 비율 revive 와 같이 쓰면: 부활하는 순간 이번 전투 동안 최대 체력이 비율만큼 늘고, 늘어난 최대 체력 기준으로 채워요 (st.maxBonus · 봇이 매 턴 max 에 더해줘요) (부활)
 
 export const SKILL_CFG = {
   manaMax: 100, // 마나 최대치 (마나 수정으로 펫마다 더 늘릴 수 있어요)
@@ -95,6 +102,7 @@ export const SKILL_CFG = {
   crystalMaxBonus: 100, // 마나 수정으로 늘릴 수 있는 최대치
   elemAffinity: 2, // 🌈 슬롯이 열릴 때 "내 펫과 같은 속성" 스킬이 뽑힐 확률 배수 (1 이면 꺼짐, 2 면 같은 등급 안에서 2배 잘 나와요)
 };
+const MANA_DOWN_MIN = 10; // 🔽 마나 감소로 최대 마나가 이 밑으로는 안 내려가요
 export const CLONE_SHARE = 0.5; // 👥 분신이 대신 맞아주는 피해 비율
 export const CLONE_HP_PER_DEF = 6; // 👥 분신 체력 = 내 방어력 × 방어비율 × 이 값 (최소 10)
 // 슬롯이 열릴 때 "등급(★)"이 뽑힐 확률 무게예요. 합이 100이라서 숫자가 곧 퍼센트(%)예요!
@@ -537,10 +545,10 @@ U('stat_roulette', '능력치 룰렛', '🎡', 3, { statRoll: ['random', 'self',
 U('foe_roulette', '상대 룰렛', '🌀', 3, { statRoll: ['random', 'foe', 3] }, '상대의 능력치 판을 빙글빙글 흔들어요.');
 U('chaos_swap', '혼돈의 맞바꿈', '🌪️', 4, { statRoll: ['swap', 'foe', 3] }, '상대의 힘과 방어와 속도가 뒤죽박죽!');
 U('time_rewind', '시간 되감기', '⏪', 3, { cdReset: 99, mana: 10 }, '시계를 거꾸로 돌려 모든 스킬을 다시 쓸 수 있게 해요.');
-U('revival', '부활', '🪽', 5, { revive: [0.5, 3], cd: 6, elem: 'light' }, '3턴 동안, 쓰러져도 날개를 펴고 다시 일어나요.');
+U('revival', '부활', '🪽', 5, { revive: [1, 3], reviveMaxUp: 0.7, cd: 8, elem: 'light' }, '3턴 동안, 쓰러져도 더 커진 몸으로 체력을 가득 채우고 다시 일어나요.');
 U('skill_ward', '스킬 면역', '🧿', 4, { skillImmune: 2, cd: 4, elem: 'light' }, '어떤 스킬도 통하지 않는 투명한 막이 둘러싸요.');
 U('void_veil', '무효의 장막', '🕳️', 5, { skillImmune: 3, cd: 6, elem: 'dark' }, '스킬이라는 스킬은 전부 허공으로 사라져요.');
-U('archangel_bless', '대천사의 축복', '👼', 5, { archBless: [2, 0.3], cd: 3, elem: 'light' }, '맞은 아픔을 두 배의 빛으로 돌려받고, 그 빛이 상대를 꿰뚫어요.');
+U('archangel_bless', '대천사의 축복', '👼', 5, { archBless: [2, 0.3, 5], cd: 5, elem: 'light' }, '맞은 아픔을 두 배의 빛으로 돌려받고, 몸에 담지 못하고 넘친 빛은 다섯 배로 상대를 꿰뚫어요.');
 
 
 // ───────── 🆕 4차 확장 (배치 4): 조커 · 금단의 저주 · 저주부여 · 악마와의 거래 ─────────
@@ -638,7 +646,7 @@ P('frog', 'sig_frog', '개굴 합창', '🐸', 2, { pow: 1.5, stun: 0.35 }, '개
 P('snake', 'sig_snake', '독니 일격', '🐍', 3, { pow: 1.8, dot: ['poison', 0.05, 4, 0.9] }, '송곳니에서 맹독이 퍼져요.');
 P('croc', 'sig_croc', '죽음의 회전', '🐊', 3, { pow: 2.3, defDown: [0.25, 3], recoil: 0.04 }, '물고 빙글빙글! 놓치는 법이 없어요.');
 P('wisp', 'sig_wisp', '길잃은 불빛', '🕯️', 4, { lamp: [0.05, 25, 3], cd: 4 }, '따라가다 보면 어느새 낭떠러지...');
-P('witch', 'sig_witch', '늪 마녀의 저주', '🧙', 5, { atkDown: [0.4, 4], defDown: [0.4, 4], dot: ['poison', 0.14, 4, 1] }, '보글보글 끓는 솥에서 저주가 피어올라요.');
+P('witch', 'sig_witch', '늪 마녀의 저주', '🧙', 5, { atkDown: [0.5, 5], defDown: [0.5, 5], spdDown: [0.5, 5], powDown: [0.5, 5], manaDown: [0.5, 5], dot: ['poison', 0.15, 3, 0.75], cd: 8 }, '보글보글 끓는 솥에서 저주가 피어올라요.');
 P('witch', 'sig_witch2', '마녀의 영약', '🧪', 4, { potion: 2, cleanse: true, cd: 4 }, '정체불명 영약, 효과는 확실해요.');
 // 불볕 사막
 P('camel', 'sig_camel', '혹 저장고', '🐪', 2, { heal: 0.35, mana: 15 }, '혹에 저장해 둔 영양분으로 힘을 내요.');
@@ -653,7 +661,7 @@ P('penguin', 'sig_penguin', '배치기 미끄럼', '🐧', 2, { pow: 1.9, stun: 
 P('bear', 'sig_bear', '흰곰 앞발치기', '🐻', 3, { pow: 2.4, crit: 0.2 }, '묵직한 앞발이 휙!');
 P('yeti', 'sig_yeti', '설인의 눈덩이', '🦍', 4, { pow: 1.6, snowball: [1.0, 0.35, 2.4], cd: 3 }, '집채만 한 눈덩이를 굴려요.');
 P('ice_spirit', 'sig_ice_spirit', '얼음 감옥', '🧊', 4, { pow: 2.0, defDown: [0.2, 3], speedRev: 3, cd: 5 }, '순식간에 꽁꽁 얼려요.');
-P('frost_dragon', 'sig_frost_dragon', '서리 숨결', '❄️', 5, { pow: 3.2, stun: 0.3, dot: ['burn', 0.07, 3, 0.8] }, '닿는 곳마다 얼음꽃이 피어요.');
+P('frost_dragon', 'sig_frost_dragon', '서리 숨결', '❄️', 5, { pow: 3.2, dot: ['burn', 0.07, 3, 0.8], freeze: 3, cd: 8 }, '닿는 곳마다 얼음꽃이 피어요. 얼음에 갇힌 상대는 꼼짝 못 해요.');
 P('frost_dragon', 'sig_frost_dragon2', '서리 비늘', '🛡️', 4, { shield: 0.4, shieldCounter: [1.8, 0.35, 3, 4], mana: 10, cd: 4 }, '얼음 비늘이 모든 공격을 튕겨요.');
 P('ice_queen', 'sig_ice_queen', '영원한 겨울', '👸', 5, { pow: 2.8, stun: 0.4, atkDown: [0.35, 4], defDown: [0.3, 4] }, '세상이 하얗게, 아주 조용해져요.');
 P('ice_queen', 'sig_ice_queen2', '여왕의 칙령', '👑', 4, { shield: 0.4, mana: 30, reflectDebuff: 3, cd: 4 }, '"감히 내 앞에서."');
@@ -673,7 +681,7 @@ P('shadow', 'sig_shadow', '그림자 삼키기', '👤', 3, { pow: 2.2, drain: 0
 P('void_eye', 'sig_void_eye', '허공의 응시', '👁️', 4, { stun: 0.65, defDown: [0.35, 4], drainMana: 30, truePct: 0.06, cd: 4 }, '눈이 마주친 순간, 몸이 굳어요.');
 P('star_whale', 'sig_star_whale', '별빛 파도', '🐳', 4, { pow: 2.4, shieldDrain: [0.5, 0.4], mana: 15, cd: 3 }, '반짝이는 파도가 아군은 안고 적은 밀어내요.');
 P('comet', 'sig_comet', '혜성 충돌', '☄️', 5, { pow: 3.3, recoil: 0.1, stun: 0.3 }, '긴 꼬리를 끌고 쾅!');
-P('void_dragon', 'sig_void_dragon', '공허의 숨결', '🌑', 5, { pow: 3.3, pierce: 0.5 }, '닿은 곳이 사라져요.');
+P('void_dragon', 'sig_void_dragon', '공허의 숨결', '🌑', 5, { truePct: 0.35, drainMana: 9999, berserk: 2, cd: 7 }, '닿은 곳이 사라져요. 사라진 자리에서 광기가 깨어나요.');
 P('void_dragon', 'sig_void_dragon2', '차원 비늘', '🕳️', 4, { transfer: [0.35, 3], evade: 2, cd: 5 }, '비늘 틈으로 공격이 사라져요.');
 P('chaos_lord', 'sig_chaos_lord', '혼돈의 소용돌이', '😈', 5, { pow: 0.85, hits: 4, stun: 0.3, atkDown: [0.25, 3] }, '무슨 일이 일어날지 아무도 몰라요.');
 P('chaos_lord', 'sig_chaos_lord2', '군주의 오만', '👿', 5, { atkUp: [0.9, 3], mana: 40 }, '"모든 것이 내 뜻대로."');
@@ -683,9 +691,9 @@ P('creator', 'sig_creator2', '태초의 숨결', '✨', 5, { heal: 0.6, cleanse:
 P('puppet', 'sig_puppet', '줄 끊기', '🪆', 3, { pow: 2.0, defDown: [0.2, 3] }, '보이지 않는 줄에 매달려 춤추듯 달려들어요.');
 P('mask_actor', 'sig_mask_actor', '가면 바꿔쓰기', '🎭', 4, { maskSwap: 3, atkUp: [0.4, 3], evade: 1, mana: 10, cd: 4 }, '새 가면을 쓰면 새 사람이 돼요.');
 P('clown', 'sig_clown', '깜짝 상자', '🤡', 4, { pow: 1.5, jackBox: true, mana: 10, cd: 3 }, '뚜껑을 열면… 으악!');
-P('magician', 'sig_magician', '비둘기 대폭발', '🕊️', 5, { pow: 3.1, stun: 0.3 }, '모자 속에서 하얀 비둘기가 쏟아져 나와요.');
+P('magician', 'sig_magician', '비둘기 마술', '🕊️', 5, { pow: 3.1, stun: 0.3, pigeon: [0.7, 0.8, 10, 1.5, 2], cd: 6 }, '모자 속에서 하얀 비둘기가 쏟아져 나와요. 한 마리는 대신 맞아 주고, 상대 마나를 쪼아 가요.');
 P('magician', 'sig_magician2', '손재주 부리기', '🎩', 4, { stealMana: 30, atkDown: [0.2, 3], buffXfer: ['swap', 3], cd: 4 }, '어? 내 마나가 어디 갔지?');
-P('ringmaster', 'sig_ringmaster', '불의 링 통과', '🎪', 5, { pow: 3.2, dot: ['burn', 0.08, 3, 1] }, '활활 타는 링 사이로 돌진해요!');
+P('ringmaster', 'sig_ringmaster', '불의 링 통과', '🎪', 5, { pow: 3.2, dot: ['burn', 0.08, 3, 1], stealSpd: ['def', 'atk', 0.7, 3], cd: 6 }, '활활 타는 링 사이로 돌진해요! 빠른 상대에겐 방패를, 느린 상대에겐 힘을 빼앗아요.');
 P('ringmaster', 'sig_ringmaster2', '채찍 신호', '🪄', 4, { clone: [0.6, 0.78, 3], cloneBoom: 2.3, cd: 5 }, '짝! 소리에 모두가 한 몸처럼 움직여요.');
 P('joker', 'sig_joker', '광대의 마지막 웃음', '🃏', 5, { pow: 3.5, stun: 0.3, crit: 0.2 }, '마지막에 웃는 자가 이기는 거예요.');
 P('joker', 'sig_joker2', '속임수 패', '🂡', 5, { atkDown: [0.35, 4], defDown: [0.3, 4], drainMana: 40 }, '카드는 이미 바뀌어 있었어요.');
@@ -764,7 +772,7 @@ export function skillEffectLines(sk) {
   if (sk.cloneBoom) t.push(`🎆 분신이 쓰러지거나 끝나는 순간 **폭발**: 공격력의 ${P100(sk.cloneBoom)} 방어 무시 피해 (분신이 남아 있는 동안은 다시 못 써요)`);
   if (sk.jackBox) t.push('🎁 카드 1장이 같은 확률(25%)로 나와요: ♠폭죽(추가 공격력 150%) / ♥선물(체력 35% 회복) / ♦마나 도둑(상대 마나 40 훔치기) / ♣깜짝(상대 기절 확정)');
   if (sk.mana) t.push(`마나 +${sk.mana}`);
-  if (sk.drainMana) t.push(`적 마나 -${sk.drainMana}`);
+  if (sk.drainMana) t.push(sk.drainMana >= 999 ? '🔻 적 마나를 **전부** 없애요' : `적 마나 -${sk.drainMana}`);
   if (sk.bomb) t.push(`💣 적에게 **시한폭탄** 설치: 이번 턴 포함 ${sk.bomb[1]}번째 턴이 끝날 때 공격력의 ${P100(sk.bomb[0])} 피해 (방어 무시)`);
   if (sk.detonate) t.push(`적에게 걸린 화상·독·출혈을 터뜨려요: 남은 피해의 ×${sk.detonate} 를 한 번에 (방어 무시, 상태이상은 사라져요)`);
   if (sk.stealMana) t.push(`적 마나를 ${sk.stealMana}만큼 훔쳐서 내 마나로`);
@@ -775,6 +783,7 @@ export function skillEffectLines(sk) {
   if (sk.convert) t.push(`🧬 ${sk.convert[1]}턴 동안 내 속성이 **${elemTag(sk.convert[0])}** 으로 변해요 (그 속성 스킬 보너스 · 방어 상성도 같이 바뀌어요)`);
   if (sk.ward) t.push(`🔮 ${sk.ward}턴 동안 속성 약점으로 맞아도 추가 피해를 안 받아요`);
   if (sk.steal) t.push(`🧲 적 ${{ atk: '공격력', def: '방어력', spd: '스피드' }[sk.steal[0]] ?? sk.steal[0]} ${P100(sk.steal[1])}를 훔쳐요 (${sk.steal[2]}턴)`);
+  if (sk.stealSpd) { const L = { atk: '공격력', def: '방어력' }; t.push(`🎪 적이 나보다 **빠르면** ${L[sk.stealSpd[0]]}, **같거나 느리면** ${L[sk.stealSpd[1]]} ${P100(sk.stealSpd[2])}를 훔쳐요 (${sk.stealSpd[3]}턴)`); }
   // 🛠️ 아래 10줄은 예전에 설명이 비어 있어서 확인창에 "효과 없음"으로 뜨던 스킬들이에요
   if (sk.manaMaxUp) t.push(`🔷 ${sk.manaMaxUp[1]}턴 동안 최대 마나 +${sk.manaMaxUp[0]}`);
   if (sk.manaRegenUp) t.push(`🔋 ${sk.manaRegenUp[1]}턴 동안 기본 공격으로 차는 마나 +${sk.manaRegenUp[0]}`);
@@ -786,6 +795,11 @@ export function skillEffectLines(sk) {
   if (sk.coinflip) t.push(`🎲 ${sk.coinflip}턴 동안 받는 피해가 50% 확률로 ×1.5, 50% 확률로 0`);
   if (sk.defToAtk) t.push(`⚔️ ${sk.defToAtk}턴 동안 방어력을 전부 공격력으로 (방어력은 0)`);
   if (sk.healCut) t.push(`🚑 ${sk.healCut[1]}턴 동안 적이 받는 회복 -${P100(sk.healCut[0])}`);
+  if (sk.pigeon) t.push(`🕊️ **비둘기** 소환: 체력은 상대 최대 체력의 ${P100(sk.pigeon[0])} · 상대 스킬 피해의 ${P100(sk.pigeon[1])}를 대신 맞고 **도발**로 기본 공격은 전부(위력 ×${sk.pigeon[3]}) 대신 맞아요 · 매 턴 상대 마나 ${sk.pigeon[2]} 강탈 (이번 턴 남은 행동 + 다음 턴 · 쓰러지면 퇴장)`);
+  if (sk.freeze) t.push(`🧊 적을 **얼려요** (최대 ${sk.freeze}턴): 얼어 있는 동안 적의 행동이 막히고 받는 피해 ×${FROZEN_CFG.dmgMult} · 적이 행동하려 할 때마다 ${P100(FROZEN_CFG.breakChance)} 확률로 얼음이 깨져요`);
+  if (sk.berserk) t.push(`🔥 (적이 살아 있으면) ${sk.berserk}턴 동안 **광폭화**: 최대 체력의 ${P100(BERSERK_CFG.ignore)} 이하 피해는 무시 · 다음 기본 공격과 다음 공격 스킬의 위력 +${P100(BERSERK_CFG.bonus)} · 공격할 때마다 ${P100(BERSERK_CFG.hpChance)} 확률로 상대 체력이 ${BERSERK_CFG.hpTo}만 남아요`);
+  if (sk.powDown) t.push(`🔻 ${sk.powDown[1]}턴 동안 적 스킬 위력 -${P100(sk.powDown[0])}`);
+  if (sk.manaDown) t.push(`🔽 적의 현재 마나 -${P100(sk.manaDown[0])} · ${sk.manaDown[1]}턴 동안 최대 마나 -${P100(sk.manaDown[0])}`);
   if (sk.fear) t.push(`😱 이번 턴 맞은 피해의 ${P100(sk.fear)}를 내 공격력에 더해 반격 (안 맞았으면 상대 공격력의 30%×${sk.fear})`);
   if (sk.copy) t.push('🦜 상대가 마지막에 쓴 스킬을 복사해서 마나 0으로 즉시 사용 (없으면 마나 반환)');
   if (sk.priority) t.push(`⏱️ 다음 ${sk.priority}턴 동안 스피드와 상관없이 항상 먼저 행동`);
@@ -796,8 +810,9 @@ export function skillEffectLines(sk) {
   if (sk.statRoll) t.push(`🎰 ${sk.statRoll[2]}턴 동안 ${sk.statRoll[1] === 'foe' ? '상대' : '내'} 공격력·방어력·스피드를 ${sk.statRoll[0] === 'swap' ? '두 개 골라 **랜덤으로 맞바꿔요**' : '**랜덤 배수**로 바꿔요'} (등급 상한 ×${ROLL_CAP[sk.tier] ?? 1.5})`);
   if (sk.cdReset) t.push(sk.cdReset >= 99 ? '⏪ 내 모든 스킬의 쿨타임을 없애요' : `⏪ 내 모든 스킬의 쿨타임 -${sk.cdReset}턴`);
   if (sk.revive) t.push(`🪽 ${sk.revive[1]}턴 동안 쓰러지면 최대 체력의 ${P100(sk.revive[0])}로 **부활** (${sk.revive[2] ?? 1}회 · 턴이 지나면 사라져요)`);
+  if (sk.reviveMaxUp) t.push(`⬆️ 부활하는 순간 이번 전투 동안 최대 체력 **+${P100(sk.reviveMaxUp)}** (늘어난 최대 체력 기준으로 채워요)`);
   if (sk.skillImmune) t.push(`🧿 ${sk.skillImmune}턴 동안 상대의 스킬 효과(피해·약화·지속피해·분신 공격…)를 전혀 안 받아요 (기본 공격은 맞아요)`);
-  if (sk.archBless) t.push(`👼 받은 피해(이번 턴, 없으면 지난 턴)의 ${P100(sk.archBless[0])} 회복 + 회복량의 ${P100(sk.archBless[1])}를 상대에게 추가 피해 (방어 무시)`);
+  if (sk.archBless) t.push(`👼 받은 피해(이번 턴, 없으면 지난 턴)의 ${P100(sk.archBless[0])} 회복 + 회복량의 ${P100(sk.archBless[1])}를 상대에게 추가 피해 (방어 무시)${sk.archBless[2] > 1 ? ` · 체력이 가득 차 **넘친 회복량**은 ×${sk.archBless[2]}배 위력(${P100(sk.archBless[1] * sk.archBless[2])})으로!` : ''}`);
   if (sk.joker) t.push(`🃏 내 스킬 하나 ↔ 상대 스킬 하나를 **랜덤으로 맞교환** (이번 전투 동안만 · 전투당 1번) — 상대가 받는 카드가 이 **조커**면 상대 마나 전부 삭제 + 스킬 ${JOKER_CFG.sealTurns}턴 봉인`);
   if (sk.curse) t.push(`🧿 나 자신에게 랜덤 디버프 **${sk.curse[0]}개**를 ${sk.curse[1]}턴 동안 걸어요 (공격↓·방어↓·스피드↓·회복감소·화상·독·출혈 중) · 다음 턴부터 이 스킬이 **저주부여**로 바뀌어요`);
   if (sk.curseGrant) t.push(`🪬 저주로 받은 디버프를 **×${sk.curseGrant} 위력**으로 상대에게 부여해요 (쓰고 나면 다시 금단의 저주로 돌아와요)`);
@@ -989,10 +1004,51 @@ export function afterHit(X, Y, dmg, log) {
 }
 
 // 맞는 쪽의 회피 · 방어 · 보호막을 적용해요
-export function mitigate(X, dmg, rng = Math.random) {
+// 🧊 동결 (서리 숨결): 얼어 있는 동안 행동이 막히고, 행동하려 할 때마다 확률로 얼음이 깨져요 · 받는 피해는 배수만큼 커져요
+export const FROZEN_CFG = { breakChance: 0.35, dmgMult: 2 };
+// 얼어 있는 쪽이 행동하려 할 때 불러요. true 면 이번 행동은 막혀요 (막은 뒤에 확률로 얼음이 깨져요)
+export function frozenBlocks(st, name, log, rng = Math.random) {
+  if (!st?.frozen) return false;
+  if (rng() < FROZEN_CFG.breakChance) { delete st.frozen; log.push(`🧊 ${name}(이)가 얼음을 깨고 나왔어요! (이번 행동은 얼음을 깨느라 끝났어요)`); }
+  else log.push(`🧊 ${name}(이)가 얼음 속에 갇혀서 움직이지 못했어요!`);
+  return true;
+}
+
+// 🔥 광폭화 (공허의 숨결): 약한 피해 무시 · 다음 기본 공격과 다음 공격 스킬의 위력 보너스 · 공격할 때마다 낮은 확률로 상대 체력을 hpTo 로
+export const BERSERK_CFG = { ignore: 0.3, bonus: 0.6, hpChance: 0.05, hpTo: 5 };
+// 기본 공격/공격 스킬을 쓰기 직전에 불러요: 이번 행동에 곱할 배수를 돌려주고, 쓴 보너스는 소모해요 (kind: 'atk' | 'skill')
+export function berserkMult(st, kind) {
+  const bz = st?.berserk;
+  const key = kind === 'atk' ? 'atkLeft' : 'skillLeft';
+  if (!bz || !bz[key]) return 1;
+  bz[key] = false;
+  return 1 + BERSERK_CFG.bonus;
+}
+// 공격이 끝난 뒤에 불러요: 광폭화 중이면 확률로 상대 체력이 hpTo 만 남아요 (foe: { name, hp, st })
+export function berserkFinish(st, foe, rng, log, viaSkill = false) {
+  if (!st?.berserk || foe.hp <= BERSERK_CFG.hpTo) return;
+  if (viaSkill && foe.st?.skillImmune) return;
+  if (rng() < BERSERK_CFG.hpChance) { foe.hp = BERSERK_CFG.hpTo; log.push(`　🔥💀 광폭화의 일격! ${foe.name}의 체력이 **${BERSERK_CFG.hpTo}** 만 남았어요!`); }
+}
+
+export function mitigate(X, dmg, rng = Math.random, opts = {}) { // opts.basic: 기본 공격이면 true (비둘기의 도발이 달라져요)
   const st = X.st;
   if (st.evade > 0) { st.evade -= 1; return { dmg: 0, note: ' (🌀 회피!)' }; }
+  if (st.berserk && dmg > 0 && dmg <= st.berserk.cap) return { dmg: 0, note: ' (🔥 광폭화: 약한 피해 무시!)' }; // 한 번에 들어오는 피해가 한도(최대 체력의 30%) 이하면 통째로 무시
   let note = '';
+  if (st.frozen && dmg > 0) { dmg = Math.round(dmg * FROZEN_CFG.dmgMult); note += ` (🧊 얼음: ×${FROZEN_CFG.dmgMult})`; } // 얼어 있으면 받는 피해가 커져요
+  if (st.pigeon && st.pigeon.hp > 0 && dmg > 0) { // 🕊️ 비둘기: 스킬 피해는 일부를, 기본 공격은 전부(도발 · 위력 ×배수) 대신 맞아요
+    const pg = st.pigeon;
+    if (opts.basic) {
+      const want = Math.round(dmg * pg.taunt);
+      if (want <= pg.hp) { pg.hp -= want; dmg = 0; note += ` (🕊️ 비둘기가 도발에 걸려 ${want} 대신 맞음)`; }
+      else { const used = Math.ceil(pg.hp / pg.taunt); note += ` (🕊️ 비둘기가 ${pg.hp} 대신 맞음)`; pg.hp = 0; dmg = Math.max(0, dmg - used); }
+    } else {
+      const take = Math.min(pg.hp, Math.round(dmg * pg.share));
+      pg.hp -= take; dmg -= take; note += ` (🕊️ 비둘기가 ${take} 대신 맞음)`;
+    }
+    if (pg.hp <= 0) { delete st.pigeon; note += ' (🕊️ 비둘기 퇴장!)'; }
+  }
   if (st.transfer && dmg > 0) { // 🕳️ 차원 비늘: 받는 피해의 일부를 상대에게 넘겨요 (afterHit 에서 상대에게 들어가요)
     const part = Math.min(dmg - 1, Math.round(dmg * st.transfer.pct));
     if (part > 0) { st.transfer.pending = (st.transfer.pending ?? 0) + part; dmg -= part; note += ` (🕳️ ${part} 전이)`; }
@@ -1024,7 +1080,7 @@ const heal = (X, n) => {
 
 // ───────── 🆕 배치 3 헬퍼 ─────────
 // 스킬로 "적에게 가는" 효과 칸들 — 상대가 스킬 면역이면 castSkill 이 이 칸들을 지워요
-const HOSTILE_KEYS = ['spdDown', 'drowsy', 'mark', 'lamp', 'pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'turnCut', 'healCut', 'atkDown', 'defDown', 'stun', 'dot', 'drainMana', 'swapHp', 'buffXfer', 'joker', 'curseGrant', 'lockSkills'];
+const HOSTILE_KEYS = ['spdDown', 'drowsy', 'mark', 'lamp', 'pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'stealSpd', 'turnCut', 'healCut', 'atkDown', 'defDown', 'powDown', 'manaDown', 'stun', 'dot', 'drainMana', 'freeze', 'swapHp', 'buffXfer', 'joker', 'curseGrant', 'lockSkills'];
 export const ROLL_CAP = { 1: 1.3, 2: 1.5, 3: 1.8, 4: 2.2, 5: 3 }; // 🎰 등급별 능력치 변동 상한 (배수)
 const STAT_LABEL = { atk: '⚔️ 공격력', def: '🧱 방어력', spd: '👟 스피드' };
 export const cdLeft = (st, id) => st?.cds?.[id] ?? 0; // ⏳ 남은 쿨타임 (0 이면 쓸 수 있어요)
@@ -1153,12 +1209,19 @@ export function tryRevive(X, log, foe = null) {
   if (!r || X.hp > 0) return false;
   const blast = r.blast;
   const blastElem = r.elem;
+  let gain = 0;
+  if (r.maxUp) { // ⬆️ 부활: 최대 체력이 먼저 늘고, 늘어난 최대 체력 기준으로 채워요 (늘어난 양은 st.maxBonus 에 적어서 다음 턴에도 이어져요)
+    gain = Math.max(1, Math.round(X.max * r.maxUp));
+    X.max += gain;
+    X.st.maxBonus = (X.st.maxBonus ?? 0) + gain;
+  }
   X.hp = Math.max(1, Math.round(X.max * r.pct));
   X.st.dots = [];
   delete X.st.bomb;
   delete X.st.stun;
+  delete X.st.frozen;
   if (--r.left <= 0) delete X.st.revive;
-  log.push(`🪽 ${X.name}(이)가 **부활**했어요! 체력 ${X.hp}/${X.max}`);
+  log.push(`🪽 ${X.name}(이)가 **부활**했어요! 체력 ${X.hp}/${X.max}${gain ? ` (⬆️ 최대 체력 +${gain})` : ''}`);
   if (blast) { // 🔥 환생의 불길: 부활하는 순간 폭발 + 내 약화 정화
     delete X.st.atkDown; delete X.st.defDown;
     log.push('　✨ 환생의 불길이 나쁜 효과를 전부 태웠어요');
@@ -1331,9 +1394,11 @@ export function castSkill(sk, A, B, rng, log) {
     fearBonus = taken > 0 ? taken * sk.fear : effAtk(B) * 0.3 * sk.fear;
     log.push(`　😱 공포가 힘이 돼요! 공격력 **+${Math.round(fearBonus)}**`);
   }
+  const bzMul = sk.pow ? berserkMult(A.st, 'skill') : 1; // 🔥 광폭화: 다음 공격 스킬 1회 위력 보너스
+  if (bzMul > 1) log.push(`　🔥 광폭화! 이 스킬의 위력 +${P100(bzMul - 1)}`);
   if (sk.pow) {
     for (let i = 0; i < hits && B.hp > 0; i++) {
-      const hitPow = sk.hitPows?.[i] ?? sk.pow;
+      const hitPow = (sk.hitPows?.[i] ?? sk.pow) * (1 - (A.st.powDown?.pct ?? 0)) * bzMul; // 🔻 늪 마녀의 저주: 내 스킬 위력 감소
       let hm = 1;
       if (sk.weakElems) { // 💎 수정 폭풍: 타마다 상대의 약점 속성 중 무작위 하나
         const weak = ALL_ELEMS.filter((e) => elemClash(e, B, { attacker: A }).mult > 1);
@@ -1377,6 +1442,11 @@ export function castSkill(sk, A, B, rng, log) {
     B.hp = Math.max(0, B.hp - n);
     dealt += n;
     log.push(`　🎯 방어 무시 고정 피해 **${n}** (최대체력의 ${P100(sk.truePct)})`);
+  }
+  if (sk.pow && A.hp > 0 && B.hp > 0) berserkFinish(A.st, B, rng, log, true); // 🔥 광폭화 중인 공격 스킬은 확률로 상대 체력을 5로
+  if (sk.berserk && A.hp > 0 && B.hp > 0) { // 🔥 공허의 숨결: 상대가 살아 있으면 내게 광폭화 (+1: 이번 턴 끝 감소분)
+    A.st.berserk = { turns: sk.berserk + 1, cap: Math.round(A.max * BERSERK_CFG.ignore), atkLeft: true, skillLeft: true };
+    log.push(`　🔥 **광폭화**! ${sk.berserk}턴 동안 최대 체력의 ${P100(BERSERK_CFG.ignore)} 이하 피해 무시 (${A.st.berserk.cap} 이하) · 다음 기본 공격·공격 스킬 위력 +${P100(BERSERK_CFG.bonus)} · 공격할 때마다 ${P100(BERSERK_CFG.hpChance)} 확률로 상대 체력 ${BERSERK_CFG.hpTo}`);
   }
   if (sk.drain && dealt > 0) { const n = heal(A, dealt * sk.drain); if (n) log.push(`　🩸 체력 +${n}`); }
   if (readHit && B.hp > 0) {
@@ -1431,12 +1501,14 @@ export function castSkill(sk, A, B, rng, log) {
     if (basis > 0) {
       const intended = Math.round(basis * hr * (1 - (A.st.healCut?.pct ?? 0)));
       const got = heal(A, basis * hr);
-      log.push(`　👼 받은 피해 ${basis}의 ${P100(hr)}를 회복! 체력 +${got}`);
-      if (!immune && B.hp > 0) {
-        const smite = Math.max(1, Math.round(intended * sr));
+      const over = Math.max(0, intended - got); // 체력이 가득 차서 담지 못하고 넘친 회복량
+      log.push(`　👼 받은 피해 ${basis}의 ${P100(hr)}를 회복! 체력 +${got}${over > 0 ? ` (넘친 빛 ${over})` : ''}`);
+      if (!immune && B.hp > 0) { // 실제 회복량은 sr, 넘친 회복량은 sr × 넘침배수(기본 1) 위력으로 들어가요
+        const om = sk.archBless[2] ?? 1;
+        const smite = Math.max(1, Math.round(got * sr + over * sr * om));
         B.hp = Math.max(0, B.hp - smite);
         dealt += smite;
-        log.push(`　⚡ 축복의 빛이 ${B.name}에게 **${smite}** 추가 피해! (회복량의 ${P100(sr)})`);
+        log.push(`　⚡ 축복의 빛이 ${B.name}에게 **${smite}** 추가 피해! (회복량 ${got}의 ${P100(sr)}${over > 0 && om > 1 ? ` + 넘친 ${over}의 ${P100(sr * om)}` : ''})`);
       }
     } else {
       log.push('　💨 아직 받은 피해가 없어서 축복이 흩어졌어요…');
@@ -1493,6 +1565,12 @@ export function castSkill(sk, A, B, rng, log) {
   if (sk.coinflip) { A.st.coinflip = { turns: sk.coinflip }; log.push(`　🎲 ${sk.coinflip}턴 동안 받는 피해가 50% 확률로 1.5배, 50% 확률로 0이 돼요!`); }
   if (sk.defToAtk) { A.st.defToAtk = { amt: A.def, turns: sk.defToAtk }; log.push(`　⚔️ ${sk.defToAtk}턴 동안 방어력을 전부 공격력으로 바꿨어요!`); }
   if (sk.priority) { A.st.priority = { turns: sk.priority + 1 }; log.push(`　⏱️ 다음 ${sk.priority}턴 동안 무조건 먼저 움직여요!`); } // +1: 이번 턴 끝 감소분
+  if (sk.pigeon) { // 🕊️ 비둘기 소환: 체력은 상대 최대 체력 비율, 이번 턴 남은 행동과 다음 턴 동안 대신 맞아요
+    const [hpR, share, steal, taunt, turns] = sk.pigeon;
+    const hp = Math.max(1, Math.round(B.max * hpR));
+    A.st.pigeon = { hp, max: hp, share, steal, taunt, turns };
+    log.push(`　🕊️ **비둘기**가 날아왔어요! 체력 ${hp} (상대 최대 체력의 ${P100(hpR)}) · 스킬 피해의 ${P100(share)}를 대신 맞고, 기본 공격은 전부 비둘기가 ×${taunt} 로 맞아요 (${turns}턴 · 매 턴 상대 마나 ${steal} 강탈)`);
+  }
   if (sk.clone) {
     const [ar, dr, turns] = sk.clone;
     A.st.clone = { atk: Math.round(effAtk(A) * ar), hp: Math.max(10, Math.round(effDef(A) * dr * CLONE_HP_PER_DEF)), turns, boom: sk.cloneBoom ? Math.round(effAtk(A) * sk.cloneBoom) : 0 };
@@ -1532,7 +1610,7 @@ export function castSkill(sk, A, B, rng, log) {
   }
   if (firstMana) { A.mana += firstMana; log.push(`　🔋 선공 보너스 마나 +${firstMana}`); }
   if (sk.mana) { const n = Math.min(sk.mana, SKILL_CFG.manaMax + 1000); A.mana += n; log.push(`　🔋 마나 +${n}`); }
-  if (sk.cleanse) { A.st.dots = []; delete A.st.atkDown; delete A.st.defDown; delete A.st.stun; log.push('　✨ 나쁜 상태가 사라졌어요'); }
+  if (sk.cleanse) { A.st.dots = []; delete A.st.atkDown; delete A.st.defDown; delete A.st.stun; delete A.st.frozen; log.push('　✨ 나쁜 상태가 사라졌어요'); }
   if (sk.potion) { // 🧪 마녀의 영약: 6가지 중 서로 다른 N개
     const foeOk = !B.st.skillImmune && B.hp > 0;
     const pool = [
@@ -1555,7 +1633,7 @@ export function castSkill(sk, A, B, rng, log) {
     else for (const id of Object.keys(A.st.cds ?? {})) if ((A.st.cds[id] -= sk.cdReset) <= 0) delete A.st.cds[id];
     log.push(had ? '　⏪ 스킬 쿨타임이 줄어들었어요!' : '　💨 줄일 쿨타임이 없었어요…');
   }
-  if (sk.revive) { A.st.revive = { pct: sk.revive[0], turns: sk.revive[1] + 1, left: sk.revive[2] ?? 1, blast: sk.reviveBlast, elem: sk.elem }; log.push(`　🪽 ${sk.revive[1]}턴 동안 쓰러져도 체력 ${P100(sk.revive[0])}로 부활해요!`); }
+  if (sk.revive) { A.st.revive = { pct: sk.revive[0], turns: sk.revive[1] + 1, left: sk.revive[2] ?? 1, blast: sk.reviveBlast, maxUp: sk.reviveMaxUp, elem: sk.elem }; log.push(`　🪽 ${sk.revive[1]}턴 동안 쓰러져도 ${sk.reviveMaxUp ? `최대 체력 +${P100(sk.reviveMaxUp)}과 함께 ` : ''}체력 ${P100(sk.revive[0])}로 부활해요!`); }
   if (sk.skillImmune) { A.st.skillImmune = { turns: sk.skillImmune + 1 }; log.push(`　🧿 ${sk.skillImmune}턴 동안 스킬로 취급되는 효과를 전혀 받지 않아요!`); }
   if (sk.statRoll && (sk.statRoll[1] !== 'foe' || (!immune && B.hp > 0))) rollStats(sk, sk.statRoll[1] === 'foe' ? B : A, rng, log);
   if (sk.buffXfer && B.hp > 0) { A.st.xfer = { mode: sk.buffXfer[0], turns: sk.buffXfer[1] }; log.push(`　🧲 1회용 효과 이동을 준비했어요! (${sk.buffXfer[1]}턴 안에 한 번 발동)`); }
@@ -1605,6 +1683,17 @@ export function castSkill(sk, A, B, rng, log) {
         log.push(`　🧲 ${B.name}의 ${label} ${P100(pct)}을(를) 훔쳤어요! (${turns}턴)`);
       }
     }
+    if (sk.stealSpd) { // 🎪 불의 링 통과: 상대가 나보다 빠르면 앞의 능력치, 같거나 느리면 뒤의 능력치를 훔쳐요 (시전하는 순간의 스피드로 비교)
+      const [fastStat, slowStat, pct, turns] = sk.stealSpd;
+      const faster = effSpd(B) > effSpd(A);
+      const stat = faster ? fastStat : slowStat;
+      const [upKey, downKey, label] = { atk: ['atkUp', 'atkDown', '공격력'], def: ['defUp', 'defDown', '방어력'] }[stat] ?? [];
+      if (upKey) {
+        A.st[upKey] = { pct: (A.st[upKey]?.pct ?? 0) + pct, turns };
+        B.st[downKey] = { pct: (B.st[downKey]?.pct ?? 0) + pct, turns };
+        log.push(`　🎪 ${B.name}이(가) 나보다 ${faster ? '**빨라서**' : '**느려서**'} ${label} ${P100(pct)}을(를) 빼앗았어요! (${turns}턴)`);
+      }
+    }
     if (sk.turnCut) {
       let cut = 0;
       for (const k of ['atkUp', 'defUp', 'guard', 'regen']) {
@@ -1613,7 +1702,7 @@ export function castSkill(sk, A, B, rng, log) {
       log.push(cut ? `　⏳ ${B.name}의 좋은 효과 지속시간이 ${sk.turnCut}턴 줄었어요!` : '　💨 줄일 효과가 없었어요…');
     }
     // 🔮 거울 장막: 디버프를 쓴 쪽에게 되돌려요
-    const hasDebuff = sk.spdDown || sk.drowsy || sk.healCut || sk.atkDown || (sk.defDown && sk.defDown[0] > 0) || sk.stun || sk.dot || sk.drainMana || sk.curseGrant || sk.lockSkills;
+    const hasDebuff = sk.freeze || sk.spdDown || sk.drowsy || sk.healCut || sk.atkDown || sk.powDown || sk.manaDown || (sk.defDown && sk.defDown[0] > 0) || sk.stun || sk.dot || sk.drainMana || sk.curseGrant || sk.lockSkills;
     const T = B.st.reflectDebuff && hasDebuff ? A : B;
     if (T !== B) log.push(`　🔮 ${B.name}의 거울 장막! 디버프가 ${A.name}에게 되돌아가요!`);
     if (sk.healCut) { T.st.healCut = { pct: sk.healCut[0], turns: sk.healCut[1] }; log.push(`　🚑 ${T.name}의 회복 효과 -${P100(sk.healCut[0])} (${sk.healCut[1]}턴)`); }
@@ -1624,7 +1713,20 @@ export function castSkill(sk, A, B, rng, log) {
     }
     if (sk.atkDown) { T.st.atkDown = { pct: sk.atkDown[0], turns: sk.atkDown[1] }; log.push(`　🔻 ${T.name} 공격력 -${P100(sk.atkDown[0])} (${sk.atkDown[1]}턴)`); }
     if (sk.defDown && sk.defDown[0] > 0) { T.st.defDown = { pct: sk.defDown[0], turns: sk.defDown[1] }; log.push(`　🔻 ${T.name} 방어력 -${P100(sk.defDown[0])} (${sk.defDown[1]}턴)`); }
+    if (sk.powDown) { T.st.powDown = { pct: sk.powDown[0], turns: sk.powDown[1] }; log.push(`　🔻 ${T.name} 스킬 위력 -${P100(sk.powDown[0])} (${sk.powDown[1]}턴)`); }
+    if (sk.manaDown) { // 🔽 늪 마녀의 저주: 지금 마나를 깎고, 기간 동안 최대 마나도 깎아요 (최대 마나는 겹쳐 깎이지 않고 기간만 갱신돼요)
+      const before = Math.round(T.mana);
+      T.mana = Math.round(T.mana * (1 - sk.manaDown[0]));
+      if (T.st.manaDown) T.st.manaDown.turns = sk.manaDown[1];
+      else {
+        const cut = T.manaMax - Math.max(MANA_DOWN_MIN, Math.round(T.manaMax * (1 - sk.manaDown[0])));
+        T.manaMax -= cut;
+        T.st.manaDown = { pct: sk.manaDown[0], turns: sk.manaDown[1], cut };
+      }
+      log.push(`　🔽 ${T.name} 마나 ${before} → ${T.mana} · ${sk.manaDown[1]}턴 동안 최대 마나 ${T.manaMax}`);
+    }
     if (sk.stun && rng() < sk.stun) { T.st.stun = 1; log.push(`　💫 ${T.name}(이)가 **기절**했어요!`); }
+    if (sk.freeze) { T.st.frozen = { turns: sk.freeze }; log.push(`　🧊 ${T.name}(이)가 **꽁꽁 얼었어요**! (최대 ${sk.freeze}턴 · 행동할 때마다 ${P100(FROZEN_CFG.breakChance)} 확률로 깨져요 · 얼어 있는 동안 받는 피해 ×${FROZEN_CFG.dmgMult})`); }
     if (sk.dot && sk.needHit && landed === 0) log.push(`　💨 한 대도 안 맞아서 ${DOT[sk.dot[0]] ?? sk.dot[0]}은(는) 걸리지 않았어요`);
     else if (sk.dot && rng() < sk.dot[3]) {
       T.st.dots = (T.st.dots ?? []).filter((d) => d.kind !== sk.dot[0]);
@@ -1734,6 +1836,20 @@ export function tickSide(X, log, gainMana = true, foe = null) {
     X.mana = Math.min(X.mana, X.manaMax);
     delete st.manaMaxUp;
   }
+  if (st.pigeon) { // 🕊️ 비둘기가 상대 마나를 쪼아 오고, 턴이 지나면 날아가요
+    if (foe && foe.hp > 0 && !foe.st?.skillImmune && foe.mana > 0) {
+      const n = Math.min(foe.mana, st.pigeon.steal);
+      foe.mana -= n;
+      X.mana = Math.min(X.manaMax, X.mana + n);
+      log.push(`🕊️ 비둘기가 ${foe.name}의 마나 ${n}을(를) 물어 왔어요!`);
+    }
+    if (--st.pigeon.turns <= 0) { delete st.pigeon; log.push(`🕊️ ${X.name}의 비둘기가 날아갔어요`); }
+  }
+  if (st.frozen && --st.frozen.turns <= 0) { delete st.frozen; log.push(`🧊 ${X.name}의 얼음이 저절로 녹았어요`); } // 최대 지속 턴이 지나면 자동 해제
+  if (st.manaDown && --st.manaDown.turns <= 0) { // 🔽 마나 감소가 끝나면 깎였던 최대 마나를 되돌려요
+    X.manaMax += st.manaDown.cut;
+    delete st.manaDown;
+  }
   if (st.revive && --st.revive.turns <= 0) { delete st.revive; log.push(`🪽 ${X.name}의 부활 효과가 사라졌어요`); }
   if (st.drowsy && --st.drowsy.turns <= 0) { // 😴 졸음: 잠들어요 (다음 행동 1회 불가)
     delete st.drowsy;
@@ -1741,7 +1857,7 @@ export function tickSide(X, log, gainMana = true, foe = null) {
   }
   if (st.pendingBoom && foe) { const n = st.pendingBoom; delete st.pendingBoom; cloneBoomOn(X, foe, n, log); } // 🎆 쓰러진 분신의 폭발이 남아 있으면 지금
   if (st.clone?.boom && st.clone.turns <= 1 && foe) { const n = st.clone.boom; st.clone.boom = 0; cloneBoomOn(X, foe, n, log); } // 🎆 분신이 끝나는 순간 폭발
-  for (const k of ['atkUp', 'atkDown', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro', 'allElem', 'whoIs', 'lamp', 'huntMark', 'transfer', 'shieldCounter', 'speedRev']) {
+  for (const k of ['atkUp', 'atkDown', 'powDown', 'berserk', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro', 'allElem', 'whoIs', 'lamp', 'huntMark', 'transfer', 'shieldCounter', 'speedRev']) {
     if (st[k] && !st[k].perm && --st[k].turns <= 0) delete st[k]; // perm(영구 봉인)은 줄지 않아요
   }
   for (const id of Object.keys(st.cds ?? {})) if (--st.cds[id] <= 0) delete st.cds[id]; // ⏳ 쿨타임 감소
@@ -1830,6 +1946,8 @@ export function statusText(st = {}) {
   const t = [];
   for (const d of st.dots ?? []) t.push(`${DOT[d.kind] ?? d.kind} ${d.turns}턴`);
   if (st.stun) t.push('💫 기절');
+  if (st.pigeon) t.push(`🕊️ 비둘기 ${st.pigeon.hp}/${st.pigeon.max} ${st.pigeon.turns}턴`);
+  if (st.frozen) t.push(`🧊 동결 ${st.frozen.turns}턴 (받는 피해 ×${FROZEN_CFG.dmgMult})`);
   if (st.atkUp) t.push(`💪 공격↑ ${st.atkUp.turns}턴`);
   if (st.atkDown) t.push(`🔻 공격↓ ${st.atkDown.turns}턴`);
   if (st.defUp) t.push(`🧱 방어↑ ${st.defUp.turns}턴`);
@@ -1848,6 +1966,9 @@ export function statusText(st = {}) {
   if (st.coinflip) t.push(`🎲 모아니면도 ${st.coinflip.turns}턴`);
   if (st.defToAtk) t.push(`⚔️ 방어→공격 ${st.defToAtk.turns}턴`);
   if (st.healCut) t.push(`🚑 회복감소 ${st.healCut.turns}턴`);
+  if (st.powDown) t.push(`🔻 스킬위력↓ ${st.powDown.turns}턴`);
+  if (st.berserk) t.push(`🔥 광폭화 ${st.berserk.turns}턴`);
+  if (st.manaDown) t.push(`🔽 최대마나 -${st.manaDown.cut} ${st.manaDown.turns}턴`);
   if (st.spdUp) t.push(`👟 스피드↑ ${st.spdUp.turns}턴`);
   if (st.spdDown) t.push(`🐌 스피드↓ ${st.spdDown.turns}턴`);
   if (st.priority) t.push(`⏱️ 선공 ${st.priority.turns}턴`);
@@ -1858,6 +1979,7 @@ export function statusText(st = {}) {
   if (st.statMod) t.push(`🎰 능력치 ⚔️×${+st.statMod.atk.toFixed(2)} 🧱×${+st.statMod.def.toFixed(2)} 👟×${+st.statMod.spd.toFixed(2)} ${st.statMod.turns}턴`);
   if (st.skillImmune) t.push(`🧿 스킬면역 ${st.skillImmune.turns}턴`);
   if (st.revive) t.push(`🪽 부활대기 ${st.revive.turns}턴`);
+  if (st.maxBonus) t.push(`⬆️ 최대체력 +${st.maxBonus}`);
   if (st.sealed) t.push(st.sealed.perm ? '🔒 스킬 영구봉인' : `🔒 스킬봉인 ${st.sealed.turns}턴`);
   if (st.allElem) t.push(`🌈 전속성(${{ attack: '공격', defend: '방어', both: '공격+방어' }[st.allElem.mode] ?? ''}) ${st.allElem.turns}턴`);
   if (st.whoIs) t.push(`🎭 누구게? ${Math.round(st.whoIs.pct * 100)}% ${st.whoIs.turns}턴`);
