@@ -45,6 +45,8 @@ import {
   mitigate,
   afterHit,
   actsFirst,
+  prideAtk, // 👿 군주의 오만: 기본 공격에도 방어·공격력 무시 반영
+  prideDef,
   effSpd, // ⚡ 속도 표시용
   revertCurseSlots, // 🆕 저주부여 → 금단의 저주 복귀
   catchProHold, // 🆕 배치 5: 포획 전문가 (도망 붙잡기)
@@ -1747,7 +1749,7 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
           thrown += 1;
           if (rng() < chance) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('caught', round); }
           if (rng() < fleeChance(thrown)) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('fled', round); }
-          if (rng() >= myEvade) myHp -= mitigate(me, calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg, rng, { basic: true }).dmg; // 놓치면 반격!
+          if (rng() >= myEvade) myHp -= mitigate(me, calcDamage(prideAtk(foe.st, wild.atk), mine.def, rng, wildCrit, wildMult).dmg, rng, { basic: true }).dmg; // 놓치면 반격!
         }
       }
     }
@@ -1765,12 +1767,12 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
             if (!mySk.pow && !mySk.bomb && (mySk.heal || mySk.regen || mySk.shield || mySk.guard)) defendUses += 1;
           } else {
             attacked = true;
-            if (rng() >= wildMiss) wildHp -= mitigate(foe, calcDamage(mine.atk, wild.def, rng, myCrit, myMult).dmg, rng, { basic: true }).dmg;
+            if (rng() >= wildMiss) wildHp -= mitigate(foe, calcDamage(mine.atk, prideDef(foe.st, wild.def), rng, myCrit, myMult).dmg, rng, { basic: true }).dmg;
           }
         } else if (stunned(foe.st, foe.name, log)) {
           // 💫 기절! 이번 턴은 못 움직여요
         } else if (rng() >= myEvade) {
-          myHp -= mitigate(me, calcDamage(wild.atk, mine.def, rng, wildCrit, wildMult).dmg, rng, { basic: true }).dmg;
+          myHp -= mitigate(me, calcDamage(prideAtk(foe.st, wild.atk), mine.def, rng, wildCrit, wildMult).dmg, rng, { basic: true }).dmg;
         }
       }
     }
@@ -2821,7 +2823,7 @@ function myAttack(c, b, log, rng) {
   const clash = elemClash(effElems(mySideOf(c, b))[0], wildSideOf(c, b), { attacker: mySideOf(c, b) });
   const dv = !!b.mySt.devil; // 😈 악마의 거래 중: 확정 급소 + 약점 확정
   const weak = dv && clash.mult < ELEM_CFG.strong;
-  const { dmg: raw0, crit } = calcDamage(c.mine.atk, c.wild.def, rng, dv ? 1 : CRIT_CHANCE + c.mineEq.crit, weak ? ELEM_CFG.strong : clash.mult);
+  const { dmg: raw0, crit } = calcDamage(c.mine.atk, prideDef(b.wildSt, c.wild.def), rng, dv ? 1 : CRIT_CHANCE + c.mineEq.crit, weak ? ELEM_CFG.strong : clash.mult);
   const bzm = berserkMult(b.mySt, 'atk'); // 🔥 광폭화: 다음 기본 공격 1회 위력 보너스
   const raw = Math.max(1, Math.round(raw0 * bzm));
   const hit = mitigate({ st: b.wildSt }, raw, rng, { basic: true }); // 🕊️ 기본 공격 표시 (비둘기 도발)
@@ -2845,7 +2847,7 @@ function wildAttack(c, b, log, rng) {
   }
   const fx = GRADE_EFFECTS[c.wildPet.grade];
   const clash = elemClash(effElems(wildSideOf(c, b))[0], mySideOf(c, b), { attacker: wildSideOf(c, b) });
-  const { dmg: raw0, crit } = calcDamage(c.wild.atk, c.mine.def, rng, fx.critChance + c.wildEq.crit, clash.mult);
+  const { dmg: raw0, crit } = calcDamage(prideAtk(b.wildSt, c.wild.atk), c.mine.def, rng, fx.critChance + c.wildEq.crit, clash.mult);
   const bzm = berserkMult(b.wildSt, 'atk'); // 🔥 야생 펫이 광폭화 중이면 기본 공격도 세져요
   const raw = Math.max(1, Math.round(raw0 * bzm));
   const hit = mitigate({ st: b.mySt }, raw, rng, { basic: true });
@@ -2868,7 +2870,7 @@ function wildAct(c, b, log, rng) {
   const me = {
     name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0),
     atk: c.mine.atk, def: c.mine.def, spd: c.mine.spd,
-    crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main) - (b.mySt?.manaDown?.cut ?? 0),
+    crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main) + (b.mySt?.manaBonus ?? 0) - (b.mySt?.manaDown?.cut ?? 0),
     st: b.mySt, elems: petElems(main.petId), skills: [...mySkills], fight: b,
   };
   const origWild = [...(b.wildSkillOv ?? c.wildInfo.skills ?? [])];
@@ -3086,7 +3088,7 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   }
 
   // 🆕 턴 끝: 지속 피해 · 재생 · 상태이상 턴 감소는 항상 적용돼요. 내 마나는 기본 공격을 한 턴에만 차요!
-  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0), atk: c.mine.atk, def: c.mine.def, mana: b.myMana, manaMax: maxMana(main) - (b.mySt?.manaDown?.cut ?? 0), elems: petElems(main.petId), st: b.mySt };
+  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0), atk: c.mine.atk, def: c.mine.def, mana: b.myMana, manaMax: maxMana(main) + (b.mySt?.manaBonus ?? 0) - (b.mySt?.manaDown?.cut ?? 0), elems: petElems(main.petId), st: b.mySt };
   const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp + (b.wildSt?.maxBonus ?? 0), atk: c.wild.atk, def: c.wild.def, mana: b.wildMana, manaMax: SKILL_CFG.manaMax - (b.wildSt?.manaDown?.cut ?? 0), elems: petElems(wildInfo.petId), st: b.wildSt };
   tickSide(tMe, log, myManaGain, tWild);
   tickSide(tWild, log, true, tMe);
@@ -3250,7 +3252,7 @@ function battleSkill(player, id, slot, now = Date.now(), rng = Math.random) {
 
   const c = context(player, ex);
   const log = [];
-  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0), atk: c.mine.atk, def: c.mine.def, spd: c.mine.spd, crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main) - (b.mySt?.manaDown?.cut ?? 0), st: b.mySt, elems: petElems(c.main.petId), skills: [...mySkills], fight: b };
+  const me = { name: c.myName, emoji: c.myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0), atk: c.mine.atk, def: c.mine.def, spd: c.mine.spd, crit: CRIT_CHANCE + c.mineEq.crit, mana: b.myMana, manaMax: maxMana(main) + (b.mySt?.manaBonus ?? 0) - (b.mySt?.manaDown?.cut ?? 0), st: b.mySt, elems: petElems(c.main.petId), skills: [...mySkills], fight: b };
   const wild = { name: c.wildPet.name, emoji: c.wildPet.emoji, hp: b.wildHp, max: c.wild.hp + (b.wildSt?.maxBonus ?? 0), atk: c.wild.atk, def: c.wild.def, spd: c.wild.spd, crit: GRADE_EFFECTS[c.wildPet.grade].critChance + c.wildEq.crit, mana: b.wildMana, manaMax: SKILL_CFG.manaMax - (b.wildSt?.manaDown?.cut ?? 0), st: b.wildSt, elems: petElems(c.wildInfo.petId), skills: [...(b.wildSkillOv ?? c.wildInfo.skills ?? [])], fight: b };
   const origWild = [...wild.skills];
   const sameArr = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);

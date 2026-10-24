@@ -86,6 +86,10 @@
 //   berserk 턴 상대가 살아 있으면 내게 광폭화: 최대 체력 30% 이하 피해 무시 · 다음 기본 공격/공격 스킬 위력 +60% · 공격마다 5% 확률로 상대 체력 5 (BERSERK_CFG · 공허의 숨결)
 //   stealSpd [빠를 때 능력치, 같거나 느릴 때 능력치, 비율, 턴] 상대 스피드가 나보다 빠르면 앞의 능력치, 같거나 느리면 뒤의 능력치(atk|def)를 훔쳐요 (불의 링 통과)
 //   powDown [비율,턴] 적이 쓰는 스킬 위력(공격 스킬의 타격 배율)을 비율만큼 깎아요 · manaDown [비율,턴] 적의 현재 마나를 비율만큼 깎고, 턴 동안 최대 마나도 비율만큼 깎아요 (st.manaDown.cut · 봇이 매 턴 manaMax 에서 빼줘요) (늪 마녀의 저주)
+//   atkRegen [비율,턴] 턴 동안 매 턴 끝에 내 공격력 × 비율 만큼 회복 (회복감소 적용 · 불사의 날갯짓은 healCut [1,턴] 과 같이 써서 상대 회복 차단)
+//   lastLaugh [맞은횟수당 최대마나,연속시전 최대] 이번 전투 최대마나 += 맞은 횟수(st.hitCount) × 값 (st.manaBonus · 봇이 매 턴 manaMax 에 더해줘요) → 마나 가득 → 마나가 되는 한 내 스킬을 랜덤으로 연속 시전 (최대 N번) · 전투당 1회, 이 칸은 조커로 바뀌어요 (mySkillOv 라 전투가 끝나면 원래대로) (광대의 마지막 웃음)
+//   pride [무시턴,반사턴,반사 최대 개수,되돌릴 횟수] 전투당 1회. 무시턴 동안 상대의 방어·공격력은 0 으로 취급(내 공격은 방어 관통 · 상대 공격은 최소 피해)하고 나는 항상 선공 (st.prideNull 은 상대에게, st.priority 는 내게) → 이후 반사턴(사용 후 N턴) 동안 상대가 내게 건 스킬을 최대 개수만큼 0마나로 상대에게 횟수만큼 되돌려 시전 (st.prideReflect · 군주의 오만)
+//   swallow [턴,최대체력 증가,체력 비율] 내 공격 스킬 중 위력이 가장 높은 것을 삼켜서, 사용 다음 턴부터 N턴 동안 매 턴 끝에 마나·쿨타임 없이 "스킬이 아닌 공격"(스킬 면역 무시)으로 발동 · 삼킨 동안 쓰러지기 직전에 전투당 1회 최대체력 +비율, 체력 비율로 일어나요 (부활이 먼저) (st.swallow · 모래 삼키기)
 //   reviveMaxUp 비율 revive 와 같이 쓰면: 부활하는 순간 이번 전투 동안 최대 체력이 비율만큼 늘고, 늘어난 최대 체력 기준으로 채워요 (st.maxBonus · 봇이 매 턴 max 에 더해줘요) (부활)
 
 export const SKILL_CFG = {
@@ -633,7 +637,7 @@ P('mermaid', 'sig_mermaid', '인어의 자장가', '🧜', 4, { drowsy: 2, drain
 P('turtle', 'sig_turtle2', '거북 박치기', '🐢', 2, { pow: 1.6, defUp: [0.3, 2] }, '느리지만 묵직하게 들이받아요.');
 // 화산
 P('baby_dragon', 'sig_baby_dragon', '아기 불꽃숨', '🐲', 4, { pow: 0.9, hitsRange: [1, 4], dot: ['burn', 0.06, 3, 1], needHit: true, mana: 10, cd: 4 }, '아직 서툴지만 불꽃은 진짜예요!');
-P('phoenix', 'sig_phoenix', '불사의 날갯짓', '🦅', 5, { pow: 2.8, heal: 0.4, cleanse: true }, '불꽃 날개가 상처를 태워 새로 태어나요.');
+P('phoenix', 'sig_phoenix', '불사의 날갯짓', '🦅', 5, { pow: 2.8, heal: 0.4, cleanse: true, healCut: [1, 5], atkRegen: [0.7, 5], cd: 8 }, '불꽃 날개가 상처를 태워 새로 태어나요. 5턴 동안 상대는 회복할 수 없고, 나는 매 턴 공격력만큼 차올라요.');
 P('phoenix', 'sig_phoenix2', '환생의 불길', '🔥', 4, { revive: [0.3, 2], reviveBlast: 1.5, cd: 6 }, '타오를수록 힘이 솟아요.');
 P('magma_slime', 'sig_magma_slime', '용암 튀기기', '🟠', 3, { pow: 1.7, dot: ['burn', 0.06, 3, 0.8] }, '뜨거운 용암이 철퍽!');
 P('salamander', 'sig_salamander', '불꽃 꼬리채찍', '🦎', 3, { pow: 1.2, hits: 2, dot: ['burn', 0.04, 3, 0.5] }, '꼬리를 두 번 휘둘러요.');
@@ -655,7 +659,7 @@ P('scarab', 'sig_scarab', '황금 광택', '🪲', 3, { defUp: [0.6, 3], pow: 2.
 P('lion', 'sig_lion', '사막의 왕 포효', '🦁', 4, { pow: 2.0, firstBonus: [1.5, 0.9, 10], cd: 4 }, '사막이 쩌렁쩌렁 울려요.');
 P('mummy', 'sig_mummy', '파라오의 저주', '⚰️', 5, { pow: 2.8, atkDown: [0.4, 4], dot: ['poison', 0.08, 4, 1] }, '붕대가 풀리며 오래된 저주가 퍼져요.');
 P('mummy', 'sig_mummy2', '붕대 감기', '🧻', 3, { shield: 0.3, heal: 0.25 }, '다친 곳을 꽁꽁 싸매요.');
-P('sandworm', 'sig_sandworm', '모래 삼키기', '🐛', 5, { pow: 3.2, exec: 1.7, stun: 0.25 }, '땅속에서 솟구쳐 통째로 삼켜요.');
+P('sandworm', 'sig_sandworm', '모래 삼키기', '🐛', 5, { pow: 3.2, exec: 1.7, stun: 0.25, swallow: [3, 0.3, 0.7], cd: 8 }, '땅속에서 솟구쳐 통째로 삼켜요. 내 스킬 하나까지 삼켜서 3턴 동안 매 턴 저절로 터뜨려요.');
 // 얼음 설원
 P('penguin', 'sig_penguin', '배치기 미끄럼', '🐧', 2, { pow: 1.9, stun: 0.25 }, '쭈우욱~ 미끄러져 쾅!');
 P('bear', 'sig_bear', '흰곰 앞발치기', '🐻', 3, { pow: 2.4, crit: 0.2 }, '묵직한 앞발이 휙!');
@@ -684,7 +688,7 @@ P('comet', 'sig_comet', '혜성 충돌', '☄️', 5, { pow: 3.3, recoil: 0.1, s
 P('void_dragon', 'sig_void_dragon', '공허의 숨결', '🌑', 5, { truePct: 0.35, drainMana: 9999, berserk: 2, cd: 7 }, '닿은 곳이 사라져요. 사라진 자리에서 광기가 깨어나요.');
 P('void_dragon', 'sig_void_dragon2', '차원 비늘', '🕳️', 4, { transfer: [0.35, 3], evade: 2, cd: 5 }, '비늘 틈으로 공격이 사라져요.');
 P('chaos_lord', 'sig_chaos_lord', '혼돈의 소용돌이', '😈', 5, { pow: 0.85, hits: 4, stun: 0.3, atkDown: [0.25, 3] }, '무슨 일이 일어날지 아무도 몰라요.');
-P('chaos_lord', 'sig_chaos_lord2', '군주의 오만', '👿', 5, { atkUp: [0.9, 3], mana: 40 }, '"모든 것이 내 뜻대로."');
+P('chaos_lord', 'sig_chaos_lord2', '군주의 오만', '👿', 5, { pride: [2, 5, 3, 2] }, '"모든 것이 내 뜻대로." 2턴 동안 상대의 방어·스피드·공격력은 의미가 없고, 그 뒤 5턴 동안 나를 향한 스킬은 되돌아가요.');
 P('creator', 'sig_creator', '천지창조', '🌌', 5, { pow: 3.7, pierce: 0.5, stun: 0.3 }, '별이 태어나는 순간의 폭발.');
 P('creator', 'sig_creator2', '태초의 숨결', '✨', 5, { heal: 0.6, cleanse: true, mana: 40, regen: [0.08, 4] }, '모든 것이 처음으로 돌아가요.');
 // 트릭스터 극장
@@ -695,7 +699,7 @@ P('magician', 'sig_magician', '비둘기 마술', '🕊️', 5, { pow: 3.1, stun
 P('magician', 'sig_magician2', '손재주 부리기', '🎩', 4, { stealMana: 30, atkDown: [0.2, 3], buffXfer: ['swap', 3], cd: 4 }, '어? 내 마나가 어디 갔지?');
 P('ringmaster', 'sig_ringmaster', '불의 링 통과', '🎪', 5, { pow: 3.2, dot: ['burn', 0.08, 3, 1], stealSpd: ['def', 'atk', 0.7, 3], cd: 6 }, '활활 타는 링 사이로 돌진해요! 빠른 상대에겐 방패를, 느린 상대에겐 힘을 빼앗아요.');
 P('ringmaster', 'sig_ringmaster2', '채찍 신호', '🪄', 4, { clone: [0.6, 0.78, 3], cloneBoom: 2.3, cd: 5 }, '짝! 소리에 모두가 한 몸처럼 움직여요.');
-P('joker', 'sig_joker', '광대의 마지막 웃음', '🃏', 5, { pow: 3.5, stun: 0.3, crit: 0.2 }, '마지막에 웃는 자가 이기는 거예요.');
+P('joker', 'sig_joker', '광대의 마지막 웃음', '🃏', 5, { lastLaugh: [10, 8] }, '맞은 만큼 무대가 커지고, 마지막에 웃는 자가 이기는 거예요. 한 번 웃고 나면 이 카드는 조커가 돼요.');
 P('joker', 'sig_joker2', '속임수 패', '🂡', 5, { atkDown: [0.35, 4], defDown: [0.3, 4], drainMana: 40 }, '카드는 이미 바뀌어 있었어요.');
 
 // 스킬 속성 배정 (여기에 없는 스킬은 무속성이에요 · 전용기는 펫 속성을 따라가요)
@@ -753,6 +757,7 @@ export function skillEffectLines(sk) {
   if (sk.recoil) t.push(`반동으로 내 최대 체력의 ${P100(sk.recoil)} 감소 (체력 1은 남아요)`);
   if (sk.heal) t.push(`내 최대 체력의 **${P100(sk.heal)}** 회복`);
   if (sk.healOverflow) t.push(`🔰 회복하고 **넘친 양은 보호막**으로 (보호막은 최대 체력의 ${P100(sk.healOverflow)}까지 · 체력이 가득 차 있어도 쓸모가 있어요)`);
+  if (sk.atkRegen) t.push(`🔥 ${sk.atkRegen[1]}턴 동안 매 턴 내 공격력의 ${P100(sk.atkRegen[0])}만큼 회복`);
   if (sk.regen) t.push(`${sk.regen[1]}턴 동안 매 턴 최대 체력의 ${P100(sk.regen[0])} 회복`);
   if (sk.shield) t.push(`최대 체력의 ${P100(sk.shield)}만큼 보호막`);
   if (sk.guard) t.push(`${sk.guard[1]}턴 동안 받는 데미지 ${P100(sk.guard[0])} 감소`);
@@ -810,6 +815,9 @@ export function skillEffectLines(sk) {
   if (sk.statRoll) t.push(`🎰 ${sk.statRoll[2]}턴 동안 ${sk.statRoll[1] === 'foe' ? '상대' : '내'} 공격력·방어력·스피드를 ${sk.statRoll[0] === 'swap' ? '두 개 골라 **랜덤으로 맞바꿔요**' : '**랜덤 배수**로 바꿔요'} (등급 상한 ×${ROLL_CAP[sk.tier] ?? 1.5})`);
   if (sk.cdReset) t.push(sk.cdReset >= 99 ? '⏪ 내 모든 스킬의 쿨타임을 없애요' : `⏪ 내 모든 스킬의 쿨타임 -${sk.cdReset}턴`);
   if (sk.revive) t.push(`🪽 ${sk.revive[1]}턴 동안 쓰러지면 최대 체력의 ${P100(sk.revive[0])}로 **부활** (${sk.revive[2] ?? 1}회 · 턴이 지나면 사라져요)`);
+  if (sk.lastLaugh) t.push(`🃏 이번 전투에서 **맞은 횟수 × ${sk.lastLaugh[0]}** 만큼 최대 마나가 늘고 마나가 가득 차요 → 마나가 되는 한 내 스킬을 **연속으로 최대 ${sk.lastLaugh[1]}번** 시전 (전투당 1회 · 쓰고 나면 이 칸은 조커로 바뀌어요)`);
+  if (sk.pride) t.push(`👿 (전투당 1회) ${sk.pride[0]}턴 동안 상대의 **방어력·스피드·공격력을 무시**: 내 공격은 방어 관통 · 항상 선공 · 상대 공격은 최소 피해 → 사용 후 ${sk.pride[1]}턴 동안 상대가 내게 건 스킬을 최대 ${sk.pride[2]}개까지 **마나 0으로 ${sk.pride[3]}번씩** 상대에게 되돌려 시전`);
+  if (sk.swallow) t.push(`🐛 내 공격 스킬 중 **위력이 가장 높은 것을 삼켜서**, 다음 턴부터 ${sk.swallow[0]}턴 동안 매 턴 마나·쿨타임 없이 **스킬이 아닌 공격**(스킬 면역 무시)으로 발동 · 삼킨 동안 쓰러지기 직전에 (전투당 1회) 최대 체력 +${P100(sk.swallow[1])}, 체력 ${P100(sk.swallow[2])}로 일어나요 (부활이 먼저)`);
   if (sk.reviveMaxUp) t.push(`⬆️ 부활하는 순간 이번 전투 동안 최대 체력 **+${P100(sk.reviveMaxUp)}** (늘어난 최대 체력 기준으로 채워요)`);
   if (sk.skillImmune) t.push(`🧿 ${sk.skillImmune}턴 동안 상대의 스킬 효과(피해·약화·지속피해·분신 공격…)를 전혀 안 받아요 (기본 공격은 맞아요)`);
   if (sk.archBless) t.push(`👼 받은 피해(이번 턴, 없으면 지난 턴)의 ${P100(sk.archBless[0])} 회복 + 회복량의 ${P100(sk.archBless[1])}를 상대에게 추가 피해 (방어 무시)${sk.archBless[2] > 1 ? ` · 체력이 가득 차 **넘친 회복량**은 ×${sk.archBless[2]}배 위력(${P100(sk.archBless[1] * sk.archBless[2])})으로!` : ''}`);
@@ -924,11 +932,13 @@ export function grantSkills(inst, rng = Math.random, gradeOrder = GRADE_TIER_BAS
 // st(상태): { dots:[{kind,pct,turns}], stun, atkUp, atkDown, defUp, defDown, guard, shield, evade, regen }
 export const newSide = () => ({});
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-export const effAtk = (X) => (X.atk + (X.st.defToAtk?.amt ?? 0)) * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0), 0.2, 4) * (X.st.burst?.mult ?? 1) * (X.st.statMod?.atk ?? 1);
-export const effDef = (X) => (X.st.defToAtk ? 0 : X.def) * clamp(1 + (X.st.defUp?.pct ?? 0) - (X.st.defDown?.pct ?? 0), 0.2, 4) * (X.st.statMod?.def ?? 1);
+export const effAtk = (X) => (X.atk + (X.st.defToAtk?.amt ?? 0)) * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0), 0.2, 4) * (X.st.burst?.mult ?? 1) * (X.st.statMod?.atk ?? 1) * (X.st.prideNull ? 0 : 1); // 👿 군주의 오만에 무시당하면 공격력 0
+export const effDef = (X) => (X.st.defToAtk || X.st.prideNull ? 0 : X.def) * clamp(1 + (X.st.defUp?.pct ?? 0) - (X.st.defDown?.pct ?? 0), 0.2, 4) * (X.st.statMod?.def ?? 1);
 export const effSpd = (X) => (X.spd ?? 0) * clamp(1 + (X.st.spdUp?.pct ?? 0) - (X.st.spdDown?.pct ?? 0), 0.2, 4) * (X.st.statMod?.spd ?? 1);
 
 // 내가 먼저 움직이는가? (priority 가 한쪽만 있으면 그쪽이 먼저, 둘 다/둘 다 없으면 스피드 비교, 같으면 내가 먼저)
+export const prideAtk = (st, atk) => (st?.prideNull ? 0 : atk); // 👿 기본 공격용: 오만에 무시당한 쪽의 공격력은 0
+export const prideDef = (st, def) => (st?.prideNull ? 0 : def); // 👿 기본 공격용: 오만에 무시당한 쪽의 방어력은 0
 export function actsFirst(me, foe) {
   const mp = !!me.st.priority;
   const fp = !!foe.st.priority;
@@ -1204,9 +1214,26 @@ export function revertCurseSlots(skills, st) {
 }
 
 // 🪽 부활: 쓰러졌고 부활 효과가 남아 있으면 되살려요 (남은 횟수가 0 이 되면 효과 사라짐)
+// 🐛 모래 삼키기: 삼킨 동안 쓰러지기 직전에 전투당 1회 최대 체력이 늘고 체력 비율로 일어나요 (부활이 먼저 쓰이고, 부활이 없을 때 여기로 와요)
+function sandLastStand(X, log) {
+  const sw = X.st?.swallow;
+  if (!sw || X.hp > 0 || X.st.swallowSaved) return false;
+  X.st.swallowSaved = true;
+  const gain = Math.max(1, Math.round(X.max * sw.maxUp));
+  X.max += gain;
+  X.st.maxBonus = (X.st.maxBonus ?? 0) + gain;
+  X.hp = Math.max(1, Math.round(X.max * sw.hpPct));
+  X.st.dots = [];
+  delete X.st.bomb;
+  delete X.st.stun;
+  delete X.st.frozen;
+  log.push(`🐛 ${X.name}(이)가 쓰러지기 직전, 삼킨 힘으로 **다시 일어났어요**! 최대 체력 +${gain} · 체력 ${X.hp}/${X.max} (전투당 1회)`);
+  return true;
+}
+
 export function tryRevive(X, log, foe = null) {
   const r = X.st?.revive;
-  if (!r || X.hp > 0) return false;
+  if (!r || X.hp > 0) return sandLastStand(X, log);
   const blast = r.blast;
   const blastElem = r.elem;
   let gain = 0;
@@ -1248,6 +1275,8 @@ export function castSkill(sk, A, B, rng, log) {
   const fizzle = (why) => { A.mana += sk.cost; log.push(`　💨 ${why} (마나는 돌려받았어요)`); };
   if (sk.cloneBoom && A.st.clone) return fizzle('분신이 아직 남아 있어요…');
   if (sk.joker && (A.fight ?? B.fight)?.jokerUsed) return fizzle('조커는 이번 전투에서 이미 쓰였어요…');
+  if (sk.pride && A.st.prideUsed) return fizzle('이번 전투에서 이미 군림했어요…');
+  if (sk.lastLaugh && A.st.lastLaughUsed) return fizzle('이번 전투에서 이미 웃었어요…');
   if (sk.devilDeal && A.st.devil) return fizzle('이미 악마와 거래 중이에요…');
   if ((sk.catchPro || sk.fightBuff) && !(A.fight && A.st === A.fight.mySt)) return fizzle('이 스킬은 트레이너의 펫만 쓸 수 있어요…'); // 🆕 배치 5: 포획·보상 스킬은 내 쪽만
   if (sk.curseGrant && !A.st.cursed) { revertCurseSlots(A.skills, A.st); return fizzle('부여할 저주가 사라졌어요…'); }
@@ -1259,7 +1288,7 @@ export function castSkill(sk, A, B, rng, log) {
     log.push(`　🕯️ ${A.name}에게 달린 불빛이 깜빡여요! 최대 체력의 ${P100(A.st.lamp.pct)} **${n}** 고정 피해 + 마나 -${m}`);
     if (A.hp <= 0) return;
   }
-  if (!sk.echoed) A.st.act = ['heal', 'regen', 'shield', 'guard', 'atkUp', 'defUp', 'burstAtk', 'revive', 'evade', 'potion'].some((k) => sk[k]) ? 'read' : 'other'; // 👁️ 내가 마지막에 한 행동 종류 (급강하 폭격의 "읽기"용)
+  if (!sk.echoed) A.st.act = ['heal', 'regen', 'shield', 'guard', 'atkUp', 'defUp', 'burstAtk', 'revive', 'atkRegen', 'evade', 'potion'].some((k) => sk[k]) ? 'read' : 'other'; // 👁️ 내가 마지막에 한 행동 종류 (급강하 폭격의 "읽기"용)
   if (!sk.echoed) A.st.last = sk.copied ? sk.srcId : sk.id; // 🆕 "마지막에 쓴 스킬" 기록 (복사용)
   if (sk.cd && !sk.copied && !sk.echoed) (A.st.cds ??= {})[sk.id] = sk.cd + 1; // ⏳ 쿨타임 시작 (+1: 이번 턴 끝 감소분)
   if (sk.copy) { // 🦜 상대가 마지막에 쓴 스킬을 복사해서 마나 0으로 즉시 사용
@@ -1269,9 +1298,10 @@ export function castSkill(sk, A, B, rng, log) {
     castSkill({ ...src, name: `${src.name} (복사)`, cost: 0, copied: true, srcId: src.id }, A, B, rng, log);
     return;
   }
+  const prideHostile = HOSTILE_KEYS.some((k) => sk[k]) && !sk.copied && !sk.echoed && !sk.reflected; // 👿 반사 대상: 상대에게 건 스킬
   // 🧿 스킬 면역: 상대가 면역이면 "적에게 가는 효과"가 전부 사라져요 (내게 쓰는 효과는 그대로)
   let immune = false;
-  if (B.st.skillImmune && (HOSTILE_KEYS.some((k) => sk[k]) || sk.archBless || sk.statRoll?.[1] === 'foe')) {
+  if (B.st.skillImmune && !sk.swallowed && (HOSTILE_KEYS.some((k) => sk[k]) || sk.archBless || sk.statRoll?.[1] === 'foe')) {
     immune = true;
     sk = { ...sk };
     for (const k of HOSTILE_KEYS) delete sk[k];
@@ -1514,6 +1544,7 @@ export function castSkill(sk, A, B, rng, log) {
       log.push('　💨 아직 받은 피해가 없어서 축복이 흩어졌어요…');
     }
   }
+  if (sk.atkRegen) { A.st.atkRegen = { ratio: sk.atkRegen[0], turns: sk.atkRegen[1] }; log.push(`　🔥 ${sk.atkRegen[1]}턴 동안 매 턴 공격력의 ${P100(sk.atkRegen[0])}만큼 회복해요`); }
   if (sk.regen) { A.st.regen = { pct: sk.regen[0], turns: sk.regen[1] }; log.push(`　🌱 ${sk.regen[1]}턴 동안 체력이 차올라요`); }
   if (sk.shield) { A.st.shield = (A.st.shield ?? 0) + Math.round(A.max * sk.shield); log.push(`　🔰 보호막 ${A.st.shield}`); }
   if (sk.guard) { A.st.guard = { pct: sk.guard[0], turns: sk.guard[1] }; log.push(`　🛡️ ${sk.guard[1]}턴 동안 받는 데미지 -${P100(sk.guard[0])}`); }
@@ -1607,6 +1638,46 @@ export function castSkill(sk, A, B, rng, log) {
     const slot = (A.skills ?? []).indexOf(sk.id);
     if (slot >= 0) A.skills[slot] = 'curse_grant';
     log.push(`　🧿 ${A.name}에게 저주가 걸렸어요! ${picked.map((c) => CURSE_LABEL[c.k]).join(' · ')} (${turns}턴)${slot >= 0 ? ' — 다음 턴, 이 스킬이 **저주부여**로 바뀌어요' : ''}`);
+  }
+  if (sk.swallow) { // 🐛 모래 삼키기: 내 공격 스킬 중 위력이 가장 높은 것을 삼켜요
+    const [turns, maxUp, hpPct] = sk.swallow;
+    const score = (x) => (x.pow ?? 0) * (x.hitsRange ? (x.hitsRange[0] + x.hitsRange[1]) / 2 : (x.hits ?? 1));
+    const cand = (A.skills ?? []).map((id) => SKILLS[id]).filter((x) => x && x.id !== sk.id && x.pow > 0 && !x.joker && !x.hidden && !x.swallow && !x.pride && !x.lastLaugh && !x.copy);
+    cand.sort((a, b) => score(b) - score(a));
+    const eat = cand[0];
+    if (eat) {
+      A.st.swallow = { id: eat.id, left: turns, fresh: true, maxUp, hpPct };
+      log.push(`　🐛 ${eat.emoji} **${eat.name}**을(를) 꿀꺽 삼켰어요! 다음 턴부터 ${turns}턴 동안 매 턴 마나·쿨타임 없이 저절로 터져요 (스킬 면역도 뚫어요)`);
+    } else log.push('　🐛 삼킬 만한 공격 스킬이 없었어요…');
+  }
+  if (sk.pride) { // 👿 군주의 오만: 상대의 방어·스피드·공격력 무시 → 이후 상대 스킬 되돌리기 (전투당 1회)
+    const [nullTurns, reflectTurns, reflectMax, times] = sk.pride;
+    A.st.prideUsed = true;
+    A.st.priority = { turns: nullTurns + 1 };
+    if (B.st.skillImmune) log.push(`　🧿 ${B.name}은(는) 스킬 면역! 오만이 상대에게는 통하지 않았어요 (선공만 얻어요)`);
+    else { B.st.prideNull = { turns: nullTurns + 1 }; log.push(`　👿 ${nullTurns}턴 동안 ${B.name}의 **방어력·스피드·공격력은 무시**돼요! (내 공격은 방어 관통 · 항상 선공 · 상대의 공격은 최소 피해)`); }
+    A.st.prideReflect = { turns: reflectTurns + 1, left: reflectMax, times };
+    log.push(`　👿 ${reflectTurns}턴 동안 ${B.name}이(가) 내게 건 스킬을 최대 ${reflectMax}개까지 **${times}번씩 되돌려요** (마나 0)`);
+  }
+  if (sk.lastLaugh) { // 🃏 광대의 마지막 웃음: 최대마나 확장 → 마나 가득 → 스킬 연속 시전 → 이 칸은 조커로
+    const [perHit, maxChain] = sk.lastLaugh;
+    A.st.lastLaughUsed = true;
+    const add = (A.st.hitCount ?? 0) * perHit;
+    if (add > 0) { A.manaMax += add; A.st.manaBonus = (A.st.manaBonus ?? 0) + add; }
+    A.mana = A.manaMax;
+    log.push(`　🃏 마지막 웃음! 맞은 ${A.st.hitCount ?? 0}번 × ${perHit} = 최대 마나 **+${add}** (${A.manaMax}) · 마나가 가득 찼어요`);
+    const slot = (A.skills ?? []).indexOf(sk.id);
+    if (slot >= 0) { A.skills[slot] = 'joker'; log.push('　🃏 이 카드는 이제 **조커**로 바뀌었어요 (이번 전투 동안만)'); }
+    let n = 0;
+    while (n < maxChain && A.hp > 0 && B.hp > 0 && !A.st.sealed) {
+      const pool = (A.skills ?? []).map((id) => SKILLS[id]).filter((x) => x && !x.lastLaugh && !x.joker && !x.hidden && !x.catchPro && !x.fightBuff && A.mana >= x.cost && cdLeft(A.st, x.id) <= 0);
+      if (!pool.length) break;
+      const pick = pool[Math.floor(rng() * pool.length)];
+      n++;
+      log.push(`　🃏 (${n}/${maxChain}) 연속 시전!`);
+      castSkill(pick, A, B, rng, log);
+    }
+    if (n === 0) log.push('　🃏 …하지만 쓸 수 있는 스킬이 없었어요');
   }
   if (firstMana) { A.mana += firstMana; log.push(`　🔋 선공 보너스 마나 +${firstMana}`); }
   if (sk.mana) { const n = Math.min(sk.mana, SKILL_CFG.manaMax + 1000); A.mana += n; log.push(`　🔋 마나 +${n}`); }
@@ -1750,6 +1821,15 @@ export function castSkill(sk, A, B, rng, log) {
     log.push('　🔊 메아리가 울려 퍼져요!');
     castSkill({ id: sk.id, name: `${sk.name} (메아리)`, emoji: sk.emoji, tier: sk.tier, cost: 0, pow: sk.pow * 0.75, hitPows: sk.hitPows?.map((x) => x * 0.75), hits: sk.hits, hitsRange: sk.hitsRange, pierce: sk.pierce, crit: sk.crit, exec: sk.exec, elem: sk.elem, weakBonus: sk.weakBonus, ignoreResist: sk.ignoreResist, echoed: true }, A, B, rng, log);
   }
+  const pr = B.st.prideReflect; // 👿 군주의 오만: 나(B)를 향한 스킬을 되돌려요 (되돌린 스킬은 다시 반사되지 않아요)
+  if (prideHostile && pr && pr.left > 0 && A.hp > 0 && B.hp > 0 && !sk.pride) {
+    pr.left--;
+    for (let i = 1; i <= pr.times && A.hp > 0 && B.hp > 0; i++) {
+      log.push(`　👿 ${B.name}의 오만이 ${sk.emoji} **${sk.name}**을(를) 되돌려요! (${i}/${pr.times})`);
+      castSkill({ ...sk, name: `${sk.name} (오만 반사)`, cost: 0, copied: true, reflected: true, srcId: sk.id, cd: 0 }, B, A, rng, log);
+    }
+    if (pr.left <= 0) delete B.st.prideReflect;
+  }
   tryRevive(A, log, B); // 🪽 이번 스킬로 쓰러졌다면 부활 판정
   tryRevive(B, log, A);
   A.mana = Math.min(A.mana, A.manaMax);
@@ -1825,6 +1905,23 @@ export function tickSide(X, log, gainMana = true, foe = null) {
     if (!foe.st.skillImmune && applyXfer(X, foe, st.xfer.mode, log)) delete st.xfer;
     else if (--st.xfer.turns <= 0) { delete st.xfer; log.push(`💨 ${X.name}의 효과 이동이 아무 일 없이 사라졌어요`); }
   }
+  if (st.atkRegen && X.hp > 0) { // 🦅 불사의 날갯짓: 공격력 비례 회복
+    const n = heal(X, effAtk(X) * st.atkRegen.ratio);
+    if (n) log.push(`🔥 ${X.name} 불꽃 재생 체력 +${n}`);
+    if (--st.atkRegen.turns <= 0) delete st.atkRegen;
+  }
+  if (st.swallow && X.hp > 0) { // 🐛 삼킨 스킬이 "스킬이 아닌 공격"으로 저절로 터져요
+    const sw = st.swallow;
+    if (sw.fresh) sw.fresh = false; // 시전한 턴 끝에는 안 터져요
+    else {
+      const eat = SKILLS[sw.id];
+      if (eat && foe && foe.hp > 0 && !st.stun && !st.frozen) {
+        log.push(`🐛 ${X.name}이(가) 삼킨 ${eat.emoji} **${eat.name}**이(가) 터져 나와요!`);
+        castSkill({ ...eat, name: `${eat.name} (삼킨 스킬)`, cost: 0, cd: 0, copied: true, swallowed: true, srcId: eat.id }, X, foe, Math.random, log);
+      }
+      if (--sw.left <= 0) { delete st.swallow; log.push(`🐛 ${X.name}이(가) 삼킨 스킬을 다 쏟아냈어요`); }
+    }
+  }
   if (st.regen && X.hp > 0) {
     const n = heal(X, X.max * st.regen.pct);
     if (n) log.push(`🌱 ${X.name} 체력 +${n}`);
@@ -1857,7 +1954,7 @@ export function tickSide(X, log, gainMana = true, foe = null) {
   }
   if (st.pendingBoom && foe) { const n = st.pendingBoom; delete st.pendingBoom; cloneBoomOn(X, foe, n, log); } // 🎆 쓰러진 분신의 폭발이 남아 있으면 지금
   if (st.clone?.boom && st.clone.turns <= 1 && foe) { const n = st.clone.boom; st.clone.boom = 0; cloneBoomOn(X, foe, n, log); } // 🎆 분신이 끝나는 순간 폭발
-  for (const k of ['atkUp', 'atkDown', 'powDown', 'berserk', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro', 'allElem', 'whoIs', 'lamp', 'huntMark', 'transfer', 'shieldCounter', 'speedRev']) {
+  for (const k of ['atkUp', 'atkDown', 'powDown', 'berserk', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro', 'allElem', 'whoIs', 'lamp', 'huntMark', 'transfer', 'shieldCounter', 'speedRev', 'prideNull', 'prideReflect']) {
     if (st[k] && !st[k].perm && --st[k].turns <= 0) delete st[k]; // perm(영구 봉인)은 줄지 않아요
   }
   for (const id of Object.keys(st.cds ?? {})) if (--st.cds[id] <= 0) delete st.cds[id]; // ⏳ 쿨타임 감소
@@ -1955,6 +2052,7 @@ export function statusText(st = {}) {
   if (st.guard) t.push(`🛡️ 방어태세 ${st.guard.turns}턴`);
   if (st.shield > 0) t.push(`🔰 보호막 ${st.shield}`);
   if (st.evade > 0) t.push(`🌀 회피 ${st.evade}회`);
+  if (st.atkRegen) t.push(`🔥 불꽃재생 ${st.atkRegen.turns}턴`);
   if (st.regen) t.push(`🌱 재생 ${st.regen.turns}턴`);
   if (st.bomb) t.push(`💣 시한폭탄 ${st.bomb.turns}턴`);
   if (st.echo) t.push(`🔊 메아리 ${st.echo.turns}턴`);
@@ -1978,6 +2076,10 @@ export function statusText(st = {}) {
   if (st.xfer) t.push(`🧲 ${{ steal: '버프 약탈', give: '디버프 떠넘기기', swap: '효과 교환' }[st.xfer.mode] ?? '효과 이동'} 대기 ${st.xfer.turns}턴`);
   if (st.statMod) t.push(`🎰 능력치 ⚔️×${+st.statMod.atk.toFixed(2)} 🧱×${+st.statMod.def.toFixed(2)} 👟×${+st.statMod.spd.toFixed(2)} ${st.statMod.turns}턴`);
   if (st.skillImmune) t.push(`🧿 스킬면역 ${st.skillImmune.turns}턴`);
+  if (st.manaBonus) t.push(`🃏 최대마나 +${st.manaBonus}`);
+  if (st.prideNull) t.push(`👿 오만에 짓눌림 ${st.prideNull.turns}턴 (방어·공격 무시)`);
+  if (st.prideReflect) t.push(`👿 반사 ${st.prideReflect.turns}턴 · 남은 ${st.prideReflect.left}개`);
+  if (st.swallow) t.push(`🐛 삼킴 ${SKILLS[st.swallow.id]?.name ?? ''} ${st.swallow.left}턴${st.swallowSaved ? ' (일어서기 사용함)' : ''}`);
   if (st.revive) t.push(`🪽 부활대기 ${st.revive.turns}턴`);
   if (st.maxBonus) t.push(`⬆️ 최대체력 +${st.maxBonus}`);
   if (st.sealed) t.push(st.sealed.perm ? '🔒 스킬 영구봉인' : `🔒 스킬봉인 ${st.sealed.turns}턴`);
