@@ -5899,14 +5899,17 @@ const pets = {
 // ═════════════════════════════════════════════
 
 // 도감 챕터 목록: 0번은 스타팅 펫, 그 뒤로는 /탐험 장소 순서 그대로예요
+// 챕터 안에서는 등급이 낮은 → 높은 순서로 보여줘요 (같은 등급이면 원래 순서 그대로)
+const dexByGrade = (ids) => [...ids].sort((a, b) => (GRADES[PETS[a]?.grade]?.order ?? 0) - (GRADES[PETS[b]?.grade]?.order ?? 0));
+
 function dexChapters() {
   return [
-    { id: 'starter', emoji: '🐣', name: '스타팅 펫', ids: [...STARTER_IDS] },
+    { id: 'starter', emoji: '🐣', name: '스타팅 펫', ids: dexByGrade(STARTER_IDS) },
     ...LOCATION_LIST.map((loc) => ({
       id: loc.id,
       emoji: loc.emoji,
       name: loc.name,
-      ids: [...new Set(loc.spawns.map((s) => s.petId))],
+      ids: dexByGrade(new Set(loc.spawns.map((s) => s.petId))),
     })),
   ];
 }
