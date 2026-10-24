@@ -214,6 +214,9 @@ export function elemClash(atkElem, defender, { ignoreResist = false, attacker = 
   let warded = false;
   if (ignoreResist && mult < 1) { mult = 1; ignored = true; }
   if (mult > 1 && defender?.st?.ward) { mult = 1; warded = true; }
+  let genesis = false; // 🌌 천지창조: 내 공격은 약점 확정, 내가 맞는 약점은 사라져요
+  if (attacker?.st?.genesis && mult < ELEM_CFG.strong) { mult = ELEM_CFG.strong; genesis = true; warded = false; ignored = false; }
+  else if (defender?.st?.genesis && mult > 1) { mult = 1; genesis = true; }
   let note = '';
   if (ignored) note = ' (🔓 상성 반감을 무시했어요!)';
   else if (warded) note = ' (🔮 속성 방벽이 약점을 막아냈어요!)';
@@ -221,6 +224,7 @@ export function elemClash(atkElem, defender, { ignoreResist = false, attacker = 
   else if (mult >= 1.1) note = ' ✨ **효과가 굉장했다!**';
   else if (mult <= 0.5) note = ' 💨 효과가 거의 없는 듯하다…';
   else if (mult <= 0.9) note = ' 💧 효과가 별로인 듯하다…';
+  if (genesis) note += mult > 1 ? ' 🌌 천지창조: 약점 확정!' : ' 🌌 천지창조의 장막이 약점을 지웠어요!';
   return { mult, note, ignored, warded };
 }
 // 상성 한 줄 요약 (확인창 · 전투 화면용)
@@ -558,6 +562,7 @@ U('archangel_bless', '대천사의 축복', '👼', 5, { archBless: [2, 0.3, 5],
 // ───────── 🆕 4차 확장 (배치 4): 조커 · 금단의 저주 · 저주부여 · 악마와의 거래 ─────────
 // (기존 일반 스킬 '저주'(curse)와 이름이 겹치지 않게 새 저주는 '금단의 저주'(forbidden_curse) 예요)
 U('joker', '조커', '🃏', 5, { joker: true, cost: 50, elem: 'dark' }, '내 카드 한 장과 상대 카드 한 장을 슬쩍 바꿔치기! 상대 손에 조커가 들어가면… 큰일이에요.');
+U('joker_dud', '조커 카드', '🃏', 1, { dud: true, cost: 0, hidden: true, elem: 'normal' }, '속임수에 걸려 바뀐 카드… 쓸 수 없어요.');
 U('forbidden_curse', '금단의 저주', '🧿', 4, { curse: [2, 4], cost: 25, cd: 5, elem: 'dark' }, '나 자신에게 저주를 걸어요. 아프지만, 그 저주는 곧 누군가에게 돌아가요.');
 U('curse_grant', '저주부여', '🪬', 4, { curseGrant: 3, cost: 20, elem: 'dark', hidden: true }, '내가 받은 저주를 세 배로 키워서 선물해요. (금단의 저주를 쓴 다음 턴에만 나타나요)');
 U('devil_deal', '악마와의 거래', '😈', 5, { devilDeal: [2, 3], cost: 60, cd: 6, elem: 'dark' }, '"2턴 안에 끝내면 공짜, 못 끝내면… 준 만큼의 세 배를 받아가지."');
@@ -613,7 +618,7 @@ P('wolf', 'sig_wolf', '그림자 사냥', '🐺', 4, { pow: 1.2, mark: [3, 3, 0.
 P('wolf', 'sig_wolf2', '달빛 울음', '🌕', 3, { atkUp: [0.4, 3], drain: 0.2 }, '달을 보며 길게 울면 힘이 솟아요.');
 P('boar', 'sig_boar', '멧돼지 돌진', '🐗', 2, { pow: 2.1, recoil: 0.06, stun: 0.25 }, '앞뒤 안 보고 쾅! 돌진해요.');
 P('unicorn', 'sig_unicorn', '무지갯빛 뿔', '🦄', 4, { pow: 1.8, cleanseBoost: [0.35, 2], heal: 0.15, cd: 4 }, '뿔에서 번진 빛이 아픈 곳을 낫게 해줘요.');
-P('unicorn', 'sig_unicorn2', '순결의 돌진', '🌈', 5, { pow: 3.4, pierce: 0.3, stun: 0.25 }, '무지개를 가르며 달려가요.');
+P('unicorn', 'sig_unicorn2', '순결의 돌진', '🌈', 5, { pow: 2.6, pierce: 0.3, stun: 0.25, pureCharge: { step: 0.25, cap: 4, noneBreak: 2, def: 0.3 }, cd: 6 }, '무지개를 가르며 달려가요. 몸의 얼룩을 떨칠수록 더 세져요.');
 // 동굴
 P('bat', 'sig_bat', '초음파 비명', '🦇', 2, { pow: 1.5, stun: 0.4 }, '귀가 윙윙! 정신이 없어져요.');
 P('golem', 'sig_golem', '바위 주먹', '🪨', 3, { pow: 2.4, stun: 0.3 }, '집채만 한 바위 주먹을 내리쳐요.');
@@ -631,7 +636,7 @@ P('pufferfish', 'sig_pufferfish', '뾰족 폭발', '🐡', 2, { pow: 1.7, recoil
 P('octopus', 'sig_octopus', '먹물 연막', '🐙', 3, { evade: 2, atkDown: [0.3, 3], heal: 0.1 }, '새까만 먹물 속으로 쏙 숨어요.');
 P('octopus', 'sig_octopus2', '빨판 조이기', '🌀', 3, { pow: 1.9, stun: 0.3, drain: 0.2 }, '여덟 개 다리로 꽁꽁 감아요.');
 P('whale', 'sig_whale', '고래 노래', '🐋', 4, { heal: 0.45, healOverflow: 0.4, regen: [0.06, 3], mana: 15, cd: 4 }, '깊고 느린 노래가 바다를 울려요.');
-P('whale', 'sig_whale2', '대양의 꼬리치기', '🌊', 5, { pow: 3.4, stun: 0.3 }, '바다 전체가 흔들리는 꼬리치기!');
+P('whale', 'sig_whale2', '대양의 꼬리치기', '🌊', 5, { pow: 2.6, spdDown: [0.6, 2], manaSiphon: [0.5, 50, 0.5], cd: 6 }, '바다 전체가 흔들리는 꼬리치기! 상대의 기운이 파도에 휩쓸려 와요.');
 P('turtle', 'sig_turtle', '등껍질 수비', '🐢', 3, { guard: [0.6, 3], regen: [0.07, 3] }, '등껍질 속에서 천천히 숨을 골라요.');
 P('mermaid', 'sig_mermaid', '인어의 자장가', '🧜', 4, { drowsy: 2, drainMana: 20, heal: 0.15, cd: 4 }, '달콤한 노랫소리에 스르르 잠이 와요.');
 P('turtle', 'sig_turtle2', '거북 박치기', '🐢', 2, { pow: 1.6, defUp: [0.3, 2] }, '느리지만 묵직하게 들이받아요.');
@@ -641,9 +646,9 @@ P('phoenix', 'sig_phoenix', '불사의 날갯짓', '🦅', 5, { pow: 2.8, heal: 
 P('phoenix', 'sig_phoenix2', '환생의 불길', '🔥', 4, { revive: [0.3, 2], reviveBlast: 1.5, cd: 6 }, '타오를수록 힘이 솟아요.');
 P('magma_slime', 'sig_magma_slime', '용암 튀기기', '🟠', 3, { pow: 1.7, dot: ['burn', 0.06, 3, 0.8] }, '뜨거운 용암이 철퍽!');
 P('salamander', 'sig_salamander', '불꽃 꼬리채찍', '🦎', 3, { pow: 1.2, hits: 2, dot: ['burn', 0.04, 3, 0.5] }, '꼬리를 두 번 휘둘러요.');
-P('flame_lord', 'sig_flame_lord', '화염 군림', '👹', 5, { pow: 3.2, dot: ['burn', 0.09, 4, 1], atkDown: [0.25, 3] }, '불꽃의 왕이 내려보면 모두 움츠러들어요.');
+P('flame_lord', 'sig_flame_lord', '화염 군림', '👹', 5, { pow: 2.2, dot: ['burn', 0.03, 2, 1], reign: { turns: 3, max: 3, pct: 0.02, fire: 0.2 }, cd: 6 }, '불꽃의 왕이 내려보면 움직일 때마다 타올라요.');
 P('flame_lord', 'sig_flame_lord2', '마왕의 포효', '😈', 4, { pow: 2.0, rage: [0.15, 0.9], stun: 0.3, cd: 4 }, '화산이 부르르 떨리는 포효!');
-P('fire_dragon', 'sig_fire_dragon', '용왕의 업화', '🐉', 5, { pow: 3.2, dot: ['burn', 0.08, 4, 1], pierce: 0.3 }, '모든 것을 재로 만드는 용왕의 불꽃.');
+P('fire_dragon', 'sig_fire_dragon', '용왕의 업화', '🐉', 5, { pow: 2.8, pierce: 0.3, dot: ['burn', 0.08, 3, 1], dragonFlame: { burn: 0.15, trueMul: 1.5, low: 0.3, lowMult: 1.6, minHp: 0.25 }, cd: 7 }, '내 체력을 태워서라도 모든 것을 재로 만드는 용왕의 불꽃.');
 P('fire_dragon', 'sig_fire_dragon2', '용의 위엄', '👑', 4, { atkUp: [0.6, 4], guard: [0.5, 3], reflect: [0.3, 3], cd: 5 }, '날개를 펴면 하늘이 붉게 물들어요.');
 // 안개 늪
 P('frog', 'sig_frog', '개굴 합창', '🐸', 2, { pow: 1.5, stun: 0.35 }, '개굴개굴! 시끄러워서 깜짝 놀라요.');
@@ -657,7 +662,7 @@ P('camel', 'sig_camel', '혹 저장고', '🐪', 2, { heal: 0.35, mana: 15 }, '�
 P('cactus', 'sig_cactus', '가시 갑옷', '🌵', 3, { guard: [0.5, 3], shield: 0.25 }, '건드리면 따끔! 가시가 곤두서요.');
 P('scarab', 'sig_scarab', '황금 광택', '🪲', 3, { defUp: [0.6, 3], pow: 2.0 }, '번쩍이는 껍질이 공격을 튕겨내요.');
 P('lion', 'sig_lion', '사막의 왕 포효', '🦁', 4, { pow: 2.0, firstBonus: [1.5, 0.9, 10], cd: 4 }, '사막이 쩌렁쩌렁 울려요.');
-P('mummy', 'sig_mummy', '파라오의 저주', '⚰️', 5, { pow: 2.8, atkDown: [0.4, 4], dot: ['poison', 0.08, 4, 1] }, '붕대가 풀리며 오래된 저주가 퍼져요.');
+P('mummy', 'sig_mummy', '파라오의 저주', '⚰️', 5, { pow: 1.8, pharaoh: { turns: 5, flip: 0.8, rot: 0.02, shield: 0.5 }, cd: 7 }, '붕대가 풀리며 오래된 저주가 퍼져요. 치유는 상처가 되어요.');
 P('mummy', 'sig_mummy2', '붕대 감기', '🧻', 3, { shield: 0.3, heal: 0.25 }, '다친 곳을 꽁꽁 싸매요.');
 P('sandworm', 'sig_sandworm', '모래 삼키기', '🐛', 5, { pow: 3.2, exec: 1.7, stun: 0.25, swallow: [3, 0.3, 0.7], cd: 8 }, '땅속에서 솟구쳐 통째로 삼켜요. 내 스킬 하나까지 삼켜서 3턴 동안 매 턴 저절로 터뜨려요.');
 // 얼음 설원
@@ -667,19 +672,19 @@ P('yeti', 'sig_yeti', '설인의 눈덩이', '🦍', 4, { pow: 1.6, snowball: [1
 P('ice_spirit', 'sig_ice_spirit', '얼음 감옥', '🧊', 4, { pow: 2.0, defDown: [0.2, 3], speedRev: 3, cd: 5 }, '순식간에 꽁꽁 얼려요.');
 P('frost_dragon', 'sig_frost_dragon', '서리 숨결', '❄️', 5, { pow: 3.2, dot: ['burn', 0.07, 3, 0.8], freeze: 3, cd: 8 }, '닿는 곳마다 얼음꽃이 피어요. 얼음에 갇힌 상대는 꼼짝 못 해요.');
 P('frost_dragon', 'sig_frost_dragon2', '서리 비늘', '🛡️', 4, { shield: 0.4, shieldCounter: [1.8, 0.35, 3, 4], mana: 10, cd: 4 }, '얼음 비늘이 모든 공격을 튕겨요.');
-P('ice_queen', 'sig_ice_queen', '영원한 겨울', '👸', 5, { pow: 2.8, stun: 0.4, atkDown: [0.35, 4], defDown: [0.3, 4] }, '세상이 하얗게, 아주 조용해져요.');
+P('ice_queen', 'sig_ice_queen', '영원한 겨울', '👸', 5, { winter: { turns: 5, mana: 10, spd: 0.08, max: 3, freeze: 2, immune: 3 }, cd: 8 }, '세상이 하얗게, 아주 조용해져요.');
 P('ice_queen', 'sig_ice_queen2', '여왕의 칙령', '👑', 4, { shield: 0.4, mana: 30, reflectDebuff: 3, cd: 4 }, '"감히 내 앞에서."');
 // 구름 하늘섬
 P('cloud_sheep', 'sig_cloud_sheep', '구름 이불', '🐑', 2, { heal: 0.3, evade: 1 }, '포근한 구름이 감싸 안아요.');
 P('parrot', 'sig_parrot', '따라쟁이 합창', '🦜', 3, { pow: 0.8, hits: 3, atkDown: [0.2, 3] }, '상대의 말을 따라 하며 약을 올려요.');
 P('thunder_bird', 'sig_thunder_bird', '벼락 급강하', '⚡', 4, { evade: 1, dive: [3.0, 0.3, 0.35, 2], cd: 5 }, '하늘에서 벼락처럼 내리꽂아요.');
 P('pegasus', 'sig_pegasus', '천마 질주', '🐴', 4, { pow: 1.35, hits: 3, hitPows: [1.0, 1.35, 1.7], crit: 0.2, cd: 4 }, '하늘을 가르며 세 번 스쳐 지나가요.');
-P('wyvern', 'sig_wyvern', '와이번 꼬리독', '🦖', 5, { pow: 3.0, dot: ['poison', 0.1, 4, 1] }, '꼬리 끝 독침이 번쩍!');
+P('wyvern', 'sig_wyvern', '와이번 꼬리독', '🦖', 5, { pow: 2.4, venom: { turns: 5, basic: 1, skill: 2, pop: 5, popMult: 1.5, per: 0.008, dotTurns: 4, healCut: [0.5, 3] }, cd: 5 }, '꼬리 끝 독침이 번쩍! 쌓이고 쌓인 독이 한꺼번에 터져요.');
 P('wyvern', 'sig_wyvern2', '급강하 폭격', '☁️', 4, { pow: 2.2, dot: ['poison', 0.08, 3, 1], readBonus: 1.5, cd: 4 }, '구름을 뚫고 떨어지는 폭격!');
-P('angel', 'sig_angel', '심판의 나팔', '👼', 5, { pow: 3.0, exec: 1.8, stun: 0.3 }, '나팔 소리가 울리면 심판이 시작돼요.');
-P('angel', 'sig_angel2', '천사의 치유', '😇', 5, { heal: 0.6, cleanse: true, regen: [0.08, 4] }, '날개 끝에서 따뜻한 빛이 내려와요.');
-P('sun_god', 'sig_sun_god', '태양의 심판', '☀️', 5, { pow: 3.4, pierce: 0.4, dot: ['burn', 0.08, 4, 1] }, '새하얀 햇빛이 모든 것을 꿰뚫어요.');
-P('sun_god', 'sig_sun_god2', '일출의 가호', '🌅', 5, { heal: 0.35, atkUp: [0.6, 4], defUp: [0.4, 4] }, '해가 떠오르면 힘이 끝없이 솟아요.');
+P('angel', 'sig_angel', '심판의 나팔', '👼', 5, { trumpet: { turns: 2, pow: 3.2, per: 0.35, cap: 1.0, guard: 0.5 }, cd: 7 }, '나팔 소리가 울리면 심판이 시작돼요. 그동안 지은 죄만큼.');
+P('angel', 'sig_angel2', '천사의 치유', '😇', 5, { angelRefund: { turns: 3, rate: 0.4, cap: 0.5, shield: 0.2 }, cleanse: true, cd: 7 }, '날개 끝에서 따뜻한 빛이 내려와 아픔을 되돌려줘요.');
+P('sun_god', 'sig_sun_god', '태양의 심판', '☀️', 5, { sunVerdict: { charge: 2, hp: 0.28, cap: 6, atk: 2.4, burn: [0.06, 3], guard: 0.3 }, cd: 9 }, '새하얀 햇빛을 모아 단 한 번에 내리쳐요.');
+P('sun_god', 'sig_sun_god2', '일출의 가호', '🌅', 5, { sunrise: { turns: 5, step: 0.12, cap: 0.6, regen: 0.04, guard: 0.15, after: 3 }, cd: 9 }, '해가 떠오르면 힘이 솟아요. 하지만 영원하진 않아요.');
 // 별빛 심연
 P('shadow', 'sig_shadow', '그림자 삼키기', '👤', 3, { pow: 2.2, drain: 0.4 }, '발밑 그림자가 기운을 삼켜요.');
 P('void_eye', 'sig_void_eye', '허공의 응시', '👁️', 4, { stun: 0.65, defDown: [0.35, 4], drainMana: 30, truePct: 0.06, cd: 4 }, '눈이 마주친 순간, 몸이 굳어요.');
@@ -687,10 +692,10 @@ P('star_whale', 'sig_star_whale', '별빛 파도', '🐳', 4, { pow: 2.4, shield
 P('comet', 'sig_comet', '혜성 충돌', '☄️', 5, { pow: 3.3, recoil: 0.1, stun: 0.3 }, '긴 꼬리를 끌고 쾅!');
 P('void_dragon', 'sig_void_dragon', '공허의 숨결', '🌑', 5, { truePct: 0.35, drainMana: 9999, berserk: 2, cd: 7 }, '닿은 곳이 사라져요. 사라진 자리에서 광기가 깨어나요.');
 P('void_dragon', 'sig_void_dragon2', '차원 비늘', '🕳️', 4, { transfer: [0.35, 3], evade: 2, cd: 5 }, '비늘 틈으로 공격이 사라져요.');
-P('chaos_lord', 'sig_chaos_lord', '혼돈의 소용돌이', '😈', 5, { pow: 0.85, hits: 4, stun: 0.3, atkDown: [0.25, 3] }, '무슨 일이 일어날지 아무도 몰라요.');
+P('chaos_lord', 'sig_chaos_lord', '혼돈의 소용돌이', '😈', 5, { pow: 0.8, hits: 2, chaos: { count: 3, hp: 0.05 }, cd: 7 }, '무슨 일이 일어날지 아무도 몰라요. 최소한 하나는 내 편이에요.');
 P('chaos_lord', 'sig_chaos_lord2', '군주의 오만', '👿', 5, { pride: [2, 5, 3, 2] }, '"모든 것이 내 뜻대로." 2턴 동안 상대의 방어·스피드·공격력은 의미가 없고, 그 뒤 5턴 동안 나를 향한 스킬은 되돌아가요.');
-P('creator', 'sig_creator', '천지창조', '🌌', 5, { pow: 3.7, pierce: 0.5, stun: 0.3 }, '별이 태어나는 순간의 폭발.');
-P('creator', 'sig_creator2', '태초의 숨결', '✨', 5, { heal: 0.6, cleanse: true, mana: 40, regen: [0.08, 4] }, '모든 것이 처음으로 돌아가요.');
+P('creator', 'sig_creator', '천지창조', '🌌', 5, { genesis: { turns: 3, convert: 5, manaUp: 30 }, cd: 99 }, '별이 태어나는 순간, 세상의 상성이 뒤집혀요.');
+P('creator', 'sig_creator2', '태초의 숨결', '✨', 5, { rewind: { back: 3, cap: 0.7, cdTop: 3, immune: 2 }, cd: 99 }, '모든 것이 처음으로 돌아가요.');
 // 트릭스터 극장
 P('puppet', 'sig_puppet', '줄 끊기', '🪆', 3, { pow: 2.0, defDown: [0.2, 3] }, '보이지 않는 줄에 매달려 춤추듯 달려들어요.');
 P('mask_actor', 'sig_mask_actor', '가면 바꿔쓰기', '🎭', 4, { maskSwap: 3, atkUp: [0.4, 3], evade: 1, mana: 10, cd: 4 }, '새 가면을 쓰면 새 사람이 돼요.');
@@ -700,7 +705,7 @@ P('magician', 'sig_magician2', '손재주 부리기', '🎩', 4, { stealMana: 30
 P('ringmaster', 'sig_ringmaster', '불의 링 통과', '🎪', 5, { pow: 3.2, dot: ['burn', 0.08, 3, 1], stealSpd: ['def', 'atk', 0.7, 3], cd: 6 }, '활활 타는 링 사이로 돌진해요! 빠른 상대에겐 방패를, 느린 상대에겐 힘을 빼앗아요.');
 P('ringmaster', 'sig_ringmaster2', '채찍 신호', '🪄', 4, { clone: [0.6, 0.78, 3], cloneBoom: 2.3, cd: 5 }, '짝! 소리에 모두가 한 몸처럼 움직여요.');
 P('joker', 'sig_joker', '광대의 마지막 웃음', '🃏', 5, { lastLaugh: [10, 8] }, '맞은 만큼 무대가 커지고, 마지막에 웃는 자가 이기는 거예요. 한 번 웃고 나면 이 카드는 조커가 돼요.');
-P('joker', 'sig_joker2', '속임수 패', '🂡', 5, { atkDown: [0.35, 4], defDown: [0.3, 4], drainMana: 40 }, '카드는 이미 바뀌어 있었어요.');
+P('joker', 'sig_joker2', '속임수 패', '🂡', 5, { trickster: { boost: 1.2 }, cd: 99 }, '카드는 이미 바뀌어 있었어요. 상대의 마지막 수를 그대로 돌려주고, 가장 아끼던 카드를 빈 조커로 바꿔 놓아요.');
 
 // 스킬 속성 배정 (여기에 없는 스킬은 무속성이에요 · 전용기는 펫 속성을 따라가요)
 const ELEM_SKILLS = {
@@ -836,7 +841,23 @@ export function skillEffectLines(sk) {
   }
   if (sk.whoIs) t.push(`🎭 ${sk.whoIs[1]}턴 동안 상대가 나를 때리는 공격(스킬 타격 · 기본 공격)이 ${P100(sk.whoIs[0])} 확률로 **상대 자신에게** 들어가요 (시한폭탄 · 고정 피해는 제외)`);
   if (sk.lockSkills) t.push('🔏 상대의 스킬을 **이번 전투 동안 영구 봉인**해요 (조커 봉인은 3턴, 이건 끝날 때까지)');
-  if (sk.cd) t.push(`⏳ 쿨타임 ${sk.cd}턴`);
+  if (sk.dud) t.push('🃏 쓸 수 없는 카드예요');
+  if (sk.trickster) t.push(`🂡 상대가 마지막에 쓴 스킬을 **위력 ×${sk.trickster.boost}** 로 마나 0에 복제해 되돌려요 (전투당 1회 스킬은 복제 불가) · 상대 스킬 칸 중 **마나가 가장 큰 하나를 조커 카드로** 바꿔 이번 전투 동안 못 쓰게 해요 · 내 쿨타임 초기화 (전투당 1회 스킬 제외)`);
+  if (sk.genesis) t.push(`🌌 내 속성을 상대 공격에 가장 강한 속성으로, 상대 속성을 내 공격에 가장 약한 속성으로 ${sk.genesis.convert}턴 바꿔요 · ${sk.genesis.turns}턴간 내 공격은 **약점 확정**, 상대 공격의 약점 보너스는 사라져요 · 최대 마나 +${sk.genesis.manaUp} (이번 전투 동안) · 마나 +${sk.genesis.manaUp}`);
+  if (sk.rewind) t.push(`⏪ ${sk.rewind.back}턴 전의 체력·마나로 되돌려요 (지금이 더 좋으면 그대로 · 체력은 최대 체력의 ${P100(sk.rewind.cap)}까지만) · 쿨타임이 긴 스킬 ${sk.rewind.cdTop}개 초기화 · 나쁜 효과 전부 정화 · ${sk.rewind.immune}턴간 새 나쁜 효과 면역 · 다음 턴 선공`);
+  if (sk.sunVerdict) { const c = sk.sunVerdict; t.push(`☀️ ${c.charge}번째 턴이 끝날 때 내리쳐요: **방어력 무시** · 상대 최대 체력의 ${P100(c.hp)} (상한: 내 공격력의 ${c.cap}배) + 공격력 ×${c.atk} (속성 상성 적용) · ${c.burn[1]}턴 화상 · 상대의 좋은 효과 전부 소멸 · 충전 중엔 받는 피해 -${P100(c.guard)}, 기절하지 않아요 (쓰러지면 취소)`); }
+  if (sk.sunrise) { const c = sk.sunrise; t.push(`🌅 ${c.turns}턴간 매 턴 공격력 +${P100(c.step)}씩 쌓이고(최대 +${P100(c.cap)}) 매 턴 최대 체력의 ${P100(c.regen)} 회복 · 받는 피해 -${P100(c.guard)} · 끝나면 쌓인 공격력의 절반이 ${c.after}턴 더 남아요 · 쓰러지면 누적이 사라져요`); }
+  if (sk.dragonFlame) { const c = sk.dragonFlame; t.push(`🔥 체력 ${P100(c.burn)}를 태워 그 ×${c.trueMul} 를 방어 무시 피해로 더해요 (체력 ${P100(c.minHp)} 이하면 못 써요) · 상대 체력이 ${P100(c.low)} 이하면 위력 ×${c.lowMult}`); }
+  if (sk.winter) { const c = sk.winter; t.push(`❄️ ${c.turns}턴간 매 턴 상대에게 서리 +1 (내 공격이 맞아도 턴당 +1) · 상대 마나 -${c.mana} · 서리당 스피드 -${P100(c.spd)} · 마나가 가장 큰 스킬 하나의 쿨타임 +1 · 서리 ${c.max}스택이면 **동결**(최대 ${c.freeze}턴) 후 서리 초기화 · 이후 ${c.immune}턴간 동결 면역`); }
+  if (sk.trumpet) { const c = sk.trumpet; t.push(`👼 ${c.turns}번째 턴이 끝날 때 심판: 위력 ${c.pow} · 그동안 상대가 쓴 스킬 1개당 피해 +${P100(c.per)} (최대 +${P100(c.cap)}) · 상대의 좋은 효과 전부 소멸 · 기다리는 동안 내가 받는 첫 피해 -${P100(c.guard)}`); }
+  if (sk.angelRefund) { const c = sk.angelRefund; t.push(`😇 ${c.turns}턴간 받은 피해의 ${P100(c.rate)}를 돌려받아요 (총 최대 체력의 ${P100(c.cap)}까지) · 넘친 회복은 보호막 (최대 체력의 ${P100(c.shield)}까지) · 그동안 회복 감소 면역`); }
+  if (sk.chaos) t.push(`😈 매 시전 무작위 효과 ${sk.chaos.count}개 (같은 효과 없음 · 좋은 효과 최소 1개 · 내게 불리한 효과 최대 1개) · 최대 체력의 ${P100(sk.chaos.hp)} 소모`);
+  if (sk.pureCharge) { const c = sk.pureCharge; t.push(`🌈 내 나쁜 효과를 전부 정화하고 지운 개수당 위력 +${P100(c.step)} (최대 ${c.cap}개) · 지운 게 있으면 상대의 좋은 효과 1개 파괴, 없으면 ${c.noneBreak}개 파괴 · 시전 후 방어력 +${P100(c.def)} (1턴)`); }
+  if (sk.manaSiphon) t.push(`🌊 상대 마나의 ${P100(sk.manaSiphon[0])}를 내 마나로 흡수 (최대 ${sk.manaSiphon[1]}) · 상대 마나가 0이면 대신 위력 +${P100(sk.manaSiphon[2])}`);
+  if (sk.reign) { const c = sk.reign; t.push(`👹 ${c.turns}턴간 상대가 스킬을 쓸 때마다 화상 스택 +1 (최대 ${c.max}스택 · 스택당 최대 체력의 ${P100(c.pct)}) · 화상 걸린 상대에게 내 불 속성 스킬 피해 +${P100(c.fire)}`); }
+  if (sk.pharaoh) { const c = sk.pharaoh; t.push(`⚰️ ${c.turns}턴간 상대 회복량의 ${P100(c.flip)}를 피해로 뒤집어요 · 상대 보호막은 매 턴 ${P100(c.shield)}씩 부식 · 회복하지 못한 턴이 끝날 때 상대 최대 체력의 ${P100(c.rot)} 저주 피해`); }
+  if (sk.venom) { const c = sk.venom; t.push(`🦖 ${c.turns}턴간 내 공격마다 독 스택 (기본 공격 +${c.basic} · 스킬 +${c.skill}) · ${c.pop}스택이면 **맹독 폭발**: 쌓인 독이 앞으로 줄 피해의 ×${c.popMult} 를 한 번에 (방어 무시) + 회복 -${P100(c.healCut[0])} (${c.healCut[1]}턴)`); }
+  if (sk.cd) t.push(sk.cd >= 90 ? '⏳ 전투당 1회' : `⏳ 쿨타임 ${sk.cd}턴`);
   if (sk.cleanse) t.push('내 상태이상(화상·독·출혈·약화) 제거');
   return t;
 }
@@ -932,9 +953,9 @@ export function grantSkills(inst, rng = Math.random, gradeOrder = GRADE_TIER_BAS
 // st(상태): { dots:[{kind,pct,turns}], stun, atkUp, atkDown, defUp, defDown, guard, shield, evade, regen }
 export const newSide = () => ({});
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-export const effAtk = (X) => (X.atk + (X.st.defToAtk?.amt ?? 0)) * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0), 0.2, 4) * (X.st.burst?.mult ?? 1) * (X.st.statMod?.atk ?? 1) * (X.st.prideNull ? 0 : 1); // 👿 군주의 오만에 무시당하면 공격력 0
+export const effAtk = (X) => (X.atk + (X.st.defToAtk?.amt ?? 0)) * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0), 0.2, 4) * (X.st.burst?.mult ?? 1) * (X.st.statMod?.atk ?? 1) * (1 + (X.st.sunrise?.atk ?? X.st.sunset?.atk ?? 0)) * (X.st.prideNull ? 0 : 1); // 👿 군주의 오만에 무시당하면 공격력 0 · 🌅 일출의 가호 누적
 export const effDef = (X) => (X.st.defToAtk || X.st.prideNull ? 0 : X.def) * clamp(1 + (X.st.defUp?.pct ?? 0) - (X.st.defDown?.pct ?? 0), 0.2, 4) * (X.st.statMod?.def ?? 1);
-export const effSpd = (X) => (X.spd ?? 0) * clamp(1 + (X.st.spdUp?.pct ?? 0) - (X.st.spdDown?.pct ?? 0), 0.2, 4) * (X.st.statMod?.spd ?? 1);
+export const effSpd = (X) => (X.spd ?? 0) * clamp(1 + (X.st.spdUp?.pct ?? 0) - (X.st.spdDown?.pct ?? 0) - (X.st.frost ? X.st.frost.n * X.st.frost.spd : 0), 0.2, 4) * (X.st.statMod?.spd ?? 1); // ❄️ 서리: 스택당 스피드 감소
 
 // 내가 먼저 움직이는가? (priority 가 한쪽만 있으면 그쪽이 먼저, 둘 다/둘 다 없으면 스피드 비교, 같으면 내가 먼저)
 export const prideAtk = (st, atk) => (st?.prideNull ? 0 : atk); // 👿 기본 공격용: 오만에 무시당한 쪽의 공격력은 0
@@ -956,7 +977,7 @@ function cloneBoomOn(owner, foe, n, log) {
 }
 
 // 피해를 받은 직후 호출해요: 이번 턴 받은 피해 누적(공포용) + 반사(보복) 처리
-export function afterHit(X, Y, dmg, log) {
+export function afterHit(X, Y, dmg, log, viaSkill = false) {
   // 🛡️ 서리 비늘: 보호막이 깨진 직후 반격 (mitigate 가 shieldBroke 표시를 달아줘요 · 피해가 전부 흡수돼 dmg 0 이어도 발동해요)
   if (X.st.shieldBroke) {
     delete X.st.shieldBroke;
@@ -990,6 +1011,28 @@ export function afterHit(X, Y, dmg, log) {
     cloneBoomOn(X, Y, n, log);
   }
   if (dmg <= 0) return;
+  const vn = Y.st?.venom; // 🦖 와이번 꼬리독: 내 공격이 맞을 때마다 독 스택 (스킬은 한 번 쓸 때 최대 skill 스택)
+  if (vn && X.hp > 0 && !X.st?.skillImmune && !X.st?.debuffImmune) {
+    let add = vn.basic;
+    if (viaSkill) { add = Math.min(vn.skill, vn.budget ?? vn.skill); vn.budget = (vn.budget ?? vn.skill) - add; }
+    if (add > 0) addVenom(Y, X, add, log);
+  }
+  const wn = X.st?.winter; // ❄️ 영원한 겨울: 내가 맞으면 서리 (턴당 한 번)
+  if (wn && !wn.hitDone && X.hp > 0 && !X.st.skillImmune) { wn.hitDone = true; addFrost(X, 1, log); }
+  const ar = X.st?.angelRefund; // 😇 천사의 치유: 받은 피해의 일부를 돌려받아요
+  if (ar && ar.left > 0 && X.hp > 0) {
+    const want = Math.min(ar.left, Math.max(1, Math.round(dmg * ar.rate)));
+    ar.left -= want;
+    const got = heal(X, want);
+    log.push(`　😇 받은 피해의 ${P100(ar.rate)}가 되돌아와요! 체력 +${got}`);
+    const over = Math.max(0, want - got);
+    if (over > 0 && !X.st.pharaoh) { // 넘친 회복은 보호막으로
+      const capAmt = Math.round(X.max * ar.shield);
+      const before = X.st.shield ?? 0;
+      const next = Math.max(before, Math.min(capAmt, before + over));
+      if (next > before) { X.st.shield = next; log.push(`　🔰 넘친 회복이 보호막으로! +${next - before} (보호막 ${next}/${capAmt})`); }
+    }
+  }
   if (X.st.drowsy) { delete X.st.drowsy; log.push(`　💥 맞은 충격에 ${X.name}의 졸음이 깨졌어요!`); } // 😴 졸음은 직접 피해를 맞으면 깨져요
   const mk = X.st.huntMark; // 🎯 사냥 표식: 직접 피해를 맞을 때마다 스택 +1
   if (mk && X.hp > 0 && mk.bursts < 2) {
@@ -1068,6 +1111,9 @@ export function mitigate(X, dmg, rng = Math.random, opts = {}) { // opts.basic: 
     else { dmg = 0; note += ' (🎲 모 아니면 도: 0!)'; }
   }
   if (st.guard && dmg > 0) { dmg = Math.max(1, Math.round(dmg * (1 - st.guard.pct))); note += ' (🛡️ 방어)'; }
+  if (st.sunCharge && dmg > 0) { dmg = Math.max(1, Math.round(dmg * (1 - st.sunCharge.guard))); note += ' (☀️ 충전 중 감쇄)'; }
+  if (st.sunrise && dmg > 0) { dmg = Math.max(1, Math.round(dmg * (1 - st.sunrise.guard))); note += ' (🌅 가호)'; }
+  if (st.trumpet?.firstGuard && dmg > 0) { dmg = Math.max(1, Math.round(dmg * (1 - st.trumpet.firstGuard))); delete st.trumpet.firstGuard; note += ' (👼 나팔의 보호)'; }
   if (st.clone?.hp > 0 && dmg > 0) {
     const take = Math.min(st.clone.hp, Math.round(dmg * CLONE_SHARE));
     st.clone.hp -= take; dmg -= take; note += ` (👥 분신이 ${take} 대신 맞음)`;
@@ -1082,7 +1128,15 @@ export function mitigate(X, dmg, rng = Math.random, opts = {}) { // opts.basic: 
 }
 
 const heal = (X, n) => {
-  if (X.st?.healCut) n *= 1 - X.st.healCut.pct;
+  if (X.st?.pharaoh && !X.st.skillImmune && n > 0) { // ⚰️ 파라오의 저주: 회복이 피해로 뒤집혀요
+    const p = X.st.pharaoh;
+    p.healed = true;
+    const d = Math.max(1, Math.round(n * p.flip));
+    X.hp = Math.max(0, X.hp - d);
+    (X.st.logQ ??= []).push(`⚰️ ${X.name}의 회복이 저주로 뒤집혀 **${d}** 피해!`);
+    return 0;
+  }
+  if (X.st?.healCut && !X.st.angelRefund) n *= 1 - X.st.healCut.pct; // 😇 천사의 치유 중엔 회복 감소 면역
   const real = Math.min(X.max - X.hp, Math.max(0, Math.round(n)));
   X.hp += real;
   return real;
@@ -1090,7 +1144,7 @@ const heal = (X, n) => {
 
 // ───────── 🆕 배치 3 헬퍼 ─────────
 // 스킬로 "적에게 가는" 효과 칸들 — 상대가 스킬 면역이면 castSkill 이 이 칸들을 지워요
-const HOSTILE_KEYS = ['spdDown', 'drowsy', 'mark', 'lamp', 'pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'stealSpd', 'turnCut', 'healCut', 'atkDown', 'defDown', 'powDown', 'manaDown', 'stun', 'dot', 'drainMana', 'freeze', 'swapHp', 'buffXfer', 'joker', 'curseGrant', 'lockSkills'];
+const HOSTILE_KEYS = ['winter', 'pharaoh', 'reign', 'manaSiphon', 'dragonFlame', 'spdDown', 'drowsy', 'mark', 'lamp', 'pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'stealSpd', 'turnCut', 'healCut', 'atkDown', 'defDown', 'powDown', 'manaDown', 'stun', 'dot', 'drainMana', 'freeze', 'swapHp', 'buffXfer', 'joker', 'curseGrant', 'lockSkills'];
 export const ROLL_CAP = { 1: 1.3, 2: 1.5, 3: 1.8, 4: 2.2, 5: 3 }; // 🎰 등급별 능력치 변동 상한 (배수)
 const STAT_LABEL = { atk: '⚔️ 공격력', def: '🧱 방어력', spd: '👟 스피드' };
 export const cdLeft = (st, id) => st?.cds?.[id] ?? 0; // ⏳ 남은 쿨타임 (0 이면 쓸 수 있어요)
@@ -1223,6 +1277,7 @@ function sandLastStand(X, log) {
   X.max += gain;
   X.st.maxBonus = (X.st.maxBonus ?? 0) + gain;
   X.hp = Math.max(1, Math.round(X.max * sw.hpPct));
+  delete X.st.sunrise; delete X.st.sunset;
   X.st.dots = [];
   delete X.st.bomb;
   delete X.st.stun;
@@ -1243,6 +1298,7 @@ export function tryRevive(X, log, foe = null) {
     X.st.maxBonus = (X.st.maxBonus ?? 0) + gain;
   }
   X.hp = Math.max(1, Math.round(X.max * r.pct));
+  delete X.st.sunrise; delete X.st.sunset; // 🌅 쓰러지면 일출의 가호 누적이 사라져요
   X.st.dots = [];
   delete X.st.bomb;
   delete X.st.stun;
@@ -1267,6 +1323,236 @@ export function tryRevive(X, log, foe = null) {
   return true;
 }
 
+// ───────── 🆕 7차 개편: 초월 · 신화 · 전설 전용기 ─────────
+// 전투당 1회 스킬은 cd 99 로 표시해요 (cd 90 이상 = 이번 전투에서 한 번 쓰면 끝). 쿨타임 초기화·복제에서도 제외돼요.
+const FOE_BUFF_KEYS = ['atkUp', 'defUp', 'spdUp', 'guard', 'regen', 'burst', 'priority', 'reflect', 'coinflip', 'atkRegen']; // 상대 "좋은 효과" 칸들
+const DEBUFF_KEYS = ['spdDown', 'drowsy', 'mark', 'lamp', 'bomb', 'healCut', 'atkDown', 'defDown', 'powDown', 'manaDown', 'stun', 'dot', 'freeze', 'drainMana', 'stealMana', 'steal', 'stealSpd', 'turnCut', 'buffXfer', 'swapHp', 'joker', 'curseGrant', 'lockSkills', 'winter', 'pharaoh', 'reign']; // 나쁜 효과 면역이 막는 스킬 효과
+const PURGE_KEYS = ['atkDown', 'defDown', 'spdDown', 'healCut', 'powDown', 'stun', 'frozen', 'drowsy', 'lamp', 'huntMark', 'bomb', 'frost']; // 정화로 지워지는 상태
+const isOnce = (s) => (s?.cd ?? 0) >= 90; // 🔒 전투당 1회 스킬
+const keepOnce = (cds) => Object.fromEntries(Object.entries(cds ?? {}).filter(([, n]) => n >= 90)); // 쿨타임을 지워도 "사용함" 표시는 남겨요
+const flushQ = (X, log) => { // 🪦 heal() 안에서 쌓아 둔 글(파라오의 저주로 뒤집힌 회복)을 한꺼번에 보여줘요
+  if (X.st?.logQ?.length) { for (const m of X.st.logQ) log.push(`　${m}`); delete X.st.logQ; }
+};
+const pct1 = (x) => `${+(x * 100).toFixed(1)}%`;
+
+// 내 나쁜 효과를 전부 지우고 지운 개수를 돌려줘요
+function purgeDebuffs(st) {
+  let n = new Set((st.dots ?? []).map((d) => d.kind)).size;
+  st.dots = [];
+  for (const k of PURGE_KEYS) if (st[k]) { delete st[k]; n++; }
+  if (st.sealed && !st.sealed.perm) { delete st.sealed; n++; }
+  return n;
+}
+// 상대의 좋은 효과를 전부 지워요 (개수를 돌려줘요)
+function clearBuffs(X) {
+  let n = 0;
+  for (const k of FOE_BUFF_KEYS) if (X.st[k]) { delete X.st[k]; n++; }
+  if (X.st.shield > 0) { delete X.st.shield; n++; }
+  if (X.st.evade > 0) { delete X.st.evade; n++; }
+  return n;
+}
+// 상대의 좋은 효과를 count 개만 무작위로 깨뜨려요
+function destroyBuffs(X, count, rng) {
+  const have = FOE_BUFF_KEYS.filter((k) => X.st[k]);
+  if (X.st.shield > 0) have.push('shield');
+  if (X.st.evade > 0) have.push('evade');
+  let n = 0;
+  for (let i = 0; i < count && have.length; i++) { delete X.st[have.splice(Math.floor(rng() * have.length), 1)[0]]; n++; }
+  return n;
+}
+// 속임수 패가 복제할 수 있는 상대의 마지막 스킬 (없으면 null)
+const trickSrc = (B) => {
+  const s = SKILLS[B.st?.last];
+  return s && !s.copy && !s.joker && !s.trickster && !s.dud && !s.hidden && !isOnce(s) && !s.catchPro && !s.fightBuff && !s.curseGrant ? s : null;
+};
+
+// ❄️ 서리 쌓기 (영원한 겨울): 가득 차면 동결 → 서리 초기화 → 한동안 동결 면역
+function addFrost(X, n, log) {
+  const w = X.st.winter;
+  if (!w || X.st.frostImmune || X.st.debuffImmune) return;
+  X.st.frost = { n: (X.st.frost?.n ?? 0) + n, spd: w.spd };
+  if (X.st.frost.n >= w.max) {
+    X.st.frost.n = 0;
+    X.st.frozen = { turns: w.freeze };
+    X.st.frostImmune = { turns: w.immune + 1 };
+    log.push(`　🧊 서리가 가득 찼어요! ${X.name}(이)가 **꽁꽁 얼어붙었어요**! (최대 ${w.freeze}턴 · 이후 ${w.immune}턴간 동결 면역)`);
+  } else log.push(`　❄️ ${X.name}에게 서리 **${X.st.frost.n}/${w.max}** (스피드 -${P100(X.st.frost.n * w.spd)})`);
+}
+
+// 🦖 와이번 꼬리독: 독 스택 쌓기 → 가득 차면 맹독 폭발 (Y = 와이번, X = 맞은 쪽)
+function addVenom(Y, X, n, log) {
+  const v = Y.st.venom;
+  X.st.venomN = (X.st.venomN ?? 0) + n;
+  const dots = (X.st.dots ?? []).filter((d) => d.kind !== 'poison');
+  const pct = v.per * Math.min(v.pop, X.st.venomN);
+  if (X.st.venomN >= v.pop) {
+    const future = Math.max(1, Math.round(X.max * pct)) * v.dotTurns; // 쌓인 독이 앞으로 줄 피해
+    const boom = Math.max(1, Math.round(future * v.popMult));
+    X.hp = Math.max(0, X.hp - boom);
+    X.st.dots = dots;
+    X.st.venomN = 0;
+    X.st.healCut = { pct: v.healCut[0], turns: v.healCut[1] };
+    log.push(`　☠️💥 **맹독 폭발!** 쌓인 독이 한꺼번에 터져서 ${X.name}에게 **${boom}** 피해 (방어 무시) · 회복 -${P100(v.healCut[0])} (${v.healCut[1]}턴)`);
+  } else {
+    dots.push({ kind: 'poison', pct, turns: v.dotTurns });
+    X.st.dots = dots;
+    log.push(`　🦖 독 스택 **${X.st.venomN}/${v.pop}** (☠️ 매 턴 최대 체력의 ${pct1(pct)} · ${v.dotTurns}턴)`);
+  }
+}
+
+// ☀️ 태양의 심판: 충전이 끝나면 방어를 무시하고 내리쳐요 (X = 쓴 쪽, foe = 맞는 쪽)
+function fireSun(X, foe, log) {
+  const c = X.st.sunCharge;
+  delete X.st.sunCharge;
+  if (!foe || foe.hp <= 0) return;
+  if (foe.st?.skillImmune) { log.push(`🧿 ${foe.name}은(는) 스킬 면역! ${X.name}의 태양의 심판이 막혔어요`); return; }
+  const atk = effAtk(X);
+  const cl = elemClash(c.elem ?? 'normal', foe, { attacker: X });
+  const stab = c.elem && c.elem !== 'normal' && effElems(X).includes(c.elem) ? ELEM_CFG.stab : 1;
+  const hpPart = Math.min(foe.max * c.hp, atk * c.cap); // 최대 체력 비례 피해는 내 공격력의 c.cap 배까지만 (보스에게 터지지 않게)
+  const atkPart = atk * c.atk * cl.mult * stab * (0.85 + Math.random() * 0.3); // 방어력은 무시해요
+  const hit = mitigate(foe, Math.max(1, Math.round(hpPart + atkPart)));
+  foe.hp = Math.max(0, foe.hp - hit.dmg);
+  log.push(`☀️ **태양의 심판!** ${X.name}이(가) 모은 햇빛이 ${foe.name}의 방어를 꿰뚫어요! **${hit.dmg}** 데미지${hit.note}${cl.note}`);
+  afterHit(foe, X, hit.dmg, log);
+  if (foe.hp > 0) {
+    foe.st.dots = (foe.st.dots ?? []).filter((d) => d.kind !== 'burn');
+    foe.st.dots.push({ kind: 'burn', pct: c.burn[0], turns: c.burn[1] });
+    const n = clearBuffs(foe);
+    log.push(`　🔥 ${foe.name}에게 ${c.burn[1]}턴 화상!${n ? ` · 좋은 효과 ${n}개가 햇빛에 사라졌어요` : ''}`);
+  }
+}
+
+// 👼 심판의 나팔: 기다리는 동안 상대가 쓴 스킬이 많을수록 심판이 커져요
+function fireTrumpet(X, foe, log) {
+  const c = X.st.trumpet;
+  delete X.st.trumpet;
+  if (!foe || foe.hp <= 0) return;
+  if (foe.st?.skillImmune) { log.push(`🧿 ${foe.name}은(는) 스킬 면역! 심판의 나팔이 허공에 울렸어요`); return; }
+  const bonus = Math.min(c.cap, (c.seen ?? 0) * c.per);
+  const atk = effAtk(X);
+  const cl = elemClash(c.elem ?? 'normal', foe, { attacker: X });
+  const stab = c.elem && c.elem !== 'normal' && effElems(X).includes(c.elem) ? ELEM_CFG.stab : 1;
+  const base = Math.max(atk * 0.25, atk - effDef(foe) * 0.5) * c.pow * (1 + bonus) * cl.mult * stab * (0.85 + Math.random() * 0.3);
+  const hit = mitigate(foe, Math.max(1, Math.round(base)));
+  foe.hp = Math.max(0, foe.hp - hit.dmg);
+  log.push(`👼 **심판의 나팔!** 죄 ${c.seen ?? 0}개 (피해 +${P100(bonus)}) — ${foe.name}에게 **${hit.dmg}** 데미지${hit.note}${cl.note}`);
+  afterHit(foe, X, hit.dmg, log);
+  if (foe.hp > 0) { const n = clearBuffs(foe); if (n) log.push(`　👼 ${foe.name}의 좋은 효과 ${n}개가 나팔 소리에 사라졌어요`); }
+}
+
+// 🂡 속임수 패: 상대의 마지막 스킬을 되돌리고, 상대의 가장 아끼는 카드를 조커 카드로 바꿔요
+function castTrickster(sk, A, B, rng, log) {
+  const src = trickSrc(B);
+  const boost = sk.trickster.boost ?? 1;
+  log.push(`　🂡 ${B.name}의 ${src.emoji} **${src.name}** 을(를) 그대로 돌려줘요! (위력 ×${boost})`);
+  castSkill({ ...src, name: `${src.name} (속임수)`, cost: 0, cd: 0, copied: true, srcId: src.id, pow: src.pow ? src.pow * boost : src.pow, hitPows: src.hitPows?.map((x) => x * boost) }, A, B, rng, log);
+  A.st.last = sk.id;
+  if (A.hp > 0 && B.hp > 0) {
+    if (B.st.skillImmune) log.push(`　🧿 ${B.name}은(는) 스킬 면역! 카드 바꿔치기가 막혔어요`);
+    else if (B.st.debuffImmune) log.push(`　🛡️ ${B.name}은(는) 나쁜 효과에 면역이라 카드 바꿔치기가 막혔어요`);
+    else {
+      const slots = (B.skills ?? []).map((id, i) => [id, i]).filter(([id]) => SKILLS[id] && !SKILLS[id].dud);
+      if (!slots.length) log.push('　💨 바꿔칠 카드가 없었어요…');
+      else {
+        slots.sort((a, b) => SKILLS[b[0]].cost - SKILLS[a[0]].cost || rng() - 0.5); // 마나가 가장 큰(= 가장 아끼는) 카드
+        const [id, i] = slots[0];
+        B.skills[i] = 'joker_dud';
+        (B.st.cds ??= {}).joker_dud = 9999; // 쿨타임 중인 칸은 버튼이 안 보여요
+        log.push(`　🃏 ${B.name}의 ${SKILLS[id].emoji} **${SKILLS[id].name}** 카드가 **조커 카드**로 바뀌었어요! (이번 전투 동안 못 써요)`);
+      }
+    }
+  }
+  A.st.cds = Object.fromEntries(Object.entries(A.st.cds ?? {}).filter(([id, n]) => id === sk.id || n >= 90)); // 전투당 1회 스킬의 "사용함" 표시는 남겨요
+  log.push('　⏪ 내 스킬 쿨타임이 전부 초기화됐어요!');
+}
+
+// ✨ 태초의 숨결: 3턴 전으로 되감기 (지금이 더 좋으면 그대로 · 체력은 상한까지만)
+function castRewind(sk, A, log) {
+  const c = sk.rewind;
+  const h = A.st.hist ?? [];
+  const past = h[Math.max(0, h.length - c.back)];
+  const hp0 = A.hp;
+  const mana0 = Math.round(A.mana);
+  A.hp = Math.max(A.hp, Math.min(A.max, past.hp, Math.round(A.max * c.cap)));
+  A.mana = Math.min(A.manaMax, Math.max(A.mana, past.mana));
+  const n = purgeDebuffs(A.st);
+  const longest = Object.entries(A.st.cds ?? {}).filter(([id, v]) => id !== sk.id && v < 90).sort((a, b) => b[1] - a[1]).slice(0, c.cdTop);
+  for (const [id] of longest) delete A.st.cds[id];
+  A.st.debuffImmune = { turns: c.immune + 1 };
+  A.st.priority = { turns: 2 };
+  log.push(`　⏪ ${A.name}이(가) **${c.back}턴 전으로** 시간을 되돌렸어요! 체력 ${hp0} → ${A.hp} · 마나 ${mana0} → ${Math.round(A.mana)}`);
+  log.push(`　✨ 나쁜 효과 ${n}개 정화${longest.length ? ` · 쿨타임 ${longest.length}개 초기화` : ''} · ${c.immune}턴간 새 나쁜 효과 면역 · 다음 턴 선공`);
+}
+
+// 🌌 천지창조: 서로의 속성을 바꾸고 상성을 뒤집어요
+function castGenesis(sk, A, B, rng, log) {
+  const c = sk.genesis;
+  const foeEl = effElems(B).find((e) => e !== 'normal') ?? 'normal';
+  const pick = (score) => {
+    let best = []; let bv = -Infinity;
+    for (const e of ALL_ELEMS) { const v = score(e); if (v > bv + 1e-9) { bv = v; best = [e]; } else if (Math.abs(v - bv) < 1e-9) best.push(e); }
+    return best[Math.floor(rng() * best.length)];
+  };
+  const mine = pick((e) => -elemClash(foeEl, { elems: [e], st: {} }).mult); // 상대 공격 속성에 가장 강한 몸
+  A.st.convert = { elem: mine, turns: c.convert };
+  log.push(`　🌌 ${A.name}의 속성이 **${elemTag(mine)}** (으)로 다시 태어났어요! (${c.convert}턴)`);
+  if (B.st.skillImmune) log.push(`　🧿 ${B.name}은(는) 스킬 면역! 상대 속성은 바뀌지 않았어요`);
+  else if (B.st.debuffImmune) log.push(`　🛡️ ${B.name}은(는) 나쁜 효과에 면역이라 속성이 바뀌지 않았어요`);
+  else {
+    const theirs = pick((e) => elemClash(mine, { elems: [e], st: {} }).mult); // 내 속성 공격에 가장 약한 몸
+    B.st.convert = { elem: theirs, turns: c.convert };
+    log.push(`　🌌 ${B.name}의 속성이 **${elemTag(theirs)}** (으)로 뒤바뀌었어요! (${c.convert}턴)`);
+  }
+  A.st.genesis = { turns: c.turns + 1 }; // +1: 이번 턴 끝 감소분
+  A.manaMax += c.manaUp;
+  A.st.manaBonus = (A.st.manaBonus ?? 0) + c.manaUp;
+  A.mana += c.manaUp;
+  log.push(`　🌌 ${c.turns}턴 동안 내 공격은 **약점 확정**, 상대 공격의 상성 보너스는 사라져요 · 최대 마나 +${c.manaUp} (이번 전투 동안)`);
+}
+
+// 😈 혼돈의 소용돌이: 무작위 효과 N개 (좋은 효과 최소 1개 · 내게 불리한 효과 최대 1개)
+function castChaos(sk, A, B, rng, log, immune) {
+  const c = sk.chaos;
+  const cost = Math.min(Math.max(0, A.hp - 1), Math.round(A.max * c.hp));
+  if (cost > 0) { A.hp -= cost; log.push(`　😈 소용돌이가 몸을 깎아요… 체력 -${cost}`); }
+  const foeOk = !immune && B.hp > 0 && !B.st.debuffImmune;
+  const blocked = () => log.push('　　💨 막혀서 아무 일도 일어나지 않았어요');
+  const E = (kind, label, fn) => ({ kind, label, fn });
+  const goods = [
+    E('good', '💪 공격 +40% (3턴)', () => { A.st.atkUp = { pct: Math.max(A.st.atkUp?.pct ?? 0, 0.4), turns: 3 }; }),
+    E('good', '🧱 방어 +40% (3턴)', () => { A.st.defUp = { pct: Math.max(A.st.defUp?.pct ?? 0, 0.4), turns: 3 }; }),
+    E('good', '🔰 보호막 20%', () => { A.st.shield = (A.st.shield ?? 0) + Math.round(A.max * 0.2); }),
+    E('good', '💖 체력 25% 회복', () => { const n = heal(A, A.max * 0.25); log.push(`　　💖 체력 +${n}`); }),
+    E('good', '🔋 마나 +30', () => { A.mana += 30; }),
+    E('good', '⏪ 쿨타임 -2', () => { for (const id of Object.keys(A.st.cds ?? {})) if (A.st.cds[id] < 90 && (A.st.cds[id] -= 2) <= 0) delete A.st.cds[id]; }),
+    E('good', '👥 분신', () => { A.st.clone = { atk: Math.round(effAtk(A) * 0.5), hp: Math.max(10, Math.round(effDef(A) * 0.6 * CLONE_HP_PER_DEF)), turns: 3, boom: 0 }; }),
+    E('good', '⏱️ 선공 2턴', () => { A.st.priority = { turns: 3 }; }),
+  ];
+  const foes = [
+    E('foe', '🔻 상대 약화', () => { if (!foeOk) return blocked(); B.st.atkDown = { pct: 0.3, turns: 3 }; B.st.defDown = { pct: 0.2, turns: 3 }; }),
+    E('foe', '💫 상대 기절', () => { if (!foeOk || B.st.sunCharge) return blocked(); B.st.stun = 1; }),
+    E('foe', '🔥 화상 3턴', () => { if (!foeOk) return blocked(); B.st.dots = (B.st.dots ?? []).filter((d) => d.kind !== 'burn'); B.st.dots.push({ kind: 'burn', pct: 0.06, turns: 3 }); }),
+    E('foe', '☠️ 독 3턴', () => { if (!foeOk) return blocked(); B.st.dots = (B.st.dots ?? []).filter((d) => d.kind !== 'poison'); B.st.dots.push({ kind: 'poison', pct: 0.06, turns: 3 }); }),
+    E('foe', '🔽 상대 마나 -30', () => { if (!foeOk) return blocked(); B.mana = Math.max(0, B.mana - 30); }),
+  ];
+  const bads = [
+    E('bad', '💔 내 방어 -25% (2턴)', () => { A.st.defDown = { pct: 0.25, turns: 2 }; }),
+    E('bad', '💔 내 공격 -25% (2턴)', () => { A.st.atkDown = { pct: 0.25, turns: 2 }; }),
+    E('bad', '💸 내 마나 -20', () => { A.mana = Math.max(0, A.mana - 20); }),
+  ];
+  const picked = [goods.splice(Math.floor(rng() * goods.length), 1)[0]]; // 좋은 효과 1개는 보장
+  const rest = [...goods, ...foes, ...bads];
+  let bad = 0;
+  while (picked.length < c.count && rest.length) {
+    const e = rest.splice(Math.floor(rng() * rest.length), 1)[0];
+    if (e.kind === 'bad') { if (bad >= 1) continue; bad++; }
+    picked.push(e);
+  }
+  log.push(`　😈 혼돈이 소용돌이쳐요… **${picked.map((p) => p.label).join(' + ')}**!`);
+  for (const p of picked) p.fn();
+}
+
 // 스킬 한 번 쓰기. A = 쓰는 쪽, B = 맞는 쪽
 export function castSkill(sk, A, B, rng, log) {
   A.mana = Math.max(0, A.mana - sk.cost);
@@ -1280,6 +1566,12 @@ export function castSkill(sk, A, B, rng, log) {
   if (sk.devilDeal && A.st.devil) return fizzle('이미 악마와 거래 중이에요…');
   if ((sk.catchPro || sk.fightBuff) && !(A.fight && A.st === A.fight.mySt)) return fizzle('이 스킬은 트레이너의 펫만 쓸 수 있어요…'); // 🆕 배치 5: 포획·보상 스킬은 내 쪽만
   if (sk.curseGrant && !A.st.cursed) { revertCurseSlots(A.skills, A.st); return fizzle('부여할 저주가 사라졌어요…'); }
+  if (sk.dud) { log.push('　🃏 조커 카드… 아무 일도 일어나지 않아요'); return; }
+  if (sk.trickster && !trickSrc(B)) return fizzle('복제할 스킬이 없어요…');
+  if (sk.rewind && !A.st.hist?.length) return fizzle('되감을 과거가 아직 없어요…');
+  if (sk.dragonFlame && A.hp / A.max <= sk.dragonFlame.minHp) return fizzle('체력이 모자라서 업화를 태울 수 없어요…');
+  if (sk.sunVerdict && A.st.sunCharge) return fizzle('이미 햇빛을 모으고 있어요…');
+  if (sk.trumpet && A.st.trumpet) return fizzle('나팔이 이미 울리고 있어요…');
   if (A.st.lamp && !sk.copied && !sk.echoed) { // 🕯️ 불빛: 불빛이 달린 쪽이 스킬을 쓸 때마다 고정 피해 + 마나 감소
     const n = Math.max(1, Math.round(A.max * A.st.lamp.pct));
     const m = Math.min(A.mana, A.st.lamp.mana);
@@ -1291,9 +1583,23 @@ export function castSkill(sk, A, B, rng, log) {
   if (!sk.echoed) A.st.act = ['heal', 'regen', 'shield', 'guard', 'atkUp', 'defUp', 'burstAtk', 'revive', 'atkRegen', 'evade', 'potion'].some((k) => sk[k]) ? 'read' : 'other'; // 👁️ 내가 마지막에 한 행동 종류 (급강하 폭격의 "읽기"용)
   if (!sk.echoed) A.st.last = sk.copied ? sk.srcId : sk.id; // 🆕 "마지막에 쓴 스킬" 기록 (복사용)
   if (sk.cd && !sk.copied && !sk.echoed) (A.st.cds ??= {})[sk.id] = sk.cd + 1; // ⏳ 쿨타임 시작 (+1: 이번 턴 끝 감소분)
+  if (!sk.echoed && !sk.copied && !sk.swallowed) {
+    if (A.st.reign && !A.st.skillImmune) { // 👹 화염 군림: 스킬을 쓸 때마다 화상 스택
+      const r = A.st.reign;
+      r.stacks = Math.min(r.max, r.stacks + 1);
+      A.st.dots = (A.st.dots ?? []).filter((d) => d.kind !== 'burn');
+      A.st.dots.push({ kind: 'burn', pct: r.pct * r.stacks, turns: 2 });
+      log.push(`　👹 군림의 불길! ${A.name}에게 화상 스택 **${r.stacks}/${r.max}** (매 턴 최대 체력의 ${pct1(r.pct * r.stacks)})`);
+    }
+    if (B.st.trumpet && !sk.trumpet) B.st.trumpet.seen = (B.st.trumpet.seen ?? 0) + 1; // 👼 심판의 나팔: 상대가 쓴 스킬이 죄가 돼요
+  }
+  if (A.st.venom) A.st.venom.budget = A.st.venom.skill; // 🦖 이번에 쓰는 스킬이 쌓을 수 있는 독 스택
+  if (sk.trickster) { castTrickster(sk, A, B, rng, log); finishCast(A, B, log); return; }
+  if (sk.rewind) { castRewind(sk, A, log); finishCast(A, B, log); return; }
+  if (sk.genesis) { castGenesis(sk, A, B, rng, log); finishCast(A, B, log); return; }
   if (sk.copy) { // 🦜 상대가 마지막에 쓴 스킬을 복사해서 마나 0으로 즉시 사용
     const src = SKILLS[B.st.last];
-    if (!src || src.copy || src.joker) { A.mana += sk.cost; log.push('　💨 복사할 스킬이 없어요… (마나는 돌려받았어요)'); return; }
+    if (!src || src.copy || src.joker || src.trickster || src.dud || isOnce(src)) { A.mana += sk.cost; log.push('　💨 복사할 스킬이 없어요… (마나는 돌려받았어요)'); return; }
     log.push(`　🦜 ${B.name}의 ${src.emoji} **${src.name}** 을(를) 복사했어요!`);
     castSkill({ ...src, name: `${src.name} (복사)`, cost: 0, copied: true, srcId: src.id }, A, B, rng, log);
     return;
@@ -1306,6 +1612,12 @@ export function castSkill(sk, A, B, rng, log) {
     sk = { ...sk };
     for (const k of HOSTILE_KEYS) delete sk[k];
     log.push(`　🧿 ${B.name}은(는) **스킬 면역** 상태! 적에게 가는 스킬 효과가 전부 막혔어요`);
+  }
+  const noDebuff = B.st.debuffImmune ? DEBUFF_KEYS : B.st.sunCharge ? ['stun'] : null; // 🛡️ 태초의 숨결 · ☀️ 충전 중
+  if (noDebuff && !sk.swallowed && noDebuff.some((k) => sk[k])) {
+    sk = { ...sk };
+    for (const k of noDebuff) delete sk[k];
+    log.push(`　🛡️ ${B.name}은(는) ${B.st.debuffImmune ? '나쁜 효과에 면역' : '햇빛을 모으는 중이라 기절하지 않는'} 상태! 방해 효과가 막혔어요`);
   }
   if (sk.joker) { // 🃏 조커: 내 스킬 하나 ↔ 상대 스킬 하나 랜덤 맞교환 (전투 안에서만 · 전투당 1번)
     const fight = A.fight ?? B.fight ?? (A.fight = B.fight = {});
@@ -1403,6 +1715,25 @@ export function castSkill(sk, A, B, rng, log) {
     const bonus = Math.min(sk.rage[1], cnt * sk.rage[0]);
     if (bonus > 0) { mult *= 1 + bonus; log.push(`　😈 지금까지 ${cnt}번 맞은 분노가 폭발! (위력 +${P100(bonus)})`); }
   }
+  let dragonBurn = 0;
+  if (sk.dragonFlame) { // 🐉 용왕의 업화: 체력을 태워 방어 무시 피해로 · 상대 체력이 낮으면 위력 증가
+    const c = sk.dragonFlame;
+    dragonBurn = Math.max(1, Math.min(A.hp - 1, Math.round(A.max * c.burn)));
+    A.hp -= dragonBurn;
+    log.push(`　🔥 체력 **${dragonBurn}** 을(를) 태워 업화를 지폈어요!`);
+    if (B.hp / B.max <= c.low) { mult *= c.lowMult; log.push(`　🐉 상대가 약해졌어요! 위력 ×${c.lowMult}`); }
+  }
+  let pureN = 0;
+  if (sk.pureCharge) { // 🌈 순결의 돌진: 나쁜 효과를 전부 떨치고, 지운 개수당 위력 증가
+    const c = sk.pureCharge;
+    pureN = purgeDebuffs(A.st);
+    const used = Math.min(pureN, c.cap);
+    if (used > 0) { mult *= 1 + used * c.step; log.push(`　✨ 나쁜 효과 ${pureN}개를 정화했어요! (위력 +${P100(used * c.step)})`); }
+    else log.push('　✨ 정화할 나쁜 효과가 없었어요');
+  }
+  if (sk.manaSiphon && B.mana <= 0) { mult *= 1 + sk.manaSiphon[2]; log.push(`　🌊 흡수할 마나가 없어서 대신 위력 +${P100(sk.manaSiphon[2])}!`); }
+  if (B.st.reign && skElem === 'fire' && (B.st.dots ?? []).some((d) => d.kind === 'burn')) { mult *= 1 + B.st.reign.fire; log.push(`　👹 화상 걸린 상대에게 화염 피해 +${P100(B.st.reign.fire)}`); }
+  if (sk.venom) { A.st.venom = { ...sk.venom, budget: sk.venom.skill }; log.push(`　🦖 ${sk.venom.turns}턴 동안 내 공격마다 독이 쌓여요! (기본 공격 +${sk.venom.basic} · 스킬 +${sk.venom.skill} · ${sk.venom.pop}스택이면 맹독 폭발)`); }
   let readHit = false;
   if (sk.readBonus) { // 👁️ 급강하 폭격: 상대가 직전에 회복·방어·버프를 썼으면 읽기 성공
     if (B.st.act === 'read') { mult *= sk.readBonus; readHit = true; log.push(`　👁️ **읽기 성공!** ${B.name}의 움직임을 꿰뚫었어요 (위력 ×${sk.readBonus})`); }
@@ -1464,7 +1795,7 @@ export function castSkill(sk, A, B, rng, log) {
       B.hp = Math.max(0, B.hp - hit.dmg);
       dealt += hit.dmg;
       log.push(`　${hits > 1 ? `${i + 1}타 ` : ''}${crit ? '💥 급소! ' : ''}${B.name}에게 **${hit.dmg}** 데미지${hit.note}`);
-      afterHit(B, A, hit.dmg, log); // 🆕 반사·받은 피해 기록
+      afterHit(B, A, hit.dmg, log, true); // 🆕 반사·받은 피해 기록
     }
   }
   if (sk.truePct && B.hp > 0) {
@@ -1473,6 +1804,22 @@ export function castSkill(sk, A, B, rng, log) {
     dealt += n;
     log.push(`　🎯 방어 무시 고정 피해 **${n}** (최대체력의 ${P100(sk.truePct)})`);
   }
+  if (sk.dragonFlame && dragonBurn > 0 && B.hp > 0) { // 🐉 태운 체력의 일부가 방어 무시 피해로
+    const n = Math.max(1, Math.round(dragonBurn * sk.dragonFlame.trueMul));
+    B.hp = Math.max(0, B.hp - n);
+    dealt += n;
+    log.push(`　🐉 태운 불꽃이 ${B.name}에게 **${n}** 방어 무시 피해!`);
+  }
+  if (sk.manaSiphon) { // 🌊 상대 마나 흡수
+    const [frac, cap] = sk.manaSiphon;
+    const n = Math.min(cap, Math.floor(B.mana * frac));
+    if (n > 0) { B.mana -= n; A.mana = Math.min(A.manaMax, A.mana + n); log.push(`　🌊 ${B.name}의 마나 **${n}** 을(를) 파도로 삼켜 내 마나로!`); }
+  }
+  if (sk.pureCharge && B.hp > 0 && !immune) { // 🌈 상대의 좋은 효과 파괴
+    const k = destroyBuffs(B, pureN > 0 ? 1 : sk.pureCharge.noneBreak, rng);
+    log.push(k ? `　🌈 ${B.name}의 좋은 효과 ${k}개를 뿔로 깨뜨렸어요!` : '　🌈 깨뜨릴 좋은 효과가 없었어요');
+  }
+  if (sk.pureCharge) { A.st.defUp = { pct: Math.max(A.st.defUp?.pct ?? 0, sk.pureCharge.def), turns: Math.max(A.st.defUp?.turns ?? 0, 2) }; log.push(`　🧱 돌진 뒤의 자세! 방어력 +${P100(sk.pureCharge.def)} (1턴)`); }
   if (sk.pow && A.hp > 0 && B.hp > 0) berserkFinish(A.st, B, rng, log, true); // 🔥 광폭화 중인 공격 스킬은 확률로 상대 체력을 5로
   if (sk.berserk && A.hp > 0 && B.hp > 0) { // 🔥 공허의 숨결: 상대가 살아 있으면 내게 광폭화 (+1: 이번 턴 끝 감소분)
     A.st.berserk = { turns: sk.berserk + 1, cap: Math.round(A.max * BERSERK_CFG.ignore), atkLeft: true, skillLeft: true };
@@ -1617,6 +1964,27 @@ export function castSkill(sk, A, B, rng, log) {
     A.st.allElem = { mode: sk.allElem[0], turns: sk.allElem[1] };
     log.push(`　🌈 ${sk.allElem[1]}턴 동안 ${A.name}에게 ${{ attack: '모든 속성으로 공격하는 힘이', defend: '모든 속성이 깃든 몸이', both: '모든 속성의 힘과 몸이' }[sk.allElem[0]] ?? '모든 속성이'} 생겼어요!`);
   }
+  if (sk.sunVerdict) { // ☀️ 태양의 심판: 햇빛 충전 시작
+    const c = sk.sunVerdict;
+    A.st.sunCharge = { ...c, turns: c.charge, elem: sk.elem };
+    log.push(`　☀️ 햇빛을 모으기 시작했어요! ${c.charge}번째 턴이 끝날 때 내리쳐요 (충전 중 받는 피해 -${P100(c.guard)} · 기절하지 않아요)`);
+  }
+  if (sk.sunrise) { // 🌅 일출의 가호
+    const c = sk.sunrise;
+    A.st.sunrise = { turns: c.turns, atk: c.step, step: c.step, cap: c.cap, regen: c.regen, guard: c.guard, after: c.after };
+    log.push(`　🌅 해가 떠올라요! ${c.turns}턴 동안 공격력이 매 턴 +${P100(c.step)}씩 쌓이고 회복 · 피해 감소가 붙어요 (지금 +${P100(c.step)})`);
+  }
+  if (sk.trumpet) { // 👼 심판의 나팔
+    const c = sk.trumpet;
+    A.st.trumpet = { ...c, seen: 0, firstGuard: c.guard, elem: sk.elem };
+    log.push(`　👼 나팔이 울려 퍼져요… ${c.turns}번째 턴이 끝날 때 심판이 내려요! (그동안 상대가 쓰는 스킬이 죄가 돼요 · 첫 피해 -${P100(c.guard)})`);
+  }
+  if (sk.angelRefund) { // 😇 천사의 치유
+    const c = sk.angelRefund;
+    A.st.angelRefund = { turns: c.turns, rate: c.rate, left: Math.round(A.max * c.cap), shield: c.shield };
+    log.push(`　😇 ${c.turns}턴 동안 받은 피해의 ${P100(c.rate)}를 돌려받아요! (총 ${A.st.angelRefund.left}까지 · 넘친 회복은 보호막)`);
+  }
+  if (sk.chaos) castChaos(sk, A, B, rng, log, immune);
   if (sk.whoIs) { A.st.whoIs = { pct: sk.whoIs[0], turns: sk.whoIs[1] }; log.push(`　🎭 ${sk.whoIs[1]}턴 동안 상대의 공격이 ${P100(sk.whoIs[0])} 확률로 상대 자신에게 들어가요!`); }
   if (sk.catchPro) { // 🪢 포획 전문가: 유효 턴 동안 도망을 막고 포획률 상승 (붙잡았을 때의 제한 턴 연장은 catchProHold 가 해요)
     const dur = catchProTurns(sk);
@@ -1700,8 +2068,8 @@ export function castSkill(sk, A, B, rng, log) {
   // 🆕 배치 3: 쿨타임 삭제 · 부활 · 스킬 면역 · 능력치 룰렛 · 1회용 효과 이동(대기)
   if (sk.cdReset) {
     const had = Object.keys(A.st.cds ?? {}).length;
-    if (sk.cdReset >= 99) delete A.st.cds;
-    else for (const id of Object.keys(A.st.cds ?? {})) if ((A.st.cds[id] -= sk.cdReset) <= 0) delete A.st.cds[id];
+    if (sk.cdReset >= 99) A.st.cds = keepOnce(A.st.cds);
+    else for (const id of Object.keys(A.st.cds ?? {})) if (A.st.cds[id] < 90 && (A.st.cds[id] -= sk.cdReset) <= 0) delete A.st.cds[id];
     log.push(had ? '　⏪ 스킬 쿨타임이 줄어들었어요!' : '　💨 줄일 쿨타임이 없었어요…');
   }
   if (sk.revive) { A.st.revive = { pct: sk.revive[0], turns: sk.revive[1] + 1, left: sk.revive[2] ?? 1, blast: sk.reviveBlast, maxUp: sk.reviveMaxUp, elem: sk.elem }; log.push(`　🪽 ${sk.revive[1]}턴 동안 쓰러져도 ${sk.reviveMaxUp ? `최대 체력 +${P100(sk.reviveMaxUp)}과 함께 ` : ''}체력 ${P100(sk.revive[0])}로 부활해요!`); }
@@ -1773,9 +2141,25 @@ export function castSkill(sk, A, B, rng, log) {
       log.push(cut ? `　⏳ ${B.name}의 좋은 효과 지속시간이 ${sk.turnCut}턴 줄었어요!` : '　💨 줄일 효과가 없었어요…');
     }
     // 🔮 거울 장막: 디버프를 쓴 쪽에게 되돌려요
-    const hasDebuff = sk.freeze || sk.spdDown || sk.drowsy || sk.healCut || sk.atkDown || sk.powDown || sk.manaDown || (sk.defDown && sk.defDown[0] > 0) || sk.stun || sk.dot || sk.drainMana || sk.curseGrant || sk.lockSkills;
+    const hasDebuff = sk.winter || sk.pharaoh || sk.reign || sk.freeze || sk.spdDown || sk.drowsy || sk.healCut || sk.atkDown || sk.powDown || sk.manaDown || (sk.defDown && sk.defDown[0] > 0) || sk.stun || sk.dot || sk.drainMana || sk.curseGrant || sk.lockSkills;
     const T = B.st.reflectDebuff && hasDebuff ? A : B;
     if (T !== B) log.push(`　🔮 ${B.name}의 거울 장막! 디버프가 ${A.name}에게 되돌아가요!`);
+    if (sk.winter) { // ❄️ 영원한 겨울
+      const c = sk.winter;
+      T.st.winter = { ...c, hitDone: false };
+      T.st.frost = { n: T.st.frost?.n ?? 0, spd: c.spd };
+      log.push(`　❄️ ${T.name}에게 **영원한 겨울**이 내려앉아요! (${c.turns}턴 · 매 턴 서리 +1 · 마나 -${c.mana} · 서리 ${c.max}스택이면 동결)`);
+    }
+    if (sk.reign) { // 👹 화염 군림
+      const c = sk.reign;
+      T.st.reign = { turns: c.turns, stacks: 0, max: c.max, pct: c.pct, fire: c.fire };
+      log.push(`　👹 ${T.name}은(는) ${c.turns}턴 동안 스킬을 쓸 때마다 불타요! (최대 ${c.max}스택)`);
+    }
+    if (sk.pharaoh) { // ⚰️ 파라오의 저주
+      const c = sk.pharaoh;
+      T.st.pharaoh = { turns: c.turns, flip: c.flip, rot: c.rot, shield: c.shield, healed: false };
+      log.push(`　⚰️ ${T.name}의 회복이 ${c.turns}턴 동안 저주로 뒤집혀요! (회복의 ${P100(c.flip)}가 피해 · 보호막 부식 · 회복 못 하면 저주 피해)`);
+    }
     if (sk.healCut) { T.st.healCut = { pct: sk.healCut[0], turns: sk.healCut[1] }; log.push(`　🚑 ${T.name}의 회복 효과 -${P100(sk.healCut[0])} (${sk.healCut[1]}턴)`); }
     if (sk.spdDown) { T.st.spdDown = { pct: sk.spdDown[0], turns: sk.spdDown[1] + 1 }; log.push(`　🐌 ${T.name} 스피드 -${P100(sk.spdDown[0])} (${sk.spdDown[1]}턴)`); } // +1: 이번 턴 끝 감소분
     if (sk.drowsy) {
@@ -1830,8 +2214,12 @@ export function castSkill(sk, A, B, rng, log) {
     }
     if (pr.left <= 0) delete B.st.prideReflect;
   }
-  tryRevive(A, log, B); // 🪽 이번 스킬로 쓰러졌다면 부활 판정
+  finishCast(A, B, log);
+}
+function finishCast(A, B, log) { // 🪽 이번 스킬로 쓰러졌다면 부활 판정 · 뒤집힌 회복 글 · 마나 한도
+  tryRevive(A, log, B);
   tryRevive(B, log, A);
+  flushQ(A, log); flushQ(B, log);
   A.mana = Math.min(A.mana, A.manaMax);
 }
 
@@ -1882,6 +2270,14 @@ export function tickSide(X, log, gainMana = true, foe = null) {
       }
     }
   }
+  if (st.sunCharge) { // ☀️ 태양의 심판: 충전이 끝나면 내리쳐요 (충전 중 쓰러지면 취소)
+    if (X.hp <= 0) { delete st.sunCharge; log.push(`☀️ ${X.name}이(가) 쓰러져서 모은 햇빛이 흩어졌어요`); }
+    else if (--st.sunCharge.turns <= 0) fireSun(X, foe, log);
+  }
+  if (st.trumpet) { // 👼 심판의 나팔
+    if (X.hp <= 0) { delete st.trumpet; log.push(`👼 ${X.name}이(가) 쓰러져서 나팔이 멈췄어요`); }
+    else if (--st.trumpet.turns <= 0) fireTrumpet(X, foe, log);
+  }
   if (st.devil && --st.devil.turns <= 0) { // 😈 악마의 거래 정산: 못 쓰러뜨렸다면 준 피해 × 배수를 "무효화 불가"로 받아요
     const d = st.devil;
     delete st.devil;
@@ -1927,6 +2323,29 @@ export function tickSide(X, log, gainMana = true, foe = null) {
     if (n) log.push(`🌱 ${X.name} 체력 +${n}`);
     if (--st.regen.turns <= 0) delete st.regen;
   }
+  if (st.sunset && --st.sunset.turns <= 0) { delete st.sunset; log.push(`🌇 ${X.name}의 일몰이 끝났어요`); } // 🌇 일출의 가호 여운 (이번 턴에 만든 건 줄이지 않아요)
+  if (st.sunrise) { // 🌅 일출의 가호: 매 턴 회복 + 공격력 누적
+    if (X.hp <= 0) delete st.sunrise;
+    else {
+      const s = st.sunrise;
+      const n = heal(X, X.max * s.regen);
+      if (n) log.push(`🌅 ${X.name} 가호의 빛 체력 +${n}`);
+      s.atk = Math.min(s.cap, s.atk + s.step);
+      if (--s.turns <= 0) {
+        st.sunset = { atk: s.atk / 2, turns: s.after };
+        delete st.sunrise;
+        log.push(`🌇 ${X.name}의 일출이 저물어요… 쌓인 공격력의 절반(+${P100(s.atk / 2)})이 ${s.after}턴 더 남아요`);
+      } else log.push(`🌅 ${X.name}의 공격력이 +${P100(s.atk)} 까지 올랐어요 (${s.turns}턴 남음)`);
+    }
+  }
+  if (st.pharaoh && X.hp > 0) { // ⚰️ 파라오의 저주: 보호막 부식 · 회복하지 못한 턴에는 저주 피해
+    const p = st.pharaoh;
+    if (!immune) {
+      if (st.shield > 0) { const cut = Math.floor(st.shield * p.shield); if (cut > 0) { st.shield -= cut; log.push(`⚰️ ${X.name}의 보호막이 저주에 **${cut}** 부식됐어요`); } }
+      if (!p.healed) { const n = Math.max(1, Math.round(X.max * p.rot)); X.hp = Math.max(0, X.hp - n); log.push(`⚰️ 회복하지 못한 ${X.name}에게 저주가 스며들어요 **${n}**`); }
+    }
+    p.healed = false;
+  }
   // 🆕 최대마나 증가 효과가 끝나면 늘렸던 만큼 되돌려요
   if (st.manaMaxUp && --st.manaMaxUp.turns <= 0) {
     X.manaMax = Math.max(SKILL_CFG.manaMax, X.manaMax - st.manaMaxUp.amt);
@@ -1954,16 +2373,35 @@ export function tickSide(X, log, gainMana = true, foe = null) {
   }
   if (st.pendingBoom && foe) { const n = st.pendingBoom; delete st.pendingBoom; cloneBoomOn(X, foe, n, log); } // 🎆 쓰러진 분신의 폭발이 남아 있으면 지금
   if (st.clone?.boom && st.clone.turns <= 1 && foe) { const n = st.clone.boom; st.clone.boom = 0; cloneBoomOn(X, foe, n, log); } // 🎆 분신이 끝나는 순간 폭발
-  for (const k of ['atkUp', 'atkDown', 'powDown', 'berserk', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro', 'allElem', 'whoIs', 'lamp', 'huntMark', 'transfer', 'shieldCounter', 'speedRev', 'prideNull', 'prideReflect']) {
+  for (const k of ['atkUp', 'atkDown', 'powDown', 'berserk', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro', 'allElem', 'whoIs', 'lamp', 'huntMark', 'transfer', 'shieldCounter', 'speedRev', 'prideNull', 'prideReflect', 'genesis', 'debuffImmune', 'angelRefund', 'reign', 'pharaoh', 'venom', 'frostImmune']) {
     if (st[k] && !st[k].perm && --st[k].turns <= 0) delete st[k]; // perm(영구 봉인)은 줄지 않아요
   }
   for (const id of Object.keys(st.cds ?? {})) if (--st.cds[id] <= 0) delete st.cds[id]; // ⏳ 쿨타임 감소
+  if (st.winter) { // ❄️ 영원한 겨울: 매 턴 서리 +1 · 마나 감소 · 마나가 가장 큰 스킬 하나의 쿨타임 +1
+    const w = st.winter;
+    w.hitDone = false;
+    if (X.hp > 0) {
+      if (immune) log.push(`🧿 ${X.name}은(는) 스킬 면역! 영원한 겨울이 스며들지 못해요`);
+      else {
+        const m = Math.min(X.mana, w.mana);
+        X.mana -= m;
+        log.push(`❄️ 영원한 겨울… ${X.name} 마나 -${m}`);
+        const pool = (X.skills ?? []).map((id) => SKILLS[id]).filter((s) => s && !s.dud && s.cost > 0 && (st.cds?.[s.id] ?? 0) < 90).sort((a, b) => b.cost - a.cost);
+        if (pool[0]) { (st.cds ??= {})[pool[0].id] = (st.cds[pool[0].id] ?? 0) + 1; log.push(`　⏳ ${pool[0].emoji} ${pool[0].name} 쿨타임 +1`); }
+        addFrost(X, 1, log);
+      }
+    }
+    if (--w.turns <= 0) { delete st.winter; delete st.frost; log.push(`❄️ ${X.name}에게 내려앉은 영원한 겨울이 걷혔어요`); }
+  }
+  if (st.venomN && !foe?.st?.venom) delete st.venomN; // 🦖 와이번의 독이 끝나면 스택도 사라져요
   if (st.huntMark) st.huntMark.bursts = 0; // 🎯 한 턴에 최대 2번 터져요 (턴마다 초기화)
   if (st.transfer) st.transfer.pending = 0; // 🕳️ 공격한 쪽이 없어 못 넘긴 피해는 버려요
   delete st.shieldBroke;
   st.prevTaken = st.turnTaken ?? 0; // 👼 지난 턴 받은 피해 기억 (대천사의 축복용)
   delete st.turnTaken; // 이번 턴 받은 피해는 턴이 끝나면 초기화
   if (gainMana) X.mana = Math.min(X.manaMax, X.mana + SKILL_CFG.manaPerTurn + (st.manaRegenUp?.amt ?? 0));
+  flushQ(X, log); // ⚰️ 뒤집힌 회복 글
+  if (X.hp > 0) { (st.hist ??= []).push({ hp: X.hp, mana: Math.round(X.mana) }); if (st.hist.length > 6) st.hist.shift(); } // ⏪ 태초의 숨결이 되감을 기록 (턴이 끝났을 때의 체력·마나)
 }
 
 // 👑 전설 등급 이상(elite) 야생 펫: 전용기는 항상 들고 나오고, 나머지 스킬 칸은 60% 확률로 ★5 스킬이에요
@@ -2031,6 +2469,13 @@ export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
     if (sk.curseGrant) s += 5; // 🪬 저주부여는 기회가 한 번이라 바로 써요
     else if (sk.curse) s -= 2; // 🧿 자기 저주는 살짝 꺼려요
     if (sk.devilDeal || sk.joker) s += 1;
+    if (sk.rewind) s += myRatio <= 0.45 ? 7 : -6; // ✨ 위험할 때만 되감아요
+    if (sk.angelRefund) s += myRatio <= 0.7 ? 3 : -1;
+    if (sk.sunVerdict || sk.trumpet) s += 2.5;
+    if (sk.sunrise || sk.genesis) s += 2;
+    if (sk.trickster) s += me.st?.last ? 3 : -6;
+    if (sk.winter || sk.pharaoh || sk.reign) s += me.st?.[sk.winter ? 'winter' : sk.pharaoh ? 'pharaoh' : 'reign'] ? -5 : 2;
+    if (sk.dragonFlame && myRatio < 0.4) s -= 4;
     if (sk.cost > wild.mana * 0.8) s -= 1; // 너무 비싸면 살짝 아껴요
     return s;
   };
@@ -2098,7 +2543,24 @@ export function statusText(st = {}) {
   if (st.lamp) t.push(`🕯️ 불빛 ${st.lamp.turns}턴`);
   if (st.hitCount) t.push(`💢 맞은 횟수 ${st.hitCount}`);
   if (st.snowCount) t.push(`⛄ 눈덩이 ${st.snowCount}회`);
-  for (const [id, n] of Object.entries(st.cds ?? {})) if (SKILLS[id]) t.push(`⏳ ${SKILLS[id].name} 쿨 ${n}턴`);
+  if (st.sunCharge) t.push(`☀️ 햇빛 충전 ${st.sunCharge.turns}턴 (받는 피해 -${P100(st.sunCharge.guard)} · 기절 면역)`);
+  if (st.sunrise) t.push(`🌅 일출의 가호 공격 +${P100(st.sunrise.atk)} · ${st.sunrise.turns}턴`);
+  if (st.sunset) t.push(`🌇 일몰 공격 +${P100(st.sunset.atk)} · ${st.sunset.turns}턴`);
+  if (st.trumpet) t.push(`👼 심판 대기 ${st.trumpet.turns}턴 · 죄 ${st.trumpet.seen ?? 0}개`);
+  if (st.angelRefund) t.push(`😇 피해 환급 ${st.angelRefund.turns}턴 (남은 한도 ${st.angelRefund.left})`);
+  if (st.debuffImmune) t.push(`🛡️ 나쁜 효과 면역 ${st.debuffImmune.turns}턴`);
+  if (st.genesis) t.push(`🌌 천지창조 ${st.genesis.turns}턴 (내 공격 약점 확정 · 받는 약점 무효)`);
+  if (st.winter) t.push(`❄️ 영원한 겨울 ${st.winter.turns}턴 · 서리 ${st.frost?.n ?? 0}/${st.winter.max}`);
+  if (st.frostImmune) t.push(`🧊 동결 면역 ${st.frostImmune.turns}턴`);
+  if (st.reign) t.push(`👹 화염 군림 ${st.reign.turns}턴 · 화상 스택 ${st.reign.stacks}/${st.reign.max}`);
+  if (st.pharaoh) t.push(`⚰️ 파라오의 저주 ${st.pharaoh.turns}턴`);
+  if (st.venom) t.push(`🦖 맹독 ${st.venom.turns}턴`);
+  if (st.venomN) t.push(`☠️ 독 스택 ${st.venomN}`);
+  for (const [id, n] of Object.entries(st.cds ?? {})) {
+    if (!SKILLS[id]) continue;
+    if (n >= 90) t.push(SKILLS[id].dud ? '🃏 스킬 칸 하나가 조커 카드로 바뀜' : `✅ ${SKILLS[id].name} 사용함 (전투당 1회)`);
+    else t.push(`⏳ ${SKILLS[id].name} 쿨 ${n}턴`);
+  }
   return t.join(' · ');
 }
 

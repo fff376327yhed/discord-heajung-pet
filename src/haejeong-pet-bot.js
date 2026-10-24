@@ -1639,7 +1639,7 @@ function stopAutoHunt(player) {
 }
 
 // ✨ 자동사냥에서 내 펫이 안 쓰는 스킬: 내 체력을 깎거나(반동·도박·저주…), 전투 밖 규칙이 필요하거나(조커·포획 전문가·전투 버프…), 자동으로는 의미가 없는 것
-const AUTO_SKILL_BANNED = ['recoil', 'gamble', 'curse', 'curseGrant', 'devilDeal', 'joker', 'catchPro', 'fightBuff', 'lockSkills', 'copy', 'coinflip', 'defToAtk', 'statRoll', 'echo', 'mercy'];
+const AUTO_SKILL_BANNED = ['recoil', 'gamble', 'curse', 'curseGrant', 'devilDeal', 'joker', 'catchPro', 'fightBuff', 'lockSkills', 'copy', 'coinflip', 'defToAtk', 'statRoll', 'echo', 'mercy', 'dragonFlame', 'chaos'];
 const autoSkillOk = (sk, me) => !!sk && sk.cost <= me.mana && cdLeft(me.st, sk.id) <= 0 && !AUTO_SKILL_BANNED.some((k) => sk[k]);
 // 🆕 눈덩이(설인)·깜짝 상자(광대)처럼 "쓸수록/카드 운에 따라 세지는" 스킬의 위력 보정 (자동사냥 계산용 · worst=true 면 최대치)
 const autoSkillBoost = (sk, me, worst = false) => (sk.snowball ? Math.min(sk.snowball[2], sk.snowball[0] + sk.snowball[1] * (me.st?.snowCount ?? 0)) : 1) * (sk.jackBox ? (worst ? 2 : 1.25) : 1);
@@ -3088,8 +3088,8 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
   }
 
   // 🆕 턴 끝: 지속 피해 · 재생 · 상태이상 턴 감소는 항상 적용돼요. 내 마나는 기본 공격을 한 턴에만 차요!
-  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0), atk: c.mine.atk, def: c.mine.def, mana: b.myMana, manaMax: maxMana(main) + (b.mySt?.manaBonus ?? 0) - (b.mySt?.manaDown?.cut ?? 0), elems: petElems(main.petId), st: b.mySt };
-  const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp + (b.wildSt?.maxBonus ?? 0), atk: c.wild.atk, def: c.wild.def, mana: b.wildMana, manaMax: SKILL_CFG.manaMax - (b.wildSt?.manaDown?.cut ?? 0), elems: petElems(wildInfo.petId), st: b.wildSt };
+  const tMe = { name: myName, emoji: myPet.emoji, hp: b.myHp, max: c.mine.hp + (b.mySt?.maxBonus ?? 0), atk: c.mine.atk, def: c.mine.def, mana: b.myMana, manaMax: maxMana(main) + (b.mySt?.manaBonus ?? 0) - (b.mySt?.manaDown?.cut ?? 0), elems: petElems(main.petId), st: b.mySt, skills: b.mySkillOv ?? main.skills ?? [] };
+  const tWild = { name: wildPet.name, emoji: wildPet.emoji, hp: b.wildHp, max: c.wild.hp + (b.wildSt?.maxBonus ?? 0), atk: c.wild.atk, def: c.wild.def, mana: b.wildMana, manaMax: SKILL_CFG.manaMax - (b.wildSt?.manaDown?.cut ?? 0), elems: petElems(wildInfo.petId), st: b.wildSt, skills: b.wildSkillOv ?? wildInfo.skills ?? [] };
   tickSide(tMe, log, myManaGain, tWild);
   tickSide(tWild, log, true, tMe);
   b.myHp = tMe.hp; b.myMana = tMe.mana;
