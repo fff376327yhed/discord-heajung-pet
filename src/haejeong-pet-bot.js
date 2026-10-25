@@ -229,7 +229,7 @@ let CATCH_HP_T2 = 0.20, CATCH_HP_B2 = 0.10; // 체력 20% 이하: +10%p
 let CATCH_HP_T3 = 0.50, CATCH_HP_B3 = 0.05; // 체력 50% 이하: +5%p
 let CATCH_MAX_CHANCE = 0.95; // 아이템 없이 가능한 포획 확률 상한 (95%)
 let CATCH_MAX_WITH_ITEMS = 0.98; // 포획 아이템을 써도 이 값을 넘지 않아요 → 100% 확정 포획은 절대 없어요 (98%)
-let CATCH_BAIT_BONUS_CAP = 1.0; // 간식·꿀 효과는 이번 만남에서 합쳐서 최대 +100% (= 최대 ×2.0)
+let CATCH_BAIT_BONUS_CAP = 1.4; // 간식·꿀 효과는 이번 만남에서 합쳐서 최대 +100% (= 최대 ×2.0)
 let CATCH_NET_FLEE_REDUCE = 0.3; // 끈끈이 그물: 도망 확률 -30%p
 let CATCH_NET_FLEE_MIN = 0.05; // 그물을 써도 도망 확률은 이 값 아래로 안 내려가요
 let CATCH_ITEM_COSTS_TURN = true; // 전투 중에 간식·꿀·부적·그물을 쓰면 한 턴을 써요 (야생 펫이 반격!) / 분석기는 공짜
