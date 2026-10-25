@@ -2479,6 +2479,7 @@ function catchItemState(player, ex) {
   }
   return {
     bonus: ex.catchBonus ?? 0,
+    baitUsed: ex.baitUsed ?? {},
     charm: !!ex.charm,
     net: !!ex.net,
     analyzed: !!ex.analyzed,
@@ -2541,6 +2542,7 @@ function useCatchItem(player, itemId, now = Date.now(), rng = Math.random, opts 
     const cur = ex.catchBonus ?? 0;
     if (cur >= CATCH_BAIT_BONUS_CAP - 1e-9) return { kind: 'bait_max', item };
     ex.catchBonus = Math.min(CATCH_BAIT_BONUS_CAP, cur + item.catchBonus);
+    ex.baitUsed = { ...(ex.baitUsed ?? {}), [itemId]: (ex.baitUsed?.[itemId] ?? 0) + 1 };
     consume();
     note = `${item.emoji} **${item.name}** 을(를) 줬어요! 포획 확률 ×${(1 + ex.catchBonus).toFixed(1)}${ex.catchBonus >= CATCH_BAIT_BONUS_CAP - 1e-9 ? ' (최대!)' : ''}`;
   } else if (item.catchItem === 'charm') {
@@ -4353,7 +4355,10 @@ function catchInfoText(snap) {
   if (!it) return '';
   const lines = [];
   const buffs = [];
-  if (it.bonus > 0) buffs.push(`🍖 포획 ×${(1 + it.bonus).toFixed(1)}`);
+  if (it.bonus > 0) {
+    const parts = Object.entries(it.baitUsed ?? {}).map(([id, n]) => `${ITEMS[id].emoji}${ITEMS[id].short} ×${n}`);
+    buffs.push(`포획 ×${(1 + it.bonus).toFixed(1)}${parts.length ? ` (${parts.join(' + ')})` : ''}`);
+  }
   if (it.charm) buffs.push('🍀 부적 (다음 1회)');
   if (it.net) buffs.push(`🕸️ 그물 (도망 -${pct(CATCH_NET_FLEE_REDUCE)}%p)`);
   if (buffs.length) lines.push(`✨ 적용 중: ${buffs.join(' · ')}`);
