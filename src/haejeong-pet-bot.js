@@ -371,6 +371,15 @@ const PETS = {
   xeno_queen: { id: 'xeno_queen', name: '제노 여왕', emoji: '👾', grade: 'legendary', baseStats: stats(510, 100, 70, 42), expYield: 630, catchRate: 0.03 },
   star_devourer: { id: 'star_devourer', name: '성운 포식자', emoji: '🌀', grade: 'mythic', baseStats: stats(600, 114, 80, 46), expYield: 1040, catchRate: 0.018 },
   slime_ayoung: { id: 'slime_ayoung', name: '액괴 정아영', emoji: '🫠', grade: 'divine', baseStats: stats(720, 112, 80, 52), expYield: 1900, catchRate: 0.006 },
+
+  // ── 황금 돼지 섬 (Lv.125) ──
+  piglet: { id: 'piglet', name: '꿀꿀 새끼돼지', emoji: '🐽', grade: 'common', baseStats: stats(310, 64, 52, 32), expYield: 128, catchRate: 0.42 },
+  mud_boar: { id: 'mud_boar', name: '늪지 멧돼지', emoji: '🐗', grade: 'uncommon', baseStats: stats(345, 72, 58, 36), expYield: 175, catchRate: 0.37 },
+  golden_hog: { id: 'golden_hog', name: '황금멧돼지', emoji: '🥇', grade: 'rare', baseStats: stats(440, 86, 65, 34), expYield: 250, catchRate: 0.24 },
+  jewel_boar: { id: 'jewel_boar', name: '보석멧돼지', emoji: '💎', grade: 'epic', baseStats: stats(490, 100, 70, 54), expYield: 370, catchRate: 0.085 },
+  treasure_hog: { id: 'treasure_hog', name: '보물돼지', emoji: '💰', grade: 'legendary', baseStats: stats(610, 120, 82, 46), expYield: 740, catchRate: 0.026 },
+  pig_general: { id: 'pig_general', name: '돈가 장군', emoji: '⚔️', grade: 'mythic', baseStats: stats(720, 136, 94, 50), expYield: 1220, catchRate: 0.015 },
+  golden_pig_boss: { id: 'golden_pig_boss', name: '황금 돼지 양승민', emoji: '👑', grade: 'divine', baseStats: stats(860, 132, 94, 58), expYield: 2250, catchRate: 0.004 },
 };
 
 const STARTER_IDS = Object.values(PETS).filter((p) => p.starter).map((p) => p.id);
@@ -710,6 +719,19 @@ const LOCATIONS = {
       { petId: 'xeno_queen', weight: 6, lv: [106, 115] },
       { petId: 'star_devourer', weight: 3, lv: [108, 118] },
       { petId: 'slime_ayoung', weight: 0.6, lv: [112, 125] },
+    ],
+  },
+  golden_pig_island: {
+    id: 'golden_pig_island', name: '황금 돼지 섬', emoji: '🐷', minLevel: 125, expMultiplier: 40.0,
+    description: '황금빛 모래 위로 돼지 발자국이 끝없이 이어져요. 저 멀리서 땅을 울리는 묵직한 꿀꿀 소리가 들려와요…',
+    spawns: [
+      { petId: 'piglet', weight: 30, lv: [124, 130] },
+      { petId: 'mud_boar', weight: 28, lv: [125, 132] },
+      { petId: 'golden_hog', weight: 22, lv: [127, 136] },
+      { petId: 'jewel_boar', weight: 12, lv: [130, 140] },
+      { petId: 'treasure_hog', weight: 6, lv: [133, 145] },
+      { petId: 'pig_general', weight: 2.5, lv: [137, 150] },
+      { petId: 'golden_pig_boss', weight: 0.5, lv: [142, 160] },
     ],
   },
 };

@@ -182,6 +182,7 @@ export const PET_ELEMENTS = {
   shadow: ['dark'], void_eye: ['dark'], star_whale: ['water', 'light'], comet: ['ice', 'light'], void_dragon: ['dark'], chaos_lord: ['dark', 'fire'], creator: ['light', 'dark'],
   puppet: ['normal'], mask_actor: ['dark'], clown: ['dark', 'poison'], magician: ['light', 'dark'], ringmaster: ['fire', 'dark'], joker: ['dark', 'poison'],
   zeta_larva: ['poison'], ufo_drone: ['electric'], tentacle: ['water', 'dark'], gray_alien: ['light', 'electric'], xeno_queen: ['poison', 'earth'], star_devourer: ['dark', 'electric'], slime_ayoung: ['poison', 'water'],
+  piglet: ['earth'], mud_boar: ['earth', 'water'], golden_hog: ['earth', 'light'], jewel_boar: ['earth', 'light'], treasure_hog: ['light'], pig_general: ['earth', 'dark'], golden_pig_boss: ['light', 'earth'],
 };
 export const petElementsOf = (petId) => PET_ELEMENTS[petId] ?? ['normal'];
 
@@ -724,6 +725,19 @@ P('star_devourer', 'sig_star_devourer', '성운 삼키기', '🌀', 5, { pow: 3.
 P('star_devourer', 'sig_star_devourer2', '중력 붕괴', '🕳️', 4, { spdDown: [0.4, 3], defDown: [0.3, 3], powDown: [0.3, 3], drainMana: 30, cd: 4 }, '몸이 무겁게 짓눌려요. 발도, 방패도, 스킬의 힘도 가라앉아요.');
 P('slime_ayoung', 'sig_ayoung', '외계 액괴 대폭주', '🫠', 5, { pow: 3.2, drain: 0.3, dot: ['poison', 0.08, 3, 1], steal: ['def', 0.4, 3], truePct: 0.05, healCut: [0.5, 3], cd: 9 }, '우주 끝에서 밀려온 보랏빛 액괴가 와르르! 닿는 순간 방어가 녹아내리고, 녹은 기운은 전부 아영의 힘이 돼요.');
 P('slime_ayoung', 'sig_ayoung2', '분열 점액막', '🫧', 5, { shield: 0.25, regen: [0.05, 4], guard: [0.3, 3], cleanse: true, clone: [0.45, 0.9, 4], cloneBoom: 1.5, reflectDebuff: 3, cd: 9 }, '말랑한 몸이 둘로 셋으로 갈라졌다가 다시 합쳐져요. 나쁜 기운은 쏙 녹여 상대에게 되돌리고, 분열체는 마지막에 펑!');
+
+// 🐷 황금 돼지 섬 (Lv.125) 전용기 — 보스는 황금 돼지 양승민
+P('piglet', 'sig_piglet', '꿀꿀 박치기', '🐽', 3, { pow: 1.9, stun: 0.2 }, '작은 몸이지만 박치기는 진심이에요! 꽥!');
+P('mud_boar', 'sig_mud_boar', '진흙 투척', '🐗', 4, { pow: 1.8, defDown: [0.25, 3], cd: 3 }, '철벅! 진흙을 끼얹어 미끌미끌하게 만들어요.');
+P('golden_hog', 'sig_golden_hog', '황금 돌진', '🥇', 4, { pow: 2.2, pierce: 0.2, cd: 3 }, '반짝이는 엄니로 그대로 들이받아요. 광이 나서 눈이 부셔요!');
+P('jewel_boar', 'sig_jewel_boar', '보석 가시', '💎', 5, { pow: 2.8, crit: 0.25, cd: 5 }, '등에 돋은 보석 가시가 사방으로 번쩍여요.');
+P('jewel_boar', 'sig_jewel_boar2', '보석 광택', '✨', 4, { shield: 0.3, defUp: [0.3, 3] }, '몸의 보석이 빛나며 단단한 막을 둘러요.');
+P('treasure_hog', 'sig_treasure_hog', '보물 눈사태', '💰', 5, { pow: 1.5, hits: 2, stun: 0.25, cd: 4 }, '쌓아둔 보물이 와르르 쏟아지며 상대를 덮쳐요.');
+P('treasure_hog', 'sig_treasure_hog2', '보물 수호', '🛡️', 4, { shield: 0.35, regen: [0.06, 3], cd: 4 }, '보물 더미 속에 몸을 숨기고 천천히 회복해요.');
+P('pig_general', 'sig_pig_general', '돈가 돌격', '⚔️', 5, { pow: 3.0, recoil: 0.08, stun: 0.3, cd: 5 }, '장군의 돌진에 땅이 쿵쿵 흔들려요.');
+P('pig_general', 'sig_pig_general2', '장군의 호령', '📯', 4, { atkUp: [0.5, 3], mana: 15 }, '우렁찬 꿀꿀 호령에 사기가 치솟아요.');
+P('golden_pig_boss', 'sig_golden_pig_boss', '황금의 포효', '👑', 5, { pow: 3.2, pierce: 0.35, truePct: 0.05, healCut: [0.5, 3], cd: 8 }, '온몸에서 황금빛이 뿜어져 나오며 모든 걸 꿰뚫어요.');
+P('golden_pig_boss', 'sig_golden_pig_boss2', '양승민의 재림', '🐷', 5, { heal: 0.4, regen: [0.07, 4], atkUp: [0.45, 4], defUp: [0.3, 4], cd: 8 }, '전설의 돼지가 황금빛 기운을 두르고 다시 일어서요.');
 
 // 스킬 속성 배정 (여기에 없는 스킬은 무속성이에요 · 전용기는 펫 속성을 따라가요)
 const ELEM_SKILLS = {
