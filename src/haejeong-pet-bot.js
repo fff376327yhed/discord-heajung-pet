@@ -181,6 +181,7 @@ let HP_REGEN_PCT_PER_MIN = 0.02; // 시간이 지나면 1분마다 최대 체력
 // ───────── 출석체크 📅 ─────────
 let ATTENDANCE_BALLS = 5; // 출석 1회 보상: 해정볼
 let ATTENDANCE_GOLD = 750; // 출석 1회 보상: 골드
+let SPECIAL_SHOP_CHANCE = 0.25; // 출석체크를 할 때마다 ✨특별 상점이 열릴 확률 (그날 한국 시간 자정까지 열려요)
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000; // 출석은 한국 시간(KST) 자정에 초기화돼요
 
 // ───────── 도감 보상 🎁 ─────────
@@ -430,6 +431,8 @@ const ITEMS = {
     name: '해정볼',
     emoji: '🔴',
     price: 100,
+    ball: true,
+    ballCatch: 0,
     description: '야생 해정펫을 잡을 때 쓰는 공이에요.',
   },
   potion_small: {
@@ -549,6 +552,110 @@ const ITEMS = {
     price: 350,
     catchItem: 'net',
     description: '이번 만남 동안 해정볼이 빠져나왔을 때 도망 확률 -30%p. 전투 중엔 한 턴을 써요.',
+  },
+
+  // 🪔 향로: 탐험을 시작할 때 효과가 붙어요. /사용 에서 "N번 쓰기" 또는 "항상 켜두기"를 골라요.
+  //   incenseCut: 줄여주는 대기 시간(초) — 대기 시간이 이 값 이하면 0초가 되어 즉시 발견해요
+  //   incenseGrade / incenseMult: 이 등급 이상 펫이 나올 확률(무게)에 곱해지는 배수
+  //   (special: true 면 일반 상점이 아니라 ✨특별 상점에서만 팔아요 / specialLimit: 특별 상점에서 하루에 살 수 있는 최대 개수)
+  incense_basic: {
+    id: 'incense_basic',
+    name: '향로',
+    emoji: '🪔',
+    price: 300,
+    incense: true,
+    tier: 1,
+    incenseCut: 10,
+    description: '탐험 대기 시간 -10초 (10초 이하면 즉시 발견). `/사용` 에서 N번 쓰기 / 항상 켜두기를 골라요.',
+  },
+  incense_haejeong: {
+    id: 'incense_haejeong',
+    name: '해정향로',
+    emoji: '🏮',
+    price: 800,
+    incense: true,
+    tier: 2,
+    incenseCut: 15,
+    incenseGrade: 'epic',
+    incenseMult: 1.6,
+    description: '탐험 대기 시간 -15초 (15초 이하면 즉시 발견) + 🟣영웅 등급 이상 펫이 나올 확률 ×1.6.',
+  },
+  incense_special: {
+    id: 'incense_special',
+    name: '해정이의 특급향로',
+    emoji: '🎇',
+    price: 2000,
+    special: true,
+    specialLimit: 5,
+    incense: true,
+    tier: 3,
+    incenseCut: 20,
+    incenseGrade: 'legendary',
+    incenseMult: 2.0,
+    description: '탐험 대기 시간 -20초 (20초 이하면 즉시 발견) + 🟡전설 등급 이상 펫이 나올 확률 ×2.',
+  },
+
+  // ✨ 특별 상점 전용 볼: /사용 으로 "던질 볼"을 골라요 (다 떨어지면 해정볼로 자동 전환)
+  super_ball: {
+    id: 'super_ball',
+    name: '슈퍼볼',
+    emoji: '🔵',
+    price: 250,
+    special: true,
+    specialLimit: 30,
+    ball: true,
+    ballCatch: 0.1,
+    description: '던질 때 포획률 +10%p. (아이템·스킬 보너스와 같은 한도 안에서 합쳐져요)',
+  },
+  hyper_ball: {
+    id: 'hyper_ball',
+    name: '하이퍼볼',
+    emoji: '🟡',
+    price: 600,
+    special: true,
+    specialLimit: 15,
+    ball: true,
+    ballCatch: 0.1,
+    ballFleeCut: 0.2,
+    description: '던질 때 포획률 +10%p, 빠져나왔을 때 도망 확률 -20%p.',
+  },
+
+  // ✨ 특별 상점 전용 상향 포획 아이템 (간식·꿀·부적의 업그레이드 버전)
+  catch_snack_plus: {
+    id: 'catch_snack_plus',
+    name: '특제 간식',
+    short: '특제간식',
+    emoji: '🍗',
+    price: 500,
+    special: true,
+    specialLimit: 10,
+    catchItem: 'bait',
+    catchBonus: 0.4,
+    description: '이번 만남의 포획 확률 ×1.4 (+40%). 중첩돼요 (간식·꿀과 합쳐 최대 ×2.4). 전투 중엔 한 턴을 써요.',
+  },
+  catch_honey_plus: {
+    id: 'catch_honey_plus',
+    name: '순금 꿀',
+    short: '순금꿀',
+    emoji: '🐝',
+    price: 1100,
+    special: true,
+    specialLimit: 6,
+    catchItem: 'bait',
+    catchBonus: 0.9,
+    description: '이번 만남의 포획 확률 ×1.9 (+90%). 중첩돼요 (간식·꿀과 합쳐 최대 ×2.4). 전투 중엔 한 턴을 써요.',
+  },
+  catch_charm_plus: {
+    id: 'catch_charm_plus',
+    name: '대박 부적',
+    short: '대박부적',
+    emoji: '☘️',
+    price: 900,
+    special: true,
+    specialLimit: 6,
+    catchItem: 'charm',
+    catchBonus: 2.0,
+    description: '다음 던지기 1번의 포획 확률 +200% (×3). 던지면 사라져요. 전투 중엔 한 턴을 써요.',
   },
 };
 
@@ -1738,8 +1845,21 @@ function autoSkillBurst(me, foe, baseHit) {
   return best;
 }
 
+// 🔴 자동사냥에서 던질 볼 목록: /사용 으로 고른 볼(슈퍼볼·하이퍼볼)을 먼저, 그다음 해정볼 순서예요.
+//    고르지 않은 다른 특별 볼은 아깝게 쓰지 않아요!
+function autoBallQueue(player, max = AUTO_HUNT_MAX_THROWS) {
+  const inv = player.inventory ?? {};
+  const pref = ITEMS[player.activeBall];
+  const order = [];
+  if (pref?.ball && pref.id !== BALL_ID) order.push(pref);
+  order.push(ITEMS[BALL_ID]);
+  const q = [];
+  for (const it of order) for (let i = 0; i < (inv[it.id] ?? 0) && q.length < max; i++) q.push(it);
+  return q;
+}
+
 // 야생 펫 1마리와 자동으로 싸워 봐요 (회복약은 안 써요 · 내 펫은 배운 스킬을 써요, 야생 펫은 기본 공격만 해요).
-// opts.balls > 0 이면 해정볼도 던져요: 야생 펫 체력이 깎였거나, 다음 한 대(기본 공격이든 스킬이든)에 쓰러질 것 같을 때. (던지는 턴엔 야생 펫이 반격해요)
+// opts.ballQueue(던질 볼 목록, 앞에서부터) 가 비어 있지 않으면 볼도 던져요 (🔵슈퍼볼·🟡하이퍼볼 보너스 적용): 야생 펫 체력이 깎였거나, 다음 한 대(기본 공격이든 스킬이든)에 쓰러질 것 같을 때. (던지는 턴엔 야생 펫이 반격해요)
 // 내 펫이 위험해지면(다음 한 대에 쓰러질 수 있으면) 싸움을 멈추고 물러나서 펫이 사라지는 일은 없어요!
 // timeline: 턴마다 [내 체력, 야생 체력] — 진행 화면에서 "지금 몇 턴째"를 보여줄 때 써요 (ev: 'hit' 기본 공격 · 'skill' 스킬 · 'throw' 해정볼)
 function autoFight(main, enc, startHp, rng, opts = {}) {
@@ -1758,7 +1878,9 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
   const wildMult = elemClash(petElems(enc.petId)[0], { elems: petElems(main.petId) }).mult;
   const worstHit = Math.round(Math.max(wild.atk * 0.25, wild.atk - mine.def * 0.5) * 1.15 * 1.5 * wildMult);
   const myMaxHit = Math.round(Math.max(mine.atk * 0.25, mine.atk - wild.def * 0.5) * 1.15 * 1.5 * myMult);
-  const balls = opts.balls ?? 0;
+  const ballQ = opts.ballQueue ?? Array(opts.balls ?? 0).fill(null);
+  const balls = ballQ.length;
+  const usedBalls = {}; // 던진 볼 종류별 개수
   let myHp = startHp;
   let wildHp = wild.hp;
   let thrown = 0;
@@ -1766,7 +1888,7 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
   let defendUses = 0;
   const timeline = [];
   const order = mine.spd >= wild.spd ? ['me', 'wild'] : ['wild', 'me'];
-  const end = (result, rounds) => ({ result, myHp, rounds, thrown, skillUses, startHp, wildMax: wild.hp, timeline });
+  const end = (result, rounds) => ({ result, myHp, rounds, thrown, skillUses, startHp, wildMax: wild.hp, timeline, usedBalls });
 
   // ✨ 스킬 전투용 양쪽 상태 (마나 · 상태이상). 야생 펫은 스킬 없이 기본 공격만 해서 "물러나는 기준(worstHit)"이 그대로 맞아요.
   const useSkills = AUTO_HUNT_USE_SKILLS && (main.skills ?? []).some((id) => SKILLS[id]);
@@ -1787,12 +1909,15 @@ function autoFight(main, enc, startHp, rng, opts = {}) {
     if (thrown < balls && thrown < AUTO_HUNT_MAX_THROWS) {
       const ratio = wildHp / wild.hp;
       if (ratio <= AUTO_HUNT_CATCH_HP_RATIO || Math.max(myMaxHit, burst) >= wildHp) {
-        const chance = catchChance(enc.petId, enc.level, main.level, ratio, thrown);
+        const ball = ballQ[thrown] ?? null; // 이번에 던질 볼
+        const chance = catchChance(enc.petId, enc.level, main.level, ratio, thrown, 1, ball?.ballCatch ?? 0);
         if (chance >= AUTO_HUNT_MIN_CATCH) {
           threw = true;
           thrown += 1;
+          const ballId = ball?.id ?? BALL_ID;
+          usedBalls[ballId] = (usedBalls[ballId] ?? 0) + 1;
           if (rng() < chance) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('caught', round); }
-          if (rng() < fleeChance(thrown)) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('fled', round); }
+          if (rng() < fleeChance(thrown, false, ball?.ballFleeCut ?? 0)) { timeline.push({ m: myHp, w: wildHp, ev: 'throw' }); return end('fled', round); }
           if (rng() >= myEvade) myHp -= mitigate(me, calcDamage(prideAtk(foe.st, wild.atk), mine.def, rng, wildCrit, wildMult).dmg, rng, { basic: true }).dmg; // 놓치면 반격!
         }
       }
@@ -1953,9 +2078,9 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
       const fightAt = t + waitMs;
       const hp = currentHp(main, fightAt);
       // 🔴 도감에 없는 펫이고 해정볼이 있으면 잡아 봐요
-      const balls = player.inventory?.[BALL_ID] ?? 0;
-      const wantCatch = (player.autoHuntCatch ?? true) && balls > 0 && !player.dex?.[enc.petId];
-      const fight = autoFight(main, enc, hp, rng, { balls: wantCatch ? balls : 0 });
+      const ballQ = autoBallQueue(player);
+      const wantCatch = (player.autoHuntCatch ?? true) && ballQ.length > 0 && !player.dex?.[enc.petId];
+      const fight = autoFight(main, enc, hp, rng, { ballQueue: wantCatch ? ballQ : [] });
       run = { enc, locId: loc.id, petUid: main.uid, fightAt, doneAt: fightAt + fight.rounds * roundMs, fight, cared };
     }
     if (run.doneAt > end) { pending = run; break; } // 아직 싸우는 중이에요 → 다음 정산 때 이어서
@@ -1969,8 +2094,10 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
     rep.runs += 1;
     player.visited = { ...(player.visited ?? {}), [loc.id]: true };
     setHp(main, f.myHp, t);
-    const used = Math.min(f.thrown, player.inventory?.[BALL_ID] ?? 0);
-    if (used > 0) { player.inventory[BALL_ID] -= used; rep.balls += used; }
+    for (const [id, n] of Object.entries(f.usedBalls ?? {})) {
+      const u = Math.min(n, player.inventory?.[id] ?? 0);
+      if (u > 0) { player.inventory[id] -= u; rep.balls += u; (rep.ballsBy ??= {})[id] = (rep.ballsBy[id] ?? 0) + u; }
+    }
 
     if (f.result === 'retreat') {
       dangerStreak += 1;
@@ -2047,7 +2174,7 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
 const POTIONS = Object.values(ITEMS).filter((i) => i.heal).sort((a, b) => a.heal - b.heal);
 
 // /사용 으로 쓸 수 있는 것: 회복약 + 경험치 부스트 + 탐험 시간 감소
-const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.catchItem || i.skillSlot || i.skillReroll)];
+const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.catchItem || i.skillSlot || i.skillReroll || i.incense || i.ball)];
 const CATCH_ITEMS = Object.values(ITEMS).filter((i) => i.catchItem); // 🍖 포획 아이템 목록
 
 // 가진 회복약 목록 (약한 것 → 센 것 순서)
@@ -2222,6 +2349,145 @@ function useBoostItem(player, itemId, qty = 1, now = Date.now()) {
   return { kind: 'sped', commit: true, item, used: 1, before: startSec, after: 0, left: owned - 1, cutShort: false };
 }
 
+// ───────── 향로 🪔 ─────────
+// player.incense = { always: 항상 켜둘 향로 id | null, charges: { 향로id: 남은 탐험 횟수 } }
+// 탐험을 시작할 때마다 가장 좋은 향로 1개 분량이 자동으로 쓰여요 (횟수 → 항상 켜둔 향로 순서로 꺼내 써요)
+const INCENSE_ITEMS = () => Object.values(ITEMS).filter((i) => i.incense).sort((a, b) => (b.tier ?? 0) - (a.tier ?? 0));
+
+// 이 향로가 해당 펫의 등장 무게에 곱해주는 배수
+function incenseWeightMult(petId, inc) {
+  if (!inc?.incenseGrade) return 1;
+  const order = GRADES[PETS[petId]?.grade]?.order ?? 0;
+  return order >= (GRADES[inc.incenseGrade]?.order ?? 99) ? (inc.incenseMult ?? 1) : 1;
+}
+
+// 탐험 시작 때 향로 1회분을 꺼내 써요. 쓸 게 없으면 null
+function takeIncense(player) {
+  const st = player.incense;
+  if (!st) return null;
+  for (const it of INCENSE_ITEMS()) {
+    if ((st.charges?.[it.id] ?? 0) > 0) {
+      st.charges[it.id] -= 1;
+      st.emptyWarned = false;
+      return it;
+    }
+    if (st.always === it.id && (player.inventory?.[it.id] ?? 0) > 0) {
+      player.inventory[it.id] -= 1;
+      st.emptyWarned = false;
+      return it;
+    }
+  }
+  return null;
+}
+
+// 🔔 향로가 떨어졌을 때 알림 (탐험을 시작한 직후에 불러요). 알릴 게 없으면 null
+//   ① 방금 쓴 게 마지막이라 다음 탐험부터 효과가 없을 때  ② 항상 켜둔 향로가 이미 없어서 이번 탐험에 못 썼을 때 (한 번만 알려요)
+function incenseNotice(player, used) {
+  const st = player.incense;
+  if (!st) return null;
+  const anyCharges = INCENSE_ITEMS().some((i) => (st.charges?.[i.id] ?? 0) > 0);
+  const alwaysItem = st.always ? ITEMS[st.always] : null;
+  const alwaysOwned = alwaysItem ? (player.inventory?.[alwaysItem.id] ?? 0) : 0;
+  if (anyCharges || alwaysOwned > 0) return null; // 아직 쓸 게 남았어요
+  if (used) return `⚠️ 켜둔 향로를 **모두 썼어요!** 다음 탐험부터는 향로 효과가 없어요.${alwaysItem ? ` (${alwaysItem.emoji} ${alwaysItem.name}을(를) 다시 사오면 자동으로 이어서 써요)` : ''}`;
+  if (alwaysItem && !st.emptyWarned) {
+    st.emptyWarned = true; // 같은 알림이 매번 뜨지 않게 한 번만 알려요
+    return `⚠️ 항상 켜둔 ${alwaysItem.emoji} **${alwaysItem.name}** 이(가) 다 떨어졌어요! 이번 탐험에는 향로 효과가 없어요. (사오면 자동으로 다시 써요 · 끄려면 \`/사용\` 향로모드 "항상 켜두기 끄기")`;
+  }
+  return null;
+}
+
+// /사용 으로 향로 켜기. mode: 'count'(수량만큼 N번 쓰기) | 'always'(항상 켜두기) | 'off'(항상 켜두기 끄기)
+function useIncense(player, itemId, mode = 'count', qty = 1) {
+  const item = ITEMS[itemId];
+  if (!item?.incense) return { kind: 'unknown' };
+  player.incense ??= { always: null, charges: {} };
+  const st = player.incense;
+  st.charges ??= {};
+  const owned = player.inventory?.[itemId] ?? 0;
+
+  if (mode === 'off') {
+    if (!st.always) return { kind: 'already_off', item };
+    st.always = null;
+    return { kind: 'incense_off', commit: true, item };
+  }
+  if (mode === 'always') {
+    if (owned <= 0 && st.always !== itemId) return { kind: 'none', item };
+    st.always = itemId;
+    return { kind: 'incense_always', commit: true, item, owned };
+  }
+  if (owned <= 0) return { kind: 'none', item };
+  const n = Math.min(Math.max(1, Math.floor(Number(qty)) || 1), owned);
+  player.inventory[itemId] = owned - n;
+  st.charges[itemId] = (st.charges[itemId] ?? 0) + n;
+  return { kind: 'incense_charged', commit: true, item, used: n, charges: st.charges[itemId], left: owned - n };
+}
+
+function incenseStatusText(player) {
+  const st = player.incense;
+  if (!st) return '';
+  const parts = INCENSE_ITEMS().filter((i) => (st.charges?.[i.id] ?? 0) > 0).map((i) => `${i.emoji} ${i.name} ${st.charges[i.id]}회`);
+  if (st.always && ITEMS[st.always]) parts.push(`${ITEMS[st.always].emoji} ${ITEMS[st.always].name} 항상 켜짐 (보유 ${player.inventory?.[st.always] ?? 0}개)`);
+  return parts.length ? `🪔 **켜둔 향로** — ${parts.join(' · ')}` : '';
+}
+
+function incenseResultText(out) {
+  const it = out.item;
+  switch (out.kind) {
+    case 'none': return `${it.emoji} ${it.name}이(가) 없어요 😭 상점에서 사올 수 있어요!`;
+    case 'incense_charged':
+      return `${it.emoji} **${it.name}** ${out.used}개를 켜뒀어요! 앞으로 탐험 **${out.charges}번** 동안 효과가 적용돼요 (탐험을 시작할 때마다 1회씩 써요).\n남은 ${it.name} ${out.left}개`;
+    case 'incense_always':
+      return `${it.emoji} **${it.name}** 을(를) **항상 켜뒀어요!** 탐험을 시작할 때마다 가방에서 1개씩 자동으로 써요. (지금 ${out.owned}개 · 다 떨어지면 효과가 멈춰요 · 끄려면 \`/사용\` 의 향로모드를 "항상 끄기"로)`;
+    case 'incense_off': return `${it.emoji} 향로 **항상 켜두기**를 껐어요. (\`/사용\` 으로 켜둔 N번 분량은 그대로 남아 있어요)`;
+    case 'already_off': return '항상 켜둔 향로가 없어요 🤔';
+    default: return '지금은 쓸 수 없어요 🤔';
+  }
+}
+
+// ───────── 볼 🔴 (해정볼 · 슈퍼볼 · 하이퍼볼) ─────────
+// 던질 볼: /사용 으로 고른 볼(player.activeBall) → 없으면 해정볼 → 그것도 없으면 가진 아무 볼
+function throwBallItem(player) {
+  const inv = player.inventory ?? {};
+  const pref = ITEMS[player.activeBall];
+  if (pref?.ball && (inv[pref.id] ?? 0) > 0) return pref;
+  if ((inv.haejeong_ball ?? 0) > 0) return ITEMS.haejeong_ball;
+  return Object.values(ITEMS).find((i) => i.ball && (inv[i.id] ?? 0) > 0) ?? ITEMS.haejeong_ball;
+}
+const ballTotal = (player) => Object.values(ITEMS).reduce((sum, i) => sum + (i.ball ? (player.inventory?.[i.id] ?? 0) : 0), 0);
+
+// /사용 으로 던질 볼 고르기
+function useBallItem(player, itemId) {
+  const item = ITEMS[itemId];
+  if (!item?.ball) return { kind: 'unknown' };
+  if ((player.inventory?.[itemId] ?? 0) <= 0) return { kind: 'none', item };
+  player.activeBall = itemId;
+  return { kind: 'ball_picked', commit: true, item, owned: player.inventory[itemId] };
+}
+
+// ✨ 특별 상점 (출석체크 때 확률로 열리고, 그날 한국 시간 자정까지 열려요)
+const specialShopOpen = (player, now = Date.now()) => player.specialShop?.date === kstDate(now);
+
+function buySpecialItem(player, itemId, qty, now = Date.now()) {
+  const item = ITEMS[itemId];
+  if (!item?.special || !item.price) return { kind: 'unknown' };
+  if (!specialShopOpen(player, now)) return { kind: 'closed' };
+  const bought = (player.specialShop.bought ??= {});
+  const left = Math.max(0, (item.specialLimit ?? 99) - (bought[itemId] ?? 0));
+  if (left <= 0) return { kind: 'sold_out', item };
+  const n = qty === 'max' ? Math.min(left, Math.floor(player.gold / item.price)) : Math.floor(Number(qty));
+  if (qty === 'max' && n < 1) return { kind: 'no_gold', cost: item.price, gold: player.gold };
+  if (!Number.isFinite(n) || n < 1) return { kind: 'unknown' };
+  if (n > left) return { kind: 'over_limit', item, left };
+  const cost = item.price * n;
+  if (player.gold < cost) return { kind: 'no_gold', cost, gold: player.gold };
+  player.gold -= cost;
+  player.inventory ??= {};
+  player.inventory[itemId] = (player.inventory[itemId] ?? 0) + n;
+  bought[itemId] = (bought[itemId] ?? 0) + n;
+  return { kind: 'bought', commit: true, itemId, qty: n, cost, gold: player.gold, owned: player.inventory[itemId], left: left - n };
+}
+
 // 🎫 스킬 슬롯 개방권 / 🔄 스킬 변경권 — 펫 한 마리를 골라서 써요
 // slot: 스킬 변경권일 때만 써요 (1~5, 이미 열려 있는 슬롯이어야 해요)
 // goal: 🔄 스킬 변경권 전용 — { minTier: 0~5, skillIds: [최대 3개], maxRolls } 를 주면 조건이 나올 때까지(또는 변경권/maxRolls 가 다 떨어질 때까지) 반복해서 뽑아요.
@@ -2377,8 +2643,8 @@ function autoHealMulti(player, uids, now = Date.now()) {
 const BALL_ID = 'haejeong_ball';
 
 // 이 장소에서 나올 야생 펫을 하나 뽑아요 (펫 종류 + 레벨 + 🆕 랜덤 스킬 1~3개)
-function rollEncounter(loc, rng = Math.random) {
-  const spawn = weightedPick(loc.spawns, (s) => s.weight, rng);
+function rollEncounter(loc, rng = Math.random, opts = {}) {
+  const spawn = weightedPick(loc.spawns, (s) => s.weight * incenseWeightMult(s.petId, opts.incense), rng); // 🪔 향로가 있으면 높은 등급이 더 잘 나와요
   const petId = spawn.petId;
   return { petId, level: randInt(spawn.lv[0], spawn.lv[1], rng), skills: rollWildSkills(petId, rng, (GRADES[PETS[petId]?.grade]?.order ?? 0) >= GRADES.legendary.order), equip: rollWildEquip(petId, loc, rng) };
 }
@@ -2446,29 +2712,30 @@ function fleeChance(tries, net = false, cut = 0) {
 // (야생 펫이 새로 나타나면 탐험 정보가 새로 만들어져서 효과가 사라져요)
 const CHARM_BONUS = ITEMS.catch_charm.catchBonus;
 
+const charmValue = (ex) => (ex?.charm ? (typeof ex.charm === 'number' ? ex.charm : CHARM_BONUS) : 0); // 🍀 부적(대박 부적은 +200%)
 function exCatchMult(ex) {
-  return 1 + (ex.catchBonus ?? 0) + (ex.charm ? CHARM_BONUS : 0);
+  return 1 + (ex.catchBonus ?? 0) + charmValue(ex);
 }
 
 // 🆕 배치 5: 전투 중 스킬 효과 (전투 단위 상태 = ex.battle.mySt)
 // 포획률 +%p: 포획의 기운 같은 전투 버프 + 포획 전문가(유효 턴 동안)
-function exCatchFlat(ex) {
+function exCatchFlat(ex, ball = null) {
   const st = ex?.battle?.mySt;
-  return fightBuffOf(st, 'catch') + (st?.catchPro?.bonus ?? 0);
+  return fightBuffOf(st, 'catch') + (st?.catchPro?.bonus ?? 0) + (ball?.ballCatch ?? 0); // 🔵 슈퍼볼·하이퍼볼 보너스
 }
 // 도망 확률 -%p
-const exFleeCut = (ex) => fightBuffOf(ex?.battle?.mySt, 'flee');
+const exFleeCut = (ex, ball = null) => fightBuffOf(ex?.battle?.mySt, 'flee') + (ball?.ballFleeCut ?? 0); // 🟡 하이퍼볼: 도망 확률 감소
 
 // 지금 [잡기] 를 한 번 던졌을 때의 실제 포획 확률 (분석기가 보여주는 값 = 진짜 던질 때 쓰는 값)
-function exCatchChance(player, ex) {
+function exCatchChance(player, ex, ball = throwBallItem(player)) {
   const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
-  return catchChance(ex.encounter.petId, ex.encounter.level, getMainPet(player)?.level ?? 1, hpRatio, ex.catchTries ?? 0, exCatchMult(ex), exCatchFlat(ex));
+  return catchChance(ex.encounter.petId, ex.encounter.level, getMainPet(player)?.level ?? 1, hpRatio, ex.catchTries ?? 0, exCatchMult(ex), exCatchFlat(ex, ball));
 }
 
 // 같은 조건의 "계산값" (0% 아래로 내려간 음수도 그대로 보여줘요 — 분석기용)
-function exCatchRaw(player, ex) {
+function exCatchRaw(player, ex, ball = throwBallItem(player)) {
   const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
-  return catchChanceRaw(ex.encounter.petId, ex.encounter.level, getMainPet(player)?.level ?? 1, hpRatio, ex.catchTries ?? 0, exCatchMult(ex), exCatchFlat(ex));
+  return catchChanceRaw(ex.encounter.petId, ex.encounter.level, getMainPet(player)?.level ?? 1, hpRatio, ex.catchTries ?? 0, exCatchMult(ex), exCatchFlat(ex, ball));
 }
 
 function catchItemState(player, ex) {
@@ -2480,10 +2747,10 @@ function catchItemState(player, ex) {
   return {
     bonus: ex.catchBonus ?? 0,
     baitUsed: ex.baitUsed ?? {},
-    charm: !!ex.charm,
+    charm: charmValue(ex),
     net: !!ex.net,
     analyzed: !!ex.analyzed,
-    fleeNext: fleeChance((ex.catchTries ?? 0) + 1, !!ex.net, exFleeCut(ex)),
+    fleeNext: fleeChance((ex.catchTries ?? 0) + 1, !!ex.net, exFleeCut(ex, throwBallItem(player))),
     owned,
   };
 }
@@ -2547,7 +2814,7 @@ function useCatchItem(player, itemId, now = Date.now(), rng = Math.random, opts 
     note = `${item.emoji} **${item.name}** 을(를) 줬어요! 포획 확률 ×${(1 + ex.catchBonus).toFixed(1)}${ex.catchBonus >= CATCH_BAIT_BONUS_CAP - 1e-9 ? ' (최대!)' : ''}`;
   } else if (item.catchItem === 'charm') {
     if (ex.charm) return { kind: 'charm_active', item };
-    ex.charm = true;
+    ex.charm = item.catchBonus; // 🍀 부적마다 보너스가 달라서 값을 저장해요 (대박 부적 = 2.0)
     consume();
     note = `${item.emoji} **${item.name}** 을(를) 꼭 쥐었어요! 다음 던지기 1번의 포획 확률이 크게 올라요.`;
   } else {
@@ -2581,7 +2848,8 @@ function speedInfo(main, enc, b) {
 function snapshot(player, now = Date.now()) {
   const ex = player.exploration;
   if (!ex) return { state: 'idle' };
-  const base = { id: ex.id, locationId: ex.locationId, balls: player.inventory?.[BALL_ID] ?? 0 };
+  const ballItem = throwBallItem(player);
+  const base = { id: ex.id, locationId: ex.locationId, balls: ballTotal(player), ballItemId: ballItem.id, ballItemCount: player.inventory?.[ballItem.id] ?? 0 };
   if (ex.encounter) {
     const main = getMainPet(player);
     const b = ex.battle ?? null;
@@ -2612,6 +2880,9 @@ function snapshot(player, now = Date.now()) {
     state: 'exploring',
     remainingSec: Math.max(0, Math.ceil((ex.appearAt - now) / 1000)),
     scout: ex.scouted && ex.nextEncounter ? { ...ex.nextEncounter } : null,
+    incenseId: ex.incenseId ?? null,
+    incenseCut: ex.incenseCut ?? 0,
+    incenseNote: ex.incenseNote ?? null,
   };
 }
 
@@ -2632,13 +2903,20 @@ function startExploration(player, locationId, now = Date.now(), rng = Math.rando
     };
   }
 
-  const enc = rollEncounter(loc, rng); // 나올 펫을 먼저 정하고
-  const { sec: waitSec } = calcWaitSec(loc, player.level, enc, rng); // 그 펫이 셀수록 오래 기다려요
+  const inc = takeIncense(player); // 🪔 켜둔 향로가 있으면 1회분을 써요
+  const enc = rollEncounter(loc, rng, { incense: inc }); // 나올 펫을 먼저 정하고
+  const { sec: rawSec } = calcWaitSec(loc, player.level, enc, rng); // 그 펫이 셀수록 오래 기다려요
+  const cut = inc ? Math.min(rawSec, inc.incenseCut ?? 0) : 0; // 향로: 대기 시간이 줄어드는 만큼 (대기 시간 ≤ 감소량이면 0초 = 즉시 발견)
+  const waitSec = rawSec - cut;
+  const incenseNote = incenseNotice(player, !!inc); // 🔔 향로가 떨어졌으면 알려요
   player.exploration = {
     id: randomUUID().slice(0, 8),
     locationId,
     startedAt: now,
     appearAt: now + waitSec * 1000,
+    incenseId: inc?.id ?? null,
+    incenseCut: cut,
+    incenseNote,
     encounter: null,
     nextEncounter: enc, // 곧 나올 펫을 미리 정해둬요 (🔭 망원경이 이걸 알려줘요)
   };
@@ -2670,14 +2948,15 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
   if (!ex || ex.id !== id || !ex.encounter) return { kind: 'expired' };
 
   const locationId = ex.locationId;
-  const balls = player.inventory?.[BALL_ID] ?? 0;
+  const balls = ballTotal(player);
   if (balls <= 0) return { kind: 'no_ball', snap: snapshot(player, now) };
 
-  player.inventory[BALL_ID] = balls - 1; // 던지는 순간 해정볼은 사라져요
+  const ballItem = throwBallItem(player); // 🔴🔵🟡 이번에 던질 볼
+  player.inventory[ballItem.id] = (player.inventory[ballItem.id] ?? 0) - 1; // 던지는 순간 볼은 사라져요
   const { petId, level } = ex.encounter;
   const hpRatio = ex.battle ? ex.battle.wildHp / ex.battle.wildMax : 1;
   const tries = ex.catchTries ?? 0;
-  const chance = exCatchChance(player, ex);
+  const chance = exCatchChance(player, ex, ballItem);
   if (ex.charm) ex.charm = false; // 🍀 부적은 한 번 던지면 사라져요
 
   if (rng() < chance) {
@@ -2707,7 +2986,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
   // 실패! 던진 횟수가 늘어서 이제 도망이 더 쉬워져요
   ex.catchTries = tries + 1;
   const holdLog = []; // 🪢 포획 전문가가 붙잡았을 때의 안내
-  if (rng() < fleeChance(ex.catchTries, ex.net, exFleeCut(ex))) {
+  if (rng() < fleeChance(ex.catchTries, ex.net, exFleeCut(ex, ballItem))) {
     if (!(ex.battle && catchProHold(ex.battle, holdLog))) { // 🪢 포획 전문가 중이면 도망치지 못해요
       player.exploration = null;
       return { kind: 'fled', commit: true, petId, ballsLeft: balls - 1, locationId };
@@ -2717,7 +2996,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
   // 전투 중에 던진 거라면, 공격/회복처럼 똑같이 한 턴을 써요 (야생 펫이 반격해요!)
   if (ex.battle) {
     const c = context(player, ex);
-    const log = [`${BALL.emoji} ${BALL.name}을(를) 던졌지만 빠져나왔어요! (남은 ${BALL.name} ${balls - 1}개)`, ...holdLog];
+    const log = [`${ballItem.emoji} ${ballItem.name}을(를) 던졌지만 빠져나왔어요! (남은 볼 ${balls - 1}개)`, ...holdLog];
     wildAct(c, ex.battle, log, rng);
     return { ...finishTurn(player, ex, c, log, now, rng), ballsLeft: balls - 1 };
   }
@@ -2763,7 +3042,7 @@ function attemptCatchMulti(player, id, now = Date.now(), rng = Math.random, time
     if (r.kind === 'expired') return last ? { ...last, log: logs } : r;
     if (r.kind === 'no_ball') {
       if (!last) return r;
-      logs.push(`${BALL.emoji} 해정볼이 떨어져서 여기까지만 던졌어요!`);
+      logs.push(`${BALL.emoji} 볼이 떨어져서 여기까지만 던졌어요!`);
       break;
     }
     last = r;
@@ -3378,7 +3657,7 @@ function dexProgress(player) {
 // 출석체크 📅 — 하루(한국 시간 기준)에 한 번!
 const kstDate = (now = Date.now()) => new Date(now + KST_OFFSET_MS).toISOString().slice(0, 10);
 
-function claimAttendance(player, now = Date.now()) {
+function claimAttendance(player, now = Date.now(), rng = Math.random) {
   const today = kstDate(now);
   const last = player.attendance?.lastDate;
   if (last === today) {
@@ -3392,7 +3671,9 @@ function claimAttendance(player, now = Date.now()) {
   player.inventory ??= {};
   player.inventory[BALL_ID] = (player.inventory[BALL_ID] ?? 0) + ATTENDANCE_BALLS;
   player.gold += ATTENDANCE_GOLD;
-  return { kind: 'claimed', commit: true, balls: ATTENDANCE_BALLS, gold: ATTENDANCE_GOLD, streak, total, owned: player.inventory[BALL_ID] };
+  const special = rng() < SPECIAL_SHOP_CHANCE; // ✨ 특별 상점이 열릴지 뽑아요 (오늘 하루만)
+  if (special) player.specialShop = { date: today, bought: {} };
+  return { kind: 'claimed', commit: true, balls: ATTENDANCE_BALLS, gold: ATTENDANCE_GOLD, streak, total, owned: player.inventory[BALL_ID], special };
 }
 
 // 도감 보상 🎁 — 챕터 번호(1부터)에 따라 보상이 커져요
@@ -3787,7 +4068,7 @@ function trainPetsBulk(player, uids, times, now = Date.now()) {
 
 const exploreSys = { startExploration, lookAround, attemptCatch, attemptCatchMulti, leave, attemptFlee };
 const battleSys = { startBattle, battleTurn, battleTurns, battleHeal, battleSwap, battleSkill };
-const shopSys = { buyItem };
+const shopSys = { buyItem, buySpecialItem };
 
 // ============================================================
 // 명령어 (commands/index.js)
@@ -4182,7 +4463,7 @@ function autoHuntReportText(rep) {
     `⚔️ 승리 ${rep.wins}번 · 💨 놓침/물러남 ${rep.runs - rep.wins - (rep.caught ?? 0)}번` + (rep.restMs ? ` · 🛌 휴식 ${Math.round(rep.restMs / 60000)}분` : '') + (rep.potions ? ` · 💊 회복약 ${rep.potions}개` : ''),
     `💰 골드 +${rep.gold.toLocaleString()} · 🎓 트레이너 경험치 +${rep.trainerExp.toLocaleString()} · 🐾 펫 경험치 +${rep.petExp.toLocaleString()}`,
   ];
-  if (rep.balls || rep.caught) lines.push(`🔴 포획 **${rep.caught ?? 0}마리**${rep.newPets ? ` (도감 NEW ${rep.newPets})` : ''} · 해정볼 ${rep.balls ?? 0}개 사용`);
+  if (rep.balls || rep.caught) lines.push(`🔴 포획 **${rep.caught ?? 0}마리**${rep.newPets ? ` (도감 NEW ${rep.newPets})` : ''} · 볼 ${rep.balls ?? 0}개 사용${Object.keys(rep.ballsBy ?? {}).some((id) => id !== BALL_ID) ? ` (${Object.entries(rep.ballsBy).map(([id, n]) => `${ITEMS[id]?.emoji ?? ''}${ITEMS[id]?.name ?? id} ${n}`).join(' · ')})` : ''}`);
   if (rep.equips) lines.push(`🎁 장비 ${rep.equips}개 획득 (/장비 에서 장착해요!)`);
   if (rep.trainerLevels > 0) lines.push(`⬆️ 트레이너 레벨 +${rep.trainerLevels}`);
   if (rep.petLevels > 0) lines.push(`⬆️ 펫 레벨 +${rep.petLevels}`);
@@ -4215,6 +4496,16 @@ function autoHuntLiveText(player, pet, loc, now) {
   ].join('\n');
 }
 
+// 자동사냥 화면용 볼 요약 (예: 🔵 슈퍼볼 12개 → 🔴 해정볼 30개)
+function autoBallSummary(player) {
+  const inv = player.inventory ?? {};
+  const pref = ITEMS[player.activeBall];
+  const parts = [];
+  if (pref?.ball && pref.id !== BALL_ID && (inv[pref.id] ?? 0) > 0) parts.push(`${pref.emoji} ${pref.name} ${inv[pref.id]}개`);
+  parts.push(`${ITEMS[BALL_ID].emoji} ${ITEMS[BALL_ID].name} ${inv[BALL_ID] ?? 0}개`);
+  return `볼 ${parts.join(' → ')}`;
+}
+
 // 자동사냥 진행 화면 (켜져 있을 때)
 function autoHuntView(player, now, note = null) {
   const loc = LOCATIONS[getAutoHuntLocId(player)];
@@ -4227,7 +4518,7 @@ function autoHuntView(player, now, note = null) {
   if (note) lines.push(note, '');
   lines.push(
     `${PETS[pet.petId].emoji} **${nameOf(pet)}** Lv.${pet.level} ❤${currentHp(pet, now)}/${maxHp(pet)} · ${loc.emoji} ${loc.name}`,
-    `🔴 포획 ${(player.autoHuntCatch ?? true) ? '켜짐 (도감에 없는 펫만)' : '꺼짐'} · 해정볼 ${balls}개`,
+    `🔴 포획 ${(player.autoHuntCatch ?? true) ? '켜짐 (도감에 없는 펫만)' : '꺼짐'} · ${autoBallSummary(player)}`,
     `💊 위험할 때 회복약 ${(player.autoHuntPotion ?? true) ? '먹이기 켜짐' : '꺼짐 (쉬기만 해요)'}`,
     '',
     autoHuntLiveText(player, pet, loc, now),
@@ -4359,7 +4650,7 @@ function catchInfoText(snap) {
     const parts = Object.entries(it.baitUsed ?? {}).map(([id, n]) => `${ITEMS[id].emoji}${ITEMS[id].short} ×${n}`);
     buffs.push(`포획 ×${(1 + it.bonus).toFixed(1)}${parts.length ? ` (${parts.join(' + ')})` : ''}`);
   }
-  if (it.charm) buffs.push('🍀 부적 (다음 1회)');
+  if (it.charm) buffs.push(`🍀 부적 ×${(1 + it.charm).toFixed(1)} (다음 1회)`);
   if (it.net) buffs.push(`🕸️ 그물 (도망 -${pct(CATCH_NET_FLEE_REDUCE)}%p)`);
   if (buffs.length) lines.push(`✨ 적용 중: ${buffs.join(' · ')}`);
   if (it.analyzed) {
@@ -4376,7 +4667,9 @@ function catchItemRows(snap, userId) {
   const btns = CATCH_ITEMS.filter((i) => owned[i.id] > 0).map((i) =>
     button({ label: `${i.short} ×${owned[i.id]}`, emoji: i.emoji, customId: `explore:citem:${userId}:${snap.id}:${i.id}`, style: 2 }),
   );
-  return btns.length ? [row(...btns)] : [];
+  const rows = [];
+  for (let k = 0; k < btns.length && rows.length < 2; k += 5) rows.push(row(...btns.slice(k, k + 5))); // 한 줄에 버튼은 최대 5개예요
+  return rows;
 }
 
 // 🆕 전투 중 스킬 버튼 줄 (비어 있지 않은 슬롯만 보여줘요, 쿨타임 중인 스킬은 숨겨요, 마나가 모자라면 회색)
@@ -4424,7 +4717,7 @@ function exploreViewExploring(snap, userId, note) {
       ? `주변을 살피는 중이에요... 🔍\n무언가 나타날 때까지 약 **${snap.remainingSec}초** 남았어요.\n시간이 지나면 **[살펴보기]** 를 눌러요!`
       : `수풀이 부스럭거려요... 👀\n**[살펴보기]** 를 눌러보세요!`;
   return {
-    embeds: [{ title: `${loc.emoji} ${loc.name} 탐험 중`, description: `${note ? note + '\n\n' : ''}${wait}${scoutText(snap)}`, color: EMBED_COLOR }],
+    embeds: [{ title: `${loc.emoji} ${loc.name} 탐험 중`, description: `${note ? note + '\n\n' : ''}${wait}${snap.incenseId && ITEMS[snap.incenseId] ? `\n\n${ITEMS[snap.incenseId].emoji} **${ITEMS[snap.incenseId].name}** 효과로 대기 시간이 **${snap.incenseCut}초** 줄었어요!` : ''}${snap.incenseNote ? `\n\n${snap.incenseNote}` : ''}${scoutText(snap)}`, color: EMBED_COLOR }],
     components: [
       row(
         button({ label: '살펴보기', emoji: '👀', customId: `explore:look:${userId}:${snap.id}`, style: 1 }),
@@ -4450,7 +4743,7 @@ function exploreViewEncounter(snap, userId, note) {
           catchInfoText(snap),
         color: 0xfee75c,
         fields: [
-          { name: `${BALL.emoji} ${BALL.name}`, value: `${snap.balls}개`, inline: true },
+          { name: `${ITEMS[snap.ballItemId ?? BALL_ID].emoji} ${ITEMS[snap.ballItemId ?? BALL_ID].name}`, value: `${snap.ballItemCount ?? snap.balls}개${snap.balls > (snap.ballItemCount ?? snap.balls) ? ` (볼 총 ${snap.balls}개)` : ''}`, inline: true },
           { name: '📍 장소', value: `${loc.emoji} ${loc.name}`, inline: true },
           ...(snap.spd ? [{ name: '⚡ 속도', value: `내 **${snap.spd.mine}** · 상대 **${snap.spd.wild}**\n${snap.spd.first ? '내가 먼저 움직여요' : '상대가 먼저 움직여요'}`, inline: true }] : []),
         ],
@@ -4499,7 +4792,7 @@ function exploreViewBattle(snap, userId, note) {
           { name: `${mine.emoji} ${b.myName} Lv.${b.myLevel} ${elemIconsOf({ elems: petElems(b.myPetId), st: b.mySt })}`, value: `${exploreHpBar(b.myHp, b.myMax)}\n${b.myHp}/${b.myMax}${spdLine(snap.spd?.myNow, snap.spd?.mine)}${statusText(b.mySt) ? `\n${statusText(b.mySt)}` : ''}`, inline: true },
           { name: `${wild.emoji} ${wild.name} Lv.${snap.encounter.level} ${elemIconsOf({ elems: petElems(snap.encounter.petId), st: b.wildSt })}`, value: `${exploreHpBar(b.wildHp, b.wildMax)}\n${b.wildHp}/${b.wildMax}${spdLine(snap.spd?.wildNow, snap.spd?.wild)}${statusText(b.wildSt) ? `\n${statusText(b.wildSt)}` : ''}`, inline: true },
         ],
-        footer: { text: `${BALL.emoji} 해정볼 ${snap.balls}개 · 약해질수록 잡기가 쉬워져요!` },
+        footer: { text: `${ITEMS[snap.ballItemId ?? BALL_ID].emoji} ${ITEMS[snap.ballItemId ?? BALL_ID].name} ${snap.ballItemCount ?? snap.balls}개 · 약해질수록 잡기가 쉬워져요!` },
       },
     ],
     components: [
@@ -5149,12 +5442,12 @@ async function exploreHandleButton(interaction, args) {
     }
     if (out.kind === 'escaped') {
       const head = out.log?.length ? out.log.join('\n') : '💨 앗! 빠져나왔어요!';
-      return update(exploreViewSnap(out.snap, user.id, `${head}\n(남은 ${BALL.name} ${out.ballsLeft}개)`));
+      return update(exploreViewSnap(out.snap, user.id, `${head}\n(남은 볼 ${out.ballsLeft}개)`));
     }
     if (out.kind === 'fled') {
       const pet = PETS[out.petId];
       return update({
-        embeds: [{ title: `💨 ${pet.emoji} ${pet.name}(이)가 도망쳤어요...`, description: `${out.log?.length ? out.log.join('\n') + '\n\n' : ''}남은 ${BALL.name} ${out.ballsLeft}개\n\`/탐험\` 으로 다시 떠나봐요!`, color: 0xed4245 }],
+        embeds: [{ title: `💨 ${pet.emoji} ${pet.name}(이)가 도망쳤어요...`, description: `${out.log?.length ? out.log.join('\n') + '\n\n' : ''}남은 볼 ${out.ballsLeft}개\n\`/탐험\` 으로 다시 떠나봐요!`, color: 0xed4245 }],
         components: afterBattleComponents(user.id, out.locationId),
       });
     }
@@ -5171,7 +5464,7 @@ async function exploreHandleButton(interaction, args) {
       out.trainerBoost ? `🌟 트레이너 경험치 부스트 +${pct(BOOST_PCT)}% 적용! (남은 ${out.boostsLeft.trainerExp ?? 0}회)` : null,
       out.levelsGained > 0 ? `🎊 **트레이너 레벨 업!** → Lv.${out.newLevel}` : null,
       ...out.unlocked.map((l) => `🔓 새 장소 열림: ${l.emoji} **${l.name}**`),
-      `\n남은 ${BALL.name} ${out.ballsLeft}개 · \`/탐험\` 으로 계속 모험해요!`,
+      `\n남은 볼 ${out.ballsLeft}개 · \`/탐험\` 으로 계속 모험해요!`,
     ].filter(Boolean);
     return update({ embeds: [{ title: '🎉 잡았다!', description: lines.join('\n'), color: 0x57f287 }], components: afterBattleComponents(user.id, out.locationId) });
   }
@@ -5282,13 +5575,22 @@ async function exploreHandleButton(interaction, args) {
 // /상점
 // ═════════════════════════════════════════════
 
-const SHOP_ITEMS = Object.values(ITEMS).filter((i) => i.price);
+const SHOP_ITEMS = Object.values(ITEMS).filter((i) => i.price && !i.special);
+const SPECIAL_SHOP_ITEMS = Object.values(ITEMS).filter((i) => i.price && i.special); // ✨ 특별 상점 전용
 
 function shopView(player, userId, note) {
   const lines = SHOP_ITEMS.map(
     (i) =>
       `${i.emoji} **${i.name}** — 💰 ${i.price}골드 (보유 ${player.inventory?.[i.id] ?? 0}개)\n　${i.description}`,
   );
+  const special = specialShopOpen(player) && SPECIAL_SHOP_ITEMS.length > 0; // ✨ 출석체크로 열린 특별 상점
+  const spLeft = (i) => Math.max(0, (i.specialLimit ?? 99) - (player.specialShop?.bought?.[i.id] ?? 0));
+  const spLines = special
+    ? SPECIAL_SHOP_ITEMS.map(
+        (i) =>
+          `${i.emoji} **${i.name}** — 💰 ${i.price.toLocaleString('ko-KR')}골드 (보유 ${player.inventory?.[i.id] ?? 0}개 · 오늘 ${spLeft(i)}개 남음)\n　${i.description}`,
+      )
+    : [];
   return {
     embeds: [
       {
@@ -5297,6 +5599,9 @@ function shopView(player, userId, note) {
         color: EMBED_COLOR,
         footer: { text: `내 골드: ${player.gold.toLocaleString('ko-KR')}` },
       },
+      ...(special
+        ? [{ title: '✨ 특별 상점 (오늘 하루만!)', description: spLines.join('\n\n'), color: 0xf1c40f, footer: { text: '한국 시간 자정에 닫혀요. 하루에 살 수 있는 개수가 정해져 있어요.' } }]
+        : []),
     ],
     components: [
       row(
@@ -5311,6 +5616,22 @@ function shopView(player, userId, note) {
           })),
         }),
       ),
+      ...(special
+        ? [
+            row(
+              select({
+                customId: `shop:spick:${userId}`,
+                placeholder: '✨ 특별 상점에서 살 물건을 골라요',
+                options: SPECIAL_SHOP_ITEMS.map((i) => ({
+                  label: `${i.name} — ${i.price.toLocaleString('ko-KR')}골드 (오늘 ${spLeft(i)}개)`.slice(0, 100),
+                  value: i.id,
+                  description: i.description.slice(0, 100),
+                  emoji: i.emoji,
+                })),
+              }),
+            ),
+          ]
+        : []),
     ],
     // (개수는 입력창에 숫자 또는 "최대" 로 적어요. `/구매` 명령어로도 바로 살 수 있어요)
   };
@@ -5337,6 +5658,44 @@ const shop = {
 
       if (user.id !== ownerId) {
         return reply({ content: '이 상점은 연 사람만 쓸 수 있어요 🙅 `/상점` 으로 직접 열어보세요!' }, { ephemeral: true });
+      }
+
+      // ✨ 특별 상점: 물건을 고르면 → 개수 입력창
+      if (action === 'spick') {
+        const picked = interaction.data.values?.[0];
+        const it = ITEMS[picked];
+        if (!it?.special) return reply({ content: '그런 물건은 없어요 🤔' }, { ephemeral: true });
+        return numberModal({
+          customId: `shop:sbuyN:${ownerId}:${picked}`,
+          title: `${it.name} 몇 개 살까요?`.slice(0, 45),
+          label: '개수 (숫자 또는 최대)',
+          placeholder: `예: 3  또는  최대  (하루 최대 ${it.specialLimit ?? 99}개)`,
+          maxLength: 6,
+        });
+      }
+
+      // ✨ 특별 상점: 입력창 제출 → 사요
+      if (action === 'sbuyN') {
+        const text = String(getModalValue(interaction, 'n') ?? '').trim().toLowerCase();
+        const n = Number(text);
+        const qty = ['최대', 'max', '전부'].includes(text) ? 'max' : n;
+        if (qty !== 'max' && !(Number.isInteger(qty) && qty >= 1)) {
+          return reply({ content: '1 이상의 숫자나 **최대** 를 적어주세요 🔢' }, { ephemeral: true });
+        }
+        let latest = null;
+        const out = await updatePlayer(user.id, (p) => {
+          const r = shopSys.buySpecialItem(p, itemId, qty, Date.now());
+          latest = p;
+          return { commit: r.commit === true, value: r };
+        });
+        if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+        if (out.kind === 'closed') return reply({ content: '✨ 특별 상점은 이미 닫혔어요. 다음 출석체크 때 또 열릴지도 몰라요!' }, { ephemeral: true });
+        if (out.kind === 'sold_out') return reply({ content: `${out.item.emoji} ${out.item.name}은(는) 오늘 분량이 모두 팔렸어요!` }, { ephemeral: true });
+        if (out.kind === 'over_limit') return reply({ content: `${out.item.emoji} ${out.item.name}은(는) 오늘 **${out.left}개**만 더 살 수 있어요!` }, { ephemeral: true });
+        if (out.kind === 'no_gold') return reply({ content: `💸 골드가 부족해요! (필요 ${out.cost.toLocaleString('ko-KR')} / 보유 ${out.gold.toLocaleString('ko-KR')})` }, { ephemeral: true });
+        if (out.kind !== 'bought') return reply({ content: '그런 물건은 없어요 🤔' }, { ephemeral: true });
+        const item = ITEMS[out.itemId];
+        return update(shopView(latest, user.id, `✅ ${item.emoji} **${item.name}** ${out.qty}개를 샀어요! (-${out.cost.toLocaleString('ko-KR')}골드, 보유 ${out.owned}개 · 오늘 ${out.left}개 남음)`));
       }
 
       // 선택 메뉴에서 물건을 고르면 → 개수 입력창
@@ -5464,7 +5823,8 @@ const bag = {
             (lines.length ? lines.join('\n\n') : '텅 비었어요... `/상점` 에서 사보세요!') +
             ((player.boosts?.trainerExp ?? 0) + (player.boosts?.petExp ?? 0) > 0
               ? `\n\n🚀 **켜둔 부스트** — 🌟 트레이너 ${player.boosts?.trainerExp ?? 0}회 · 💫 펫 ${player.boosts?.petExp ?? 0}회`
-              : ''),
+              : '') +
+            (incenseStatusText(player) ? `\n\n${incenseStatusText(player)}` : ''),
           color: EMBED_COLOR,
           footer: { text: `💰 ${player.gold.toLocaleString('ko-KR')} 골드 · 🛡️ 장비 ${(player.equipInv ?? []).length}개 (/장비)` },
         },
@@ -6757,6 +7117,17 @@ const use = {
       },
       { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? 칸을 누르면 쓸 수 있는 최대 개수가 떠요 (비우면 1개)', required: false, autocomplete: true },
       { type: 5, name: '최대', description: '켜면 가진 만큼 최대로 써요', required: false },
+      {
+        type: 3,
+        name: '향로모드',
+        description: '🪔 향로 전용: 몇 번 쓸지(수량) / 항상 켜둘지 / 항상 켜두기를 끌지 (비우면 수량만큼 N번)',
+        required: false,
+        choices: [
+          { name: '수량만큼 N번 쓰기', value: 'count' },
+          { name: '항상 켜두기 (탐험마다 자동으로 1개씩)', value: 'always' },
+          { name: '항상 켜두기 끄기', value: 'off' },
+        ],
+      },
       { type: 4, name: '슬롯', description: '🔄 스킬 변경권 전용: 다시 뽑을 스킬 슬롯 번호 (1~5)', required: false, min_value: 1, max_value: SLOT_COUNT },
       { type: 4, name: '목표등급', description: '🔄 스킬 변경권 전용: 이 ★ 등급 이상이 나올 때까지 반복해요 (1~5)', required: false, min_value: 1, max_value: 5 },
       { type: 3, name: '목표스킬1', description: '🔄 스킬 변경권 전용: 이 스킬이 나올 때까지 반복해요 (이름을 입력하면 목록이 떠요)', required: false, autocomplete: true },
@@ -6887,6 +7258,28 @@ const use = {
       });
       if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
       return reply({ content: skillItemResultText(res) }, { ephemeral: res.commit !== true });
+    }
+
+    // 🪔 향로: 몇 번 쓸지 / 항상 켜둘지
+    if (picked?.incense) {
+      const mode = getOption(interaction, '향로모드') ?? 'count';
+      const res = await updatePlayer(user.id, (p) => {
+        const r = useIncense(p, itemId, mode, qty);
+        return { commit: r.commit === true, value: r };
+      });
+      if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+      return reply({ content: incenseResultText(res) }, { ephemeral: res.commit !== true });
+    }
+
+    // 🔴 볼: 던질 볼 고르기
+    if (picked?.ball) {
+      const res = await updatePlayer(user.id, (p) => {
+        const r = useBallItem(p, itemId);
+        return { commit: r.commit === true, value: r };
+      });
+      if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+      if (res.kind === 'none') return reply({ content: `${res.item.emoji} ${res.item.name}이(가) 없어요 😭` }, { ephemeral: true });
+      return reply({ content: `${res.item.emoji} 이제 **${res.item.name}** 을(를) 던져요! (보유 ${res.owned}개 · 다 떨어지면 해정볼로 자동 전환돼요)` }, { ephemeral: true });
     }
 
     // 🍖 포획 아이템 (전투 중에만 써요. 전투 화면의 아이템 버튼으로 써요)
@@ -7669,6 +8062,14 @@ const help = {
                   `계산값이 **0% 아래(최대 ${pct(CATCH_NEG_FLOOR)}%)**면 못 잡아요 → 체력을 깎고 아이템을 써서 끌어올려요!`,
               },
               {
+                name: '🪔 향로 · 🔵 볼 · ✨ 특별 상점',
+                value:
+                  `🪔 **향로**(대기 -10초) · 🏮 **해정향로**(-15초 + 🟣영웅 이상 ↑) · 🎇 **특급향로**(-20초 + 🟡전설 이상 ↑)\n` +
+                  `탐험을 **시작할 때** 효과가 붙고, 줄어든 대기 시간이 0이면 바로 발견해요! \`/사용\` 의 **향로모드**로 "수량만큼 N번" 또는 "항상 켜두기(탐험마다 1개 자동 사용)"를 골라요.\n` +
+                  `🔵 **슈퍼볼**(포획 +10%p) · 🟡 **하이퍼볼**(포획 +10%p, 도망 -20%p) — \`/사용\` 으로 던질 볼을 골라요. 다 떨어지면 해정볼로 자동 전환돼요.\n` +
+                  `✨ **특별 상점** — \`/출석\` 할 때마다 **${pct(SPECIAL_SHOP_CHANCE)}%** 확률로 오늘 하루 열려요. 볼·특급향로와 더 강한 🍗특제 간식 · 🐝순금 꿀 · ☘️대박 부적을 팔아요 (하루 구매 제한 있음).`,
+              },
+              {
                 name: '😨 등급 · 위압감 · 🔄 교체',
                 value:
                   `등급: ${Object.values(GRADES).map((g) => `${g.emoji}${g.name}`).join(' › ')}\n` +
@@ -7784,7 +8185,8 @@ const attendance = {
           description:
             `🔴 **해정볼 ${out.balls}개**와 💰 **${out.gold.toLocaleString('ko-KR')} 골드**를 받았어요!\n\n` +
             `연속 **${out.streak}일** · 총 **${out.total}일** 출석 중이에요.\n` +
-            `지금 해정볼은 **${out.owned}개**예요.`,
+            `지금 해정볼은 **${out.owned}개**예요.` +
+            (out.special ? `\n\n✨ **특별 상점이 열렸어요!** 오늘 하루만 \`/상점\` 에서 슈퍼볼·하이퍼볼·특급향로 같은 특별한 물건을 살 수 있어요!` : ''),
           color: 0x57f287,
           footer: { text: '출석은 한국 시간 0시에 초기화돼요.' },
         },
@@ -8600,12 +9002,14 @@ const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy,
 function refreshDerived() {
   const fill = (arr, items) => arr.splice(0, arr.length, ...items);
   const items = Object.values(ITEMS);
+  if (ITEMS.haejeong_ball) ITEMS.haejeong_ball.ball = true; // 관리자에서 예전에 저장한 해정볼에도 볼 표시가 빠지지 않게 해요
   fill(STARTER_IDS, Object.values(PETS).filter((p) => p.starter).map((p) => p.id));
   fill(LOCATION_LIST, Object.values(LOCATIONS).sort((a, b) => a.minLevel - b.minLevel));
   fill(POTIONS, items.filter((i) => i.heal).sort((a, b) => a.heal - b.heal));
   fill(CATCH_ITEMS, items.filter((i) => i.catchItem));
-  fill(USABLE_ITEMS, [...POTIONS, ...items.filter((i) => i.boost || i.speedup || i.catchItem)]);
-  fill(SHOP_ITEMS, items.filter((i) => i.price));
+  fill(USABLE_ITEMS, [...POTIONS, ...items.filter((i) => i.boost || i.speedup || i.catchItem || i.incense || i.ball)]);
+  fill(SHOP_ITEMS, items.filter((i) => i.price && !i.special));
+  fill(SPECIAL_SHOP_ITEMS, items.filter((i) => i.price && i.special));
   WILD_COUNT = Object.values(PETS).filter((p) => !p.starter).length;
   syncPetElements();
 }
@@ -8653,6 +9057,7 @@ const admin = createConfigManager({
     HP_REGEN_PCT_PER_MIN: { get: () => HP_REGEN_PCT_PER_MIN, set: (v) => { HP_REGEN_PCT_PER_MIN = v; }, section: "체력 이어가기 ❤️", desc: "시간이 지나면 1분마다 최대 체력의 이 비율만큼 저절로 회복돼요 (0.02 = 2%, 0%에서 가득까지 약 50분)" },
     ATTENDANCE_BALLS: { get: () => ATTENDANCE_BALLS, set: (v) => { ATTENDANCE_BALLS = v; }, section: "출석체크 📅", desc: "출석 1회 보상: 해정볼" },
     ATTENDANCE_GOLD: { get: () => ATTENDANCE_GOLD, set: (v) => { ATTENDANCE_GOLD = v; }, section: "출석체크 📅", desc: "출석 1회 보상: 골드" },
+    SPECIAL_SHOP_CHANCE: { get: () => SPECIAL_SHOP_CHANCE, set: (v) => { SPECIAL_SHOP_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 ✨특별 상점이 열릴 확률 (0.25 = 25%)" },
     DEX_GOLD_MULT: { get: () => DEX_GOLD_MULT, set: (v) => { DEX_GOLD_MULT = v; }, section: "도감 보상 🎁", desc: "골드 = (챕터에서 가장 강한 펫을 이겼을 때 평균 골드) × 이 값" },
     DUEL_MAX_ROUNDS: { get: () => DUEL_MAX_ROUNDS, set: (v) => { DUEL_MAX_ROUNDS = v; }, section: "유저 대결 🥊", desc: "이 라운드 안에 안 끝나면 남은 체력 비율로 승부를 가려요" },
     DUEL_CHALLENGE_TTL_MS: { get: () => DUEL_CHALLENGE_TTL_MS, set: (v) => { DUEL_CHALLENGE_TTL_MS = v; }, section: "유저 대결 🥊", desc: "대결 신청은 이 시간(5분) 안에 수락해야 해요" },

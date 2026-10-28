@@ -77,8 +77,15 @@ export function createConfigManager({ scalars, tables, entities, refresh, store,
       if (typeof it.name !== 'string' || !it.name.trim()) errs.push(`아이템 ${id}: 이름이 비었어요`);
       if (it.price != null && !num(it.price, 0, 1e9)) errs.push(`아이템 ${id}: 가격 오류`);
       if (it.heal != null && !num(it.heal, 1, 1e6)) errs.push(`아이템 ${id}: heal 오류`);
+      if (it.specialLimit != null && !num(it.specialLimit, 1, 1e6)) errs.push(`아이템 ${id}: specialLimit 은 1 이상 숫자`);
+      if (it.incenseCut != null && !num(it.incenseCut, 0, 3600)) errs.push(`아이템 ${id}: incenseCut 은 0~3600(초)`);
+      if (it.incenseMult != null && !num(it.incenseMult, 0, 1000)) errs.push(`아이템 ${id}: incenseMult 오류`);
+      if (it.incenseGrade != null && !(it.incenseGrade in grades)) errs.push(`아이템 ${id}: 없는 등급 ${it.incenseGrade}`);
+      if (it.ballCatch != null && !num(it.ballCatch, 0, 1)) errs.push(`아이템 ${id}: ballCatch 는 0~1`);
+      if (it.ballFleeCut != null && !num(it.ballFleeCut, 0, 1)) errs.push(`아이템 ${id}: ballFleeCut 은 0~1`);
     }
     if (!m.items.haejeong_ball) errs.push('haejeong_ball(해정볼) 아이템은 꼭 있어야 해요');
+    if (Object.values(m.items).some((i) => i.special && i.price) && !Object.values(m.items).some((i) => i.ball && !i.special)) errs.push('특별 상점이 아닌 곳에서 얻는 볼(해정볼)이 필요해요');
     const locs = Object.values(m.locations);
     if (!locs.length) errs.push('지역이 최소 1개 있어야 해요');
     for (const l of locs) {
