@@ -181,6 +181,8 @@ let HP_REGEN_PCT_PER_MIN = 0.02; // 시간이 지나면 1분마다 최대 체력
 // ───────── 출석체크 📅 ─────────
 let ATTENDANCE_BALLS = 5; // 출석 1회 보상: 해정볼
 let ATTENDANCE_GOLD = 750; // 출석 1회 보상: 골드
+let ATTENDANCE_STREAK_GOLD = 100; // 연속 출석 보너스: 연속일이 하루 늘 때마다 출석 골드가 이만큼 더 붙어요 (2일째 +100, 3일째 +200 …)
+let ATTENDANCE_STREAK_GOLD_MAX = 3000; // 연속 출석 보너스 상한 (기본 31일째에 도달)
 let SPECIAL_SHOP_CHANCE = 0.25; // 출석체크를 할 때마다 ✨특별 상점(일반 칸)이 열릴 확률 (그날 한국 시간 자정까지 열려요)
 let SPECIAL_RARE_CHANCE = 0.10; // 출석체크를 할 때마다 💎희귀 칸(하이퍼볼·특급향로)이 특별 상점에 들어올 확률 — 일반 칸이 안 열려도 이것만으로 상점이 열려요
 let SPECIAL_LEGEND_CHANCE = 0.03; // 출석체크를 할 때마다 🌈전설 칸(왕실 간식·전설의 꿀·무지개 부적)이 들어올 확률
@@ -3720,7 +3722,8 @@ function claimAttendance(player, now = Date.now(), rng = Math.random) {
 
   player.inventory ??= {};
   player.inventory[BALL_ID] = (player.inventory[BALL_ID] ?? 0) + ATTENDANCE_BALLS;
-  player.gold += ATTENDANCE_GOLD;
+  const streakGold = Math.min(ATTENDANCE_STREAK_GOLD_MAX, Math.max(0, streak - 1) * ATTENDANCE_STREAK_GOLD); // 🔥 연속 출석 보너스
+  player.gold += ATTENDANCE_GOLD + streakGold;
   // ✨ 특별 상점: 일반 칸 / 💎희귀 칸 / 🌈전설 칸을 따로 뽑아요 (하나라도 맞으면 오늘 하루 열려요)
   const tiers = [];
   if (rng() < SPECIAL_SHOP_CHANCE) tiers.push('normal');
@@ -3728,7 +3731,7 @@ function claimAttendance(player, now = Date.now(), rng = Math.random) {
   if (rng() < SPECIAL_LEGEND_CHANCE) tiers.push('legend');
   const special = tiers.length > 0;
   if (special) player.specialShop = { date: today, bought: {}, tiers };
-  return { kind: 'claimed', commit: true, balls: ATTENDANCE_BALLS, gold: ATTENDANCE_GOLD, streak, total, owned: player.inventory[BALL_ID], special, tiers };
+  return { kind: 'claimed', commit: true, balls: ATTENDANCE_BALLS, gold: ATTENDANCE_GOLD, streakGold, streak, total, owned: player.inventory[BALL_ID], special, tiers };
 }
 
 // 도감 보상 🎁 — 챕터 번호(1부터)에 따라 보상이 커져요
@@ -8159,7 +8162,7 @@ const help = {
               {
                 name: '📅 출석 · 🎁 도감 보상',
                 value:
-                  `\`/출석\` 은 하루(한국 시간 0시 기준)에 한 번, 🔴 해정볼 ${ATTENDANCE_BALLS}개와 💰 ${ATTENDANCE_GOLD}골드를 줘요.\n` +
+                  `\`/출석\` 은 하루(한국 시간 0시 기준)에 한 번, 🔴 해정볼 ${ATTENDANCE_BALLS}개와 💰 ${ATTENDANCE_GOLD}골드를 줘요. 연속으로 출석하면 하루 늘 때마다 골드가 **+${ATTENDANCE_STREAK_GOLD}** 더 붙어요 (최대 +${ATTENDANCE_STREAK_GOLD_MAX}).\n` +
                   '한 챕터(장소)의 도감을 모두 채우면 `/도감보상` 으로 큰 보상을 받아요! 챕터가 올라갈수록 보상도 커져요. (진행 상황은 `/도감보상` 에서 확인)',
               },
               {
@@ -8241,7 +8244,7 @@ const attendance = {
         {
           title: '📅 출석체크 완료!',
           description:
-            `🔴 **해정볼 ${out.balls}개**와 💰 **${out.gold.toLocaleString('ko-KR')} 골드**를 받았어요!\n\n` +
+            `🔴 **해정볼 ${out.balls}개**와 💰 **${out.gold.toLocaleString('ko-KR')} 골드**를 받았어요!${out.streakGold > 0 ? `\n🔥 연속 출석 보너스 **+${out.streakGold.toLocaleString('ko-KR')} 골드**` : ''}\n\n` +
             `연속 **${out.streak}일** · 총 **${out.total}일** 출석 중이에요.\n` +
             `지금 해정볼은 **${out.owned}개**예요.` +
             (out.special ? `\n\n✨ **특별 상점이 열렸어요!** 오늘 하루만 \`/상점\` 에서 살 수 있어요!${out.tiers?.includes('rare') ? '\n💎 **희귀 칸**이 열렸어요 — 하이퍼볼·특급향로!' : ''}${out.tiers?.includes('legend') ? '\n🌈 **전설 칸**이 열렸어요 — 왕실 간식·전설의 꿀·무지개 부적!' : ''}` : ''),
@@ -9116,6 +9119,8 @@ const admin = createConfigManager({
     HP_REGEN_PCT_PER_MIN: { get: () => HP_REGEN_PCT_PER_MIN, set: (v) => { HP_REGEN_PCT_PER_MIN = v; }, section: "체력 이어가기 ❤️", desc: "시간이 지나면 1분마다 최대 체력의 이 비율만큼 저절로 회복돼요 (0.02 = 2%, 0%에서 가득까지 약 50분)" },
     ATTENDANCE_BALLS: { get: () => ATTENDANCE_BALLS, set: (v) => { ATTENDANCE_BALLS = v; }, section: "출석체크 📅", desc: "출석 1회 보상: 해정볼" },
     ATTENDANCE_GOLD: { get: () => ATTENDANCE_GOLD, set: (v) => { ATTENDANCE_GOLD = v; }, section: "출석체크 📅", desc: "출석 1회 보상: 골드" },
+  ATTENDANCE_STREAK_GOLD: { get: () => ATTENDANCE_STREAK_GOLD, set: (v) => { ATTENDANCE_STREAK_GOLD = v; }, section: "출석체크 📅", desc: "연속 출석 보너스: 연속일이 하루 늘 때마다 더 주는 골드 (2일째 +이 값, 3일째 +2배 …)" },
+  ATTENDANCE_STREAK_GOLD_MAX: { get: () => ATTENDANCE_STREAK_GOLD_MAX, set: (v) => { ATTENDANCE_STREAK_GOLD_MAX = v; }, section: "출석체크 📅", desc: "연속 출석 보너스 골드 상한" },
     SPECIAL_SHOP_CHANCE: { get: () => SPECIAL_SHOP_CHANCE, set: (v) => { SPECIAL_SHOP_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 ✨특별 상점 일반 칸이 열릴 확률 (0.25 = 25%)" },
   SPECIAL_RARE_CHANCE: { get: () => SPECIAL_RARE_CHANCE, set: (v) => { SPECIAL_RARE_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 💎희귀 칸(하이퍼볼·특급향로)이 나올 확률 (0.1 = 10%)" },
   SPECIAL_LEGEND_CHANCE: { get: () => SPECIAL_LEGEND_CHANCE, set: (v) => { SPECIAL_LEGEND_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 🌈전설 칸(왕실 간식·전설의 꿀·무지개 부적)이 나올 확률 (0.03 = 3%)" },
