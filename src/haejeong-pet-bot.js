@@ -4469,7 +4469,7 @@ const explore = {
       const best = [...LOCATION_LIST].reverse().find((l) => l.minLevel <= p.level)?.id ?? LOCATION_LIST[0].id;
       const locationId = picked ?? (LOCATIONS[p.lastLocationId] ? p.lastLocationId : best);
       const r = exploreSys.startExploration(p, locationId, Date.now());
-      return { commit: r.commit === true, value: r };
+      return { commit: r.commit === true, value: r.ok ? { ...r, autoOn: !!p.autoHunt } : r }; // 🏃 자동사냥이 켜져 있으면 경고를 띄워요
     });
 
     if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
@@ -4481,18 +4481,22 @@ const explore = {
       return reply({ content: msg }, { ephemeral: true });
     }
 
+    // 🏃 자동사냥 중에 직접 탐험하면 자동사냥과 겹쳐서 화면이 "이미 지나간 탐험"으로 바뀔 수 있어요 → 경고 + 끄기 버튼
+    const autoWarn = out.autoOn ? '⚠️ **자동사냥이 켜져 있어요!** 직접 탐험하는 동안 자동사냥과 겹치면 이 화면이 "이미 지나간 탐험"으로 바뀔 수 있어요. 직접 탐험할 거라면 아래 버튼으로 자동사냥을 먼저 꺼주세요.' : null;
+    const withWarn = (n) => [autoWarn, n].filter(Boolean).join('\n\n') || null;
+    const withStopBtn = (v) => (out.autoOn ? { ...v, components: [...(v.components ?? []), row(button({ label: '자동사냥 끄기', emoji: '⏹', customId: `autohunt:stopx:${user.id}`, style: 4 }))] } : v);
     if (out.snap.state === 'battle') {
-      return reply(exploreViewBattle(out.snap, user.id, '전투가 아직 끝나지 않았어요!'));
+      return reply(withStopBtn(exploreViewBattle(out.snap, user.id, withWarn('전투가 아직 끝나지 않았어요!'))));
     }
     if (out.snap.state === 'encounter') {
-      return reply(exploreViewEncounter(out.snap, user.id, '앗, 아직 결정하지 않은 야생 펫이 있어요!'));
+      return reply(withStopBtn(exploreViewEncounter(out.snap, user.id, withWarn('앗, 아직 결정하지 않은 야생 펫이 있어요!'))));
     }
     const note = out.resumed
       ? out.sameLocation
         ? '이미 탐험 중이에요! 이어서 해볼까요?'
         : '이미 다른 곳을 탐험 중이에요! 다른 곳으로 가려면 먼저 **[그만두기]** 를 눌러요.'
       : null;
-    return reply(exploreViewExploring(out.snap, user.id, note));
+    return reply(withStopBtn(exploreViewExploring(out.snap, user.id, withWarn(note))));
   },
 
     components: {
@@ -4665,15 +4669,22 @@ const autoHuntCmd = {
       }
       const now = Date.now();
       const out = await updatePlayer(user.id, (player) => {
-        if (action === 'stop') {
+        if (action === 'stop' || action === 'stopx') {
           const r = stopAutoHunt(player);
-          return { commit: !!r.commit, value: r };
+          return { commit: !!r.commit, value: action === 'stopx' ? { ...r, stopx: true } : r };
         }
         // 새로고침: 정산은 updatePlayer 가 이미 했어요
         return { commit: false, value: { kind: 'view', msg: player.autoHunt ? autoHuntView(player, now) : null } };
       });
       if (!out) return reply({ content: NOT_STARTED }, { ephemeral: true });
 
+      // 탐험 화면의 [자동사냥 끄기]: 탐험 화면은 그대로 두고, 결과만 나만 보이게 알려줘요
+      if (out.stopx) {
+        return reply(
+          out.kind === 'off' ? { content: '✅ 자동사냥을 껐어요! 이제 탐험을 이어서 해보세요.', embeds: [autoHuntEndEmbed(out.report)] } : { content: '자동사냥은 이미 꺼져 있어요 👍' },
+          { ephemeral: true },
+        );
+      }
       if (out.kind === 'off') return update({ embeds: [autoHuntEndEmbed(out.report)], components: [] });
       if (out.kind === 'not_running' || !out.msg) {
         return update({ embeds: [{ title: '🏃 자동사냥', description: '자동사냥이 꺼져 있어요. 결과는 `/자동사냥` 으로 확인할 수 있어요!', color: 0x99aab5 }], components: [] });

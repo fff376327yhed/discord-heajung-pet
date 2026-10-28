@@ -78,6 +78,7 @@ export function createConfigManager({ scalars, tables, entities, refresh, store,
       if (it.price != null && !num(it.price, 0, 1e9)) errs.push(`아이템 ${id}: 가격 오류`);
       if (it.heal != null && !num(it.heal, 1, 1e6)) errs.push(`아이템 ${id}: heal 오류`);
       if (it.specialLimit != null && !num(it.specialLimit, 1, 1e6)) errs.push(`아이템 ${id}: specialLimit 은 1 이상 숫자`);
+      if (it.shopTier != null && !['normal', 'rare', 'legend'].includes(it.shopTier)) errs.push(`아이템 ${id}: shopTier 는 normal·rare·legend 중 하나`);
       if (it.incenseCut != null && !num(it.incenseCut, 0, 3600)) errs.push(`아이템 ${id}: incenseCut 은 0~3600(초)`);
       if (it.incenseMult != null && !num(it.incenseMult, 0, 1000)) errs.push(`아이템 ${id}: incenseMult 오류`);
       if (it.incenseGrade != null && !(it.incenseGrade in grades)) errs.push(`아이템 ${id}: 없는 등급 ${it.incenseGrade}`);
