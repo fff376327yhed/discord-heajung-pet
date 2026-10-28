@@ -181,7 +181,9 @@ let HP_REGEN_PCT_PER_MIN = 0.02; // 시간이 지나면 1분마다 최대 체력
 // ───────── 출석체크 📅 ─────────
 let ATTENDANCE_BALLS = 5; // 출석 1회 보상: 해정볼
 let ATTENDANCE_GOLD = 750; // 출석 1회 보상: 골드
-let SPECIAL_SHOP_CHANCE = 0.25; // 출석체크를 할 때마다 ✨특별 상점이 열릴 확률 (그날 한국 시간 자정까지 열려요)
+let SPECIAL_SHOP_CHANCE = 0.25; // 출석체크를 할 때마다 ✨특별 상점(일반 칸)이 열릴 확률 (그날 한국 시간 자정까지 열려요)
+let SPECIAL_RARE_CHANCE = 0.10; // 출석체크를 할 때마다 💎희귀 칸(하이퍼볼·특급향로)이 특별 상점에 들어올 확률 — 일반 칸이 안 열려도 이것만으로 상점이 열려요
+let SPECIAL_LEGEND_CHANCE = 0.03; // 출석체크를 할 때마다 🌈전설 칸(왕실 간식·전설의 꿀·무지개 부적)이 들어올 확률
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000; // 출석은 한국 시간(KST) 자정에 초기화돼요
 
 // ───────── 도감 보상 🎁 ─────────
@@ -587,6 +589,7 @@ const ITEMS = {
     price: 2000,
     special: true,
     specialLimit: 5,
+    shopTier: 'rare',
     incense: true,
     tier: 3,
     incenseCut: 20,
@@ -614,6 +617,7 @@ const ITEMS = {
     price: 600,
     special: true,
     specialLimit: 15,
+    shopTier: 'rare', // 💎 희귀 칸: 출석할 때 SPECIAL_RARE_CHANCE 확률로만 나와요
     ball: true,
     ballCatch: 0.1,
     ballFleeCut: 0.2,
@@ -656,6 +660,47 @@ const ITEMS = {
     catchItem: 'charm',
     catchBonus: 2.0,
     description: '다음 던지기 1번의 포획 확률 +200% (×3). 던지면 사라져요. 전투 중엔 한 턴을 써요.',
+  },
+
+  // 🌈 특별 상점 전설 칸 (출석할 때 SPECIAL_LEGEND_CHANCE 확률로만 나와요) — 특제 간식·순금 꿀·대박 부적보다 더 강해요
+  catch_snack_royal: {
+    id: 'catch_snack_royal',
+    name: '왕실 간식',
+    short: '왕실간식',
+    emoji: '🥩',
+    price: 1000,
+    special: true,
+    specialLimit: 4,
+    shopTier: 'legend',
+    catchItem: 'bait',
+    catchBonus: 0.7,
+    description: '이번 만남의 포획 확률 ×1.7 (+70%). 중첩돼요 (간식·꿀과 합쳐 최대 ×2.4). 전투 중엔 한 턴을 써요.',
+  },
+  catch_honey_legend: {
+    id: 'catch_honey_legend',
+    name: '전설의 꿀',
+    short: '전설꿀',
+    emoji: '🏺',
+    price: 2200,
+    special: true,
+    specialLimit: 3,
+    shopTier: 'legend',
+    catchItem: 'bait',
+    catchBonus: 1.4,
+    description: '이번 만남의 포획 확률 ×2.4 (+140%) — 한 번에 최대치! 전투 중엔 한 턴을 써요.',
+  },
+  catch_charm_rainbow: {
+    id: 'catch_charm_rainbow',
+    name: '무지개 부적',
+    short: '무지개부적',
+    emoji: '🌈',
+    price: 1800,
+    special: true,
+    specialLimit: 3,
+    shopTier: 'legend',
+    catchItem: 'charm',
+    catchBonus: 4.0,
+    description: '다음 던지기 1번의 포획 확률 +400% (×5). 던지면 사라져요. 전투 중엔 한 턴을 써요.',
   },
 };
 
@@ -2467,11 +2512,16 @@ function useBallItem(player, itemId) {
 
 // ✨ 특별 상점 (출석체크 때 확률로 열리고, 그날 한국 시간 자정까지 열려요)
 const specialShopOpen = (player, now = Date.now()) => player.specialShop?.date === kstDate(now);
+// 오늘 열린 칸 (예전에 열린 상점은 tiers 가 없어서 일반+희귀로 봐요)
+const specialTiers = (player) => player.specialShop?.tiers ?? ['normal', 'rare'];
+// 오늘 특별 상점에 실제로 나온 물건
+const specialStock = (player) => SPECIAL_SHOP_ITEMS.filter((i) => specialTiers(player).includes(i.shopTier ?? 'normal'));
 
 function buySpecialItem(player, itemId, qty, now = Date.now()) {
   const item = ITEMS[itemId];
   if (!item?.special || !item.price) return { kind: 'unknown' };
   if (!specialShopOpen(player, now)) return { kind: 'closed' };
+  if (!specialTiers(player).includes(item.shopTier ?? 'normal')) return { kind: 'not_stocked', item };
   const bought = (player.specialShop.bought ??= {});
   const left = Math.max(0, (item.specialLimit ?? 99) - (bought[itemId] ?? 0));
   if (left <= 0) return { kind: 'sold_out', item };
@@ -3671,9 +3721,14 @@ function claimAttendance(player, now = Date.now(), rng = Math.random) {
   player.inventory ??= {};
   player.inventory[BALL_ID] = (player.inventory[BALL_ID] ?? 0) + ATTENDANCE_BALLS;
   player.gold += ATTENDANCE_GOLD;
-  const special = rng() < SPECIAL_SHOP_CHANCE; // ✨ 특별 상점이 열릴지 뽑아요 (오늘 하루만)
-  if (special) player.specialShop = { date: today, bought: {} };
-  return { kind: 'claimed', commit: true, balls: ATTENDANCE_BALLS, gold: ATTENDANCE_GOLD, streak, total, owned: player.inventory[BALL_ID], special };
+  // ✨ 특별 상점: 일반 칸 / 💎희귀 칸 / 🌈전설 칸을 따로 뽑아요 (하나라도 맞으면 오늘 하루 열려요)
+  const tiers = [];
+  if (rng() < SPECIAL_SHOP_CHANCE) tiers.push('normal');
+  if (rng() < SPECIAL_RARE_CHANCE) tiers.push('rare');
+  if (rng() < SPECIAL_LEGEND_CHANCE) tiers.push('legend');
+  const special = tiers.length > 0;
+  if (special) player.specialShop = { date: today, bought: {}, tiers };
+  return { kind: 'claimed', commit: true, balls: ATTENDANCE_BALLS, gold: ATTENDANCE_GOLD, streak, total, owned: player.inventory[BALL_ID], special, tiers };
 }
 
 // 도감 보상 🎁 — 챕터 번호(1부터)에 따라 보상이 커져요
@@ -5583,10 +5638,11 @@ function shopView(player, userId, note) {
     (i) =>
       `${i.emoji} **${i.name}** — 💰 ${i.price}골드 (보유 ${player.inventory?.[i.id] ?? 0}개)\n　${i.description}`,
   );
-  const special = specialShopOpen(player) && SPECIAL_SHOP_ITEMS.length > 0; // ✨ 출석체크로 열린 특별 상점
+  const stock = specialShopOpen(player) ? specialStock(player) : [];
+  const special = stock.length > 0; // ✨ 출석체크로 열린 특별 상점
   const spLeft = (i) => Math.max(0, (i.specialLimit ?? 99) - (player.specialShop?.bought?.[i.id] ?? 0));
   const spLines = special
-    ? SPECIAL_SHOP_ITEMS.map(
+    ? stock.map(
         (i) =>
           `${i.emoji} **${i.name}** — 💰 ${i.price.toLocaleString('ko-KR')}골드 (보유 ${player.inventory?.[i.id] ?? 0}개 · 오늘 ${spLeft(i)}개 남음)\n　${i.description}`,
       )
@@ -5622,7 +5678,7 @@ function shopView(player, userId, note) {
               select({
                 customId: `shop:spick:${userId}`,
                 placeholder: '✨ 특별 상점에서 살 물건을 골라요',
-                options: SPECIAL_SHOP_ITEMS.map((i) => ({
+                options: stock.map((i) => ({
                   label: `${i.name} — ${i.price.toLocaleString('ko-KR')}골드 (오늘 ${spLeft(i)}개)`.slice(0, 100),
                   value: i.id,
                   description: i.description.slice(0, 100),
@@ -5690,6 +5746,7 @@ const shop = {
         });
         if (out === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
         if (out.kind === 'closed') return reply({ content: '✨ 특별 상점은 이미 닫혔어요. 다음 출석체크 때 또 열릴지도 몰라요!' }, { ephemeral: true });
+        if (out.kind === 'not_stocked') return reply({ content: `${out.item.emoji} ${out.item.name}은(는) 오늘 특별 상점에 안 나왔어요!` }, { ephemeral: true });
         if (out.kind === 'sold_out') return reply({ content: `${out.item.emoji} ${out.item.name}은(는) 오늘 분량이 모두 팔렸어요!` }, { ephemeral: true });
         if (out.kind === 'over_limit') return reply({ content: `${out.item.emoji} ${out.item.name}은(는) 오늘 **${out.left}개**만 더 살 수 있어요!` }, { ephemeral: true });
         if (out.kind === 'no_gold') return reply({ content: `💸 골드가 부족해요! (필요 ${out.cost.toLocaleString('ko-KR')} / 보유 ${out.gold.toLocaleString('ko-KR')})` }, { ephemeral: true });
@@ -8067,7 +8124,8 @@ const help = {
                   `🪔 **향로**(대기 -10초) · 🏮 **해정향로**(-15초 + 🟣영웅 이상 ↑) · 🎇 **특급향로**(-20초 + 🟡전설 이상 ↑)\n` +
                   `탐험을 **시작할 때** 효과가 붙고, 줄어든 대기 시간이 0이면 바로 발견해요! \`/사용\` 의 **향로모드**로 "수량만큼 N번" 또는 "항상 켜두기(탐험마다 1개 자동 사용)"를 골라요.\n` +
                   `🔵 **슈퍼볼**(포획 +10%p) · 🟡 **하이퍼볼**(포획 +10%p, 도망 -20%p) — \`/사용\` 으로 던질 볼을 골라요. 다 떨어지면 해정볼로 자동 전환돼요.\n` +
-                  `✨ **특별 상점** — \`/출석\` 할 때마다 **${pct(SPECIAL_SHOP_CHANCE)}%** 확률로 오늘 하루 열려요. 볼·특급향로와 더 강한 🍗특제 간식 · 🐝순금 꿀 · ☘️대박 부적을 팔아요 (하루 구매 제한 있음).`,
+                  `✨ **특별 상점** — \`/출석\` 할 때마다 **${pct(SPECIAL_SHOP_CHANCE)}%** 확률로 오늘 하루 열려요. 🔵슈퍼볼 · 🍗특제 간식 · 🐝순금 꿀 · ☘️대박 부적을 팔아요 (하루 구매 제한 있음).\n` +
+                  `💎 **희귀 칸** (**${pct(SPECIAL_RARE_CHANCE)}%**) — 🟡하이퍼볼 · 🎇특급향로 / 🌈 **전설 칸** (**${pct(SPECIAL_LEGEND_CHANCE)}%**) — 🥩왕실 간식 · 🏺전설의 꿀 · 🌈무지개 부적. 일반 칸이 안 열려도 이 칸만 따로 열릴 수 있어요.`,
               },
               {
                 name: '😨 등급 · 위압감 · 🔄 교체',
@@ -8186,7 +8244,7 @@ const attendance = {
             `🔴 **해정볼 ${out.balls}개**와 💰 **${out.gold.toLocaleString('ko-KR')} 골드**를 받았어요!\n\n` +
             `연속 **${out.streak}일** · 총 **${out.total}일** 출석 중이에요.\n` +
             `지금 해정볼은 **${out.owned}개**예요.` +
-            (out.special ? `\n\n✨ **특별 상점이 열렸어요!** 오늘 하루만 \`/상점\` 에서 슈퍼볼·하이퍼볼·특급향로 같은 특별한 물건을 살 수 있어요!` : ''),
+            (out.special ? `\n\n✨ **특별 상점이 열렸어요!** 오늘 하루만 \`/상점\` 에서 살 수 있어요!${out.tiers?.includes('rare') ? '\n💎 **희귀 칸**이 열렸어요 — 하이퍼볼·특급향로!' : ''}${out.tiers?.includes('legend') ? '\n🌈 **전설 칸**이 열렸어요 — 왕실 간식·전설의 꿀·무지개 부적!' : ''}` : ''),
           color: 0x57f287,
           footer: { text: '출석은 한국 시간 0시에 초기화돼요.' },
         },
@@ -9002,6 +9060,7 @@ const commandModules = [start, profile, places, explore, autoHuntCmd, shop, buy,
 function refreshDerived() {
   const fill = (arr, items) => arr.splice(0, arr.length, ...items);
   const items = Object.values(ITEMS);
+  for (const id of ['hyper_ball', 'incense_special']) if (ITEMS[id]) ITEMS[id].shopTier = 'rare'; // 관리자에 저장된 예전 값에도 희귀 칸 표시가 빠지지 않게 해요
   if (ITEMS.haejeong_ball) ITEMS.haejeong_ball.ball = true; // 관리자에서 예전에 저장한 해정볼에도 볼 표시가 빠지지 않게 해요
   fill(STARTER_IDS, Object.values(PETS).filter((p) => p.starter).map((p) => p.id));
   fill(LOCATION_LIST, Object.values(LOCATIONS).sort((a, b) => a.minLevel - b.minLevel));
@@ -9057,7 +9116,9 @@ const admin = createConfigManager({
     HP_REGEN_PCT_PER_MIN: { get: () => HP_REGEN_PCT_PER_MIN, set: (v) => { HP_REGEN_PCT_PER_MIN = v; }, section: "체력 이어가기 ❤️", desc: "시간이 지나면 1분마다 최대 체력의 이 비율만큼 저절로 회복돼요 (0.02 = 2%, 0%에서 가득까지 약 50분)" },
     ATTENDANCE_BALLS: { get: () => ATTENDANCE_BALLS, set: (v) => { ATTENDANCE_BALLS = v; }, section: "출석체크 📅", desc: "출석 1회 보상: 해정볼" },
     ATTENDANCE_GOLD: { get: () => ATTENDANCE_GOLD, set: (v) => { ATTENDANCE_GOLD = v; }, section: "출석체크 📅", desc: "출석 1회 보상: 골드" },
-    SPECIAL_SHOP_CHANCE: { get: () => SPECIAL_SHOP_CHANCE, set: (v) => { SPECIAL_SHOP_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 ✨특별 상점이 열릴 확률 (0.25 = 25%)" },
+    SPECIAL_SHOP_CHANCE: { get: () => SPECIAL_SHOP_CHANCE, set: (v) => { SPECIAL_SHOP_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 ✨특별 상점 일반 칸이 열릴 확률 (0.25 = 25%)" },
+  SPECIAL_RARE_CHANCE: { get: () => SPECIAL_RARE_CHANCE, set: (v) => { SPECIAL_RARE_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 💎희귀 칸(하이퍼볼·특급향로)이 나올 확률 (0.1 = 10%)" },
+  SPECIAL_LEGEND_CHANCE: { get: () => SPECIAL_LEGEND_CHANCE, set: (v) => { SPECIAL_LEGEND_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 🌈전설 칸(왕실 간식·전설의 꿀·무지개 부적)이 나올 확률 (0.03 = 3%)" },
     DEX_GOLD_MULT: { get: () => DEX_GOLD_MULT, set: (v) => { DEX_GOLD_MULT = v; }, section: "도감 보상 🎁", desc: "골드 = (챕터에서 가장 강한 펫을 이겼을 때 평균 골드) × 이 값" },
     DUEL_MAX_ROUNDS: { get: () => DUEL_MAX_ROUNDS, set: (v) => { DUEL_MAX_ROUNDS = v; }, section: "유저 대결 🥊", desc: "이 라운드 안에 안 끝나면 남은 체력 비율로 승부를 가려요" },
     DUEL_CHALLENGE_TTL_MS: { get: () => DUEL_CHALLENGE_TTL_MS, set: (v) => { DUEL_CHALLENGE_TTL_MS = v; }, section: "유저 대결 🥊", desc: "대결 신청은 이 시간(5분) 안에 수락해야 해요" },
