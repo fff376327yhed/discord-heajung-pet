@@ -75,8 +75,6 @@ textarea{min-height:180px;font:12px/1.5 ui-monospace,Consolas,monospace}
 <div id="login">
   <form id="loginForm">
     <h1>🐾 해정펫 관리자</h1>
-    <label class="f">봇 서버 주소 (Vercel)
-      <input id="apiUrl" type="url" placeholder="https://내-봇.vercel.app" required autocomplete="url"></label>
     <label class="f">비밀번호
       <input id="pw" type="password" required autocomplete="current-password"></label>
     <button class="pri" id="loginBtn">열기</button>
@@ -100,8 +98,8 @@ textarea{min-height:180px;font:12px/1.5 ui-monospace,Consolas,monospace}
 
 <script>
 'use strict';
-// 👇 봇 서버 주소를 미리 적어두면 로그인 화면에 자동으로 채워져요 (예: 'https://내-봇.vercel.app')
-const DEFAULT_API = '';
+// 👇 비워 두면 이 페이지와 같은 주소의 서버(/api/admin)를 써요. 다른 곳에 올렸다면 여기에 적어요 (예: 'https://내-봇.vercel.app')
+const DEFAULT_API = 'https://discord-heajung-pet.vercel.app';
 
 const $ = (q) => document.querySelector(q);
 const J = JSON.stringify;
@@ -118,7 +116,7 @@ function h(tag, props = {}, ...kids) {
 }
 
 // ───────── 상태 ─────────
-let api = '', D, META, cur, saved = '', tab = '설정';
+let api = DEFAULT_API, D, META, cur, saved = '', tab = '설정';
 const KINDS = ['pets', 'items', 'locations'];
 const token = () => sessionStorage.hj_token;
 
@@ -646,17 +644,14 @@ function logout(msg = '') {
 }
 
 // ───────── 시작 ─────────
-const normalize = (u) => u.trim().replace(/\/+$/, '').replace(/\/api\/admin$/, '');
-$('#apiUrl').value = localStorage.hj_api || DEFAULT_API;
 $('#loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  api = normalize($('#apiUrl').value);
   $('#loginBtn').disabled = true; $('#loginMsg').textContent = '';
   try {
     const r = await call('POST', { password: $('#pw').value }, '?action=login');
     if (!r.ok) $('#loginMsg').textContent = r.data.error ?? `오류 (${r.status})`;
-    else { sessionStorage.hj_token = r.data.token; localStorage.hj_api = api; await load(); }
-  } catch { $('#loginMsg').textContent = '서버에 연결할 수 없어요. 주소를 확인해주세요'; }
+    else { sessionStorage.hj_token = r.data.token; await load(); }
+  } catch { $('#loginMsg').textContent = '서버에 연결할 수 없어요'; }
   $('#loginBtn').disabled = false; $('#pw').value = '';
 });
 $('#saveBtn').onclick = save;
@@ -668,7 +663,7 @@ $('#themeBtn').onclick = () => {
 };
 addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's' && D) { e.preventDefault(); if (!$('#saveBtn').disabled) save(); } });
 addEventListener('beforeunload', (e) => { if (D && J(overrides()) !== saved) e.preventDefault(); });
-if (token() && localStorage.hj_api) { api = localStorage.hj_api; load().catch(() => logout()); } // 새로고침해도 로그인 유지(탭을 닫으면 해제)
+if (token()) load().catch(() => logout()); // 새로고침해도 로그인 유지(탭을 닫으면 해제)
 </script>
 </body>
 </html>
