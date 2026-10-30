@@ -185,7 +185,7 @@ let ATTENDANCE_STREAK_GOLD = 100; // 연속 출석 보너스: 연속일이 하�
 let ATTENDANCE_STREAK_GOLD_MAX = 3000; // 연속 출석 보너스 상한 (기본 31일째에 도달)
 let SPECIAL_SHOP_CHANCE = 0.25; // 출석체크를 할 때마다 ✨특별 상점(일반 칸)이 열릴 확률 (그날 한국 시간 자정까지 열려요)
 let SPECIAL_RARE_CHANCE = 0.10; // 출석체크를 할 때마다 💎희귀 칸(하이퍼볼·특급향로)이 특별 상점에 들어올 확률 — 일반 칸이 안 열려도 이것만으로 상점이 열려요
-let SPECIAL_LEGEND_CHANCE = 0.03; // 출석체크를 할 때마다 🌈전설 칸(왕실 간식·전설의 꿀·무지개 부적)이 들어올 확률
+let SPECIAL_LEGEND_CHANCE = 0.03; // 출석체크를 할 때마다 🌈전설 칸(왕실 간식·전설의 꿀·무지개 부적·신화의 부적·스킬 위치 변경권)이 들어올 확률
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000; // 출석은 한국 시간(KST) 자정에 초기화돼요
 
 // ───────── 도감 보상 🎁 ─────────
@@ -577,6 +577,8 @@ const ITEMS = {
     name: '해정향로',
     emoji: '🏮',
     price: 800,
+    special: true,
+    specialLimit: 10,
     incense: true,
     tier: 2,
     incenseCut: 15,
@@ -590,7 +592,7 @@ const ITEMS = {
     emoji: '🎇',
     price: 2000,
     special: true,
-    specialLimit: 5,
+    specialLimit: 10,
     shopTier: 'rare',
     incense: true,
     tier: 3,
@@ -607,7 +609,7 @@ const ITEMS = {
     emoji: '🔵',
     price: 250,
     special: true,
-    specialLimit: 30,
+    specialLimit: 60,
     ball: true,
     ballCatch: 0.1,
     description: '던질 때 포획률 +10%p. (아이템·스킬 보너스와 같은 한도 안에서 합쳐져요)',
@@ -618,7 +620,7 @@ const ITEMS = {
     emoji: '🟡',
     price: 600,
     special: true,
-    specialLimit: 15,
+    specialLimit: 30,
     shopTier: 'rare', // 💎 희귀 칸: 출석할 때 SPECIAL_RARE_CHANCE 확률로만 나와요
     ball: true,
     ballCatch: 0.1,
@@ -634,7 +636,7 @@ const ITEMS = {
     emoji: '🍗',
     price: 500,
     special: true,
-    specialLimit: 10,
+    specialLimit: 20,
     catchItem: 'bait',
     catchBonus: 0.4,
     description: '이번 만남의 포획 확률 ×1.4 (+40%). 중첩돼요 (간식·꿀과 합쳐 최대 ×2.4). 전투 중엔 한 턴을 써요.',
@@ -646,7 +648,7 @@ const ITEMS = {
     emoji: '🐝',
     price: 1100,
     special: true,
-    specialLimit: 6,
+    specialLimit: 12,
     catchItem: 'bait',
     catchBonus: 0.9,
     description: '이번 만남의 포획 확률 ×1.9 (+90%). 중첩돼요 (간식·꿀과 합쳐 최대 ×2.4). 전투 중엔 한 턴을 써요.',
@@ -658,7 +660,7 @@ const ITEMS = {
     emoji: '☘️',
     price: 900,
     special: true,
-    specialLimit: 6,
+    specialLimit: 12,
     catchItem: 'charm',
     catchBonus: 2.0,
     description: '다음 던지기 1번의 포획 확률 +200% (×3). 던지면 사라져요. 전투 중엔 한 턴을 써요.',
@@ -672,7 +674,7 @@ const ITEMS = {
     emoji: '🥩',
     price: 1000,
     special: true,
-    specialLimit: 4,
+    specialLimit: 8,
     shopTier: 'legend',
     catchItem: 'bait',
     catchBonus: 0.7,
@@ -685,7 +687,7 @@ const ITEMS = {
     emoji: '🏺',
     price: 2200,
     special: true,
-    specialLimit: 3,
+    specialLimit: 6,
     shopTier: 'legend',
     catchItem: 'bait',
     catchBonus: 1.4,
@@ -698,11 +700,37 @@ const ITEMS = {
     emoji: '🌈',
     price: 1800,
     special: true,
-    specialLimit: 3,
+    specialLimit: 6,
     shopTier: 'legend',
     catchItem: 'charm',
     catchBonus: 4.0,
     description: '다음 던지기 1번의 포획 확률 +400% (×5). 던지면 사라져요. 전투 중엔 한 턴을 써요.',
+  },
+  // 🔀 전설 칸: 고른 펫의 스킬 두 칸의 위치를 서로 맞바꿔요 (스킬은 그대로, 슬롯 번호만 이동)
+  skill_swap_ticket: {
+    id: 'skill_swap_ticket',
+    name: '스킬 위치 변경권',
+    emoji: '🔀',
+    price: 1500,
+    special: true,
+    specialLimit: 5,
+    shopTier: 'legend',
+    skillSwap: true,
+    description: '고른 펫의 스킬 두 칸(`/사용` 의 "슬롯" · "이동슬롯")을 서로 맞바꿔요. 스킬은 그대로이고 자리만 바뀌어요 (1개 = 1번 맞바꿈).',
+  },
+  // 🌌 전설 칸: 무지개 부적(×5)보다 더 강한 부적
+  catch_charm_myth: {
+    id: 'catch_charm_myth',
+    name: '신화의 부적',
+    short: '신화부적',
+    emoji: '🌌',
+    price: 3500,
+    special: true,
+    specialLimit: 4,
+    shopTier: 'legend',
+    catchItem: 'charm',
+    catchBonus: 7.0,
+    description: '다음 던지기 1번의 포획 확률 +700% (×8). 던지면 사라져요. 전투 중엔 한 턴을 써요.',
   },
 };
 
@@ -2221,7 +2249,7 @@ function settleAutoHunt(player, now = Date.now(), rng = Math.random) {
 const POTIONS = Object.values(ITEMS).filter((i) => i.heal).sort((a, b) => a.heal - b.heal);
 
 // /사용 으로 쓸 수 있는 것: 회복약 + 경험치 부스트 + 탐험 시간 감소
-const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.catchItem || i.skillSlot || i.skillReroll || i.incense || i.ball)];
+const USABLE_ITEMS = [...POTIONS, ...Object.values(ITEMS).filter((i) => i.boost || i.speedup || i.catchItem || i.skillSlot || i.skillReroll || i.skillSwap || i.incense || i.ball)];
 const CATCH_ITEMS = Object.values(ITEMS).filter((i) => i.catchItem); // 🍖 포획 아이템 목록
 
 // 가진 회복약 목록 (약한 것 → 센 것 순서)
@@ -2544,9 +2572,9 @@ function buySpecialItem(player, itemId, qty, now = Date.now()) {
 // slot: 스킬 변경권일 때만 써요 (1~5, 이미 열려 있는 슬롯이어야 해요)
 // goal: 🔄 스킬 변경권 전용 — { minTier: 0~5, skillIds: [최대 3개], maxRolls } 를 주면 조건이 나올 때까지(또는 변경권/maxRolls 가 다 떨어질 때까지) 반복해서 뽑아요.
 //       minTier 와 skillIds 는 "둘 중 하나라도 맞으면" 멈춰요. 안 주면 예전처럼 1장 = 1번이에요.
-function useSkillItem(player, itemId, selector, slot, now = Date.now(), goal = null) {
+function useSkillItem(player, itemId, selector, slot, now = Date.now(), goal = null, slot2 = null) {
   const item = ITEMS[itemId];
-  if (!item || !(item.skillSlot || item.skillReroll)) return { kind: 'unknown' };
+  if (!item || !(item.skillSlot || item.skillReroll || item.skillSwap)) return { kind: 'unknown' };
 
   const inst = resolvePetSelector(player, selector);
   if (!inst) return { kind: 'not_found' };
@@ -2563,6 +2591,22 @@ function useSkillItem(player, itemId, selector, slot, now = Date.now(), goal = n
     if (!mine) { inst.slot3 = false; return { kind: 'no_skill_left' }; }
     player.inventory[itemId] = owned - 1;
     return { kind: 'slot_opened', commit: true, item, inst: { ...inst }, skill: SKILLS[mine[1]] };
+  }
+
+  // 🔀 두 슬롯의 스킬 자리를 서로 맞바꾸기 (스킬 자체는 안 바뀌어요)
+  if (item.skillSwap) {
+    const openS = slotsOpen(inst);
+    const a = (Number(slot) || 0) - 1;
+    const b = (Number(slot2) || 0) - 1;
+    const okIdx = (i) => i >= 0 && i < SLOT_COUNT && openS[i];
+    if (!okIdx(a) || !okIdx(b)) return { kind: 'bad_slot' };
+    if (a === b) return { kind: 'same_slot' };
+    if (!SKILLS[inst.skills?.[a]] || !SKILLS[inst.skills?.[b]]) return { kind: 'empty_slot' };
+    const skA = SKILLS[inst.skills[a]];
+    const skB = SKILLS[inst.skills[b]];
+    [inst.skills[a], inst.skills[b]] = [inst.skills[b], inst.skills[a]];
+    player.inventory[itemId] = owned - 1;
+    return { kind: 'swapped', commit: true, item, inst: { ...inst }, a: a + 1, b: b + 1, skA, skB, left: owned - 1 };
   }
 
   // 🔄 지정한 슬롯(1~5)의 스킬을 다른 걸로 다시 뽑기
@@ -5087,6 +5131,11 @@ function skillItemResultText(out) {
   if (out.kind === 'already_open') return '이미 5번 슬롯이 열려 있어요! 스킬을 바꾸고 싶으면 🔄 **스킬 변경권**을 써보세요.';
   if (out.kind === 'bad_slot') return '그 슬롯은 아직 안 열려 있어요! `/사용` 의 **슬롯** 칸에 이미 열린 번호(1~5)를 적어주세요. (`/펫` 에서 확인 가능)';
   if (out.kind === 'empty_slot') return '그 슬롯은 아직 비어 있어요! (스킬이 있어야 바꿀 수 있어요)';
+  if (out.kind === 'same_slot') return '같은 슬롯끼리는 맞바꿀 수 없어요! `슬롯` 과 `이동슬롯` 에 서로 다른 번호를 적어주세요 🙏';
+  if (out.kind === 'swapped') {
+    const pet0 = PETS[out.inst.petId];
+    return `🔀 ${GRADES[pet0.grade].emoji} ${pet0.emoji} **${out.inst.nickname ?? pet0.name}** — 스킬 위치를 맞바꿨어요!\n${out.a}번 ${out.skB.emoji} **${out.skB.name}** ⇄ ${out.b}번 ${out.skA.emoji} **${out.skA.name}**\n(남은 ${out.item.name} ${out.left}개)`;
+  }
   if (out.kind === 'no_skill_left') return '더 뽑을 수 있는 스킬이 없어요 🤔';
   if (out.kind === 'goal_owned') {
     return `${out.skill.emoji} **${out.skill.name}** 은(는) 이 펫이 이미 다른 슬롯에 가지고 있어요! 한 펫은 같은 스킬을 두 개 가질 수 없어서 이 슬롯에는 안 나와요. 목표에서 빼주세요 🙏`;
@@ -7199,7 +7248,8 @@ const use = {
           { name: '항상 켜두기 끄기', value: 'off' },
         ],
       },
-      { type: 4, name: '슬롯', description: '🔄 스킬 변경권 전용: 다시 뽑을 스킬 슬롯 번호 (1~5)', required: false, min_value: 1, max_value: SLOT_COUNT },
+      { type: 4, name: '슬롯', description: '🔄 스킬 변경권 · 🔀 위치 변경권 전용: 대상 스킬 슬롯 번호 (1~5)', required: false, min_value: 1, max_value: SLOT_COUNT },
+      { type: 4, name: '이동슬롯', description: '🔀 스킬 위치 변경권 전용: 슬롯 칸의 스킬과 자리를 맞바꿀 슬롯 번호 (1~5)', required: false, min_value: 1, max_value: SLOT_COUNT },
       { type: 4, name: '목표등급', description: '🔄 스킬 변경권 전용: 이 ★ 등급 이상이 나올 때까지 반복해요 (1~5)', required: false, min_value: 1, max_value: 5 },
       { type: 3, name: '목표스킬1', description: '🔄 스킬 변경권 전용: 이 스킬이 나올 때까지 반복해요 (이름을 입력하면 목록이 떠요)', required: false, autocomplete: true },
       { type: 3, name: '목표스킬2', description: '🔄 스킬 변경권 전용: 목표 스킬 2 (둘 중 하나만 나와도 멈춰요)', required: false, autocomplete: true },
@@ -7281,6 +7331,16 @@ const use = {
     }
 
     // 🎫 스킬 슬롯 개방권 / 🔄 스킬 변경권 (펫 한 마리를 골라서 써요)
+    if (picked?.skillSwap) {
+      const slot2 = getOption(interaction, '이동슬롯');
+      const res = await updatePlayer(user.id, (p) => {
+        const r = useSkillItem(p, itemId, target, slot, Date.now(), null, slot2);
+        return { commit: r.commit === true, value: r };
+      });
+      if (res === null) return reply({ content: NOT_STARTED }, { ephemeral: true });
+      return reply({ content: skillItemResultText(res) }, { ephemeral: res.commit !== true });
+    }
+
     if (picked?.skillSlot || picked?.skillReroll) {
       // 🎯 스킬 변경권 목표: 등급(★ 이상) 또는 특정 스킬(최대 3개) — 둘 다 걸면 "둘 중 하나라도" 나오면 멈춰요
       let goal = null;
@@ -8138,8 +8198,8 @@ const help = {
                   `🪔 **향로**(대기 -10초) · 🏮 **해정향로**(-15초 + 🟣영웅 이상 ↑) · 🎇 **특급향로**(-20초 + 🟡전설 이상 ↑)\n` +
                   `탐험을 **시작할 때** 효과가 붙고, 줄어든 대기 시간이 0이면 바로 발견해요! \`/사용\` 의 **향로모드**로 "수량만큼 N번" 또는 "항상 켜두기(탐험마다 1개 자동 사용)"를 골라요.\n` +
                   `🔵 **슈퍼볼**(포획 +10%p) · 🟡 **하이퍼볼**(포획 +10%p, 도망 -20%p) — \`/사용\` 으로 던질 볼을 골라요. 다 떨어지면 해정볼로 자동 전환돼요.\n` +
-                  `✨ **특별 상점** — \`/출석\` 할 때마다 **${pct(SPECIAL_SHOP_CHANCE)}%** 확률로 오늘 하루 열려요. 🔵슈퍼볼 · 🍗특제 간식 · 🐝순금 꿀 · ☘️대박 부적을 팔아요 (하루 구매 제한 있음).\n` +
-                  `💎 **희귀 칸** (**${pct(SPECIAL_RARE_CHANCE)}%**) — 🟡하이퍼볼 · 🎇특급향로 / 🌈 **전설 칸** (**${pct(SPECIAL_LEGEND_CHANCE)}%**) — 🥩왕실 간식 · 🏺전설의 꿀 · 🌈무지개 부적. 일반 칸이 안 열려도 이 칸만 따로 열릴 수 있어요.`,
+                  `✨ **특별 상점** — \`/출석\` 할 때마다 **${pct(SPECIAL_SHOP_CHANCE)}%** 확률로 오늘 하루 열려요. 🔵슈퍼볼 · 🍗특제 간식 · 🐝순금 꿀 · ☘️대박 부적 · 🏮해정향로를 팔아요 (하루 구매 제한 있음).\n` +
+                  `💎 **희귀 칸** (**${pct(SPECIAL_RARE_CHANCE)}%**) — 🟡하이퍼볼 · 🎇특급향로 / 🌈 **전설 칸** (**${pct(SPECIAL_LEGEND_CHANCE)}%**) — 🥩왕실 간식 · 🏺전설의 꿀 · 🌈무지개 부적 · 🌌신화의 부적 · 🔀스킬 위치 변경권. 일반 칸이 안 열려도 이 칸만 따로 열릴 수 있어요.`,
               },
               {
                 name: '😨 등급 · 위압감 · 🔄 교체',
@@ -8258,7 +8318,7 @@ const attendance = {
             `🔴 **해정볼 ${out.balls}개**와 💰 **${out.gold.toLocaleString('ko-KR')} 골드**를 받았어요!${out.streakGold > 0 ? `\n🔥 연속 출석 보너스 **+${out.streakGold.toLocaleString('ko-KR')} 골드**` : ''}\n\n` +
             `연속 **${out.streak}일** · 총 **${out.total}일** 출석 중이에요.\n` +
             `지금 해정볼은 **${out.owned}개**예요.` +
-            (out.special ? `\n\n✨ **특별 상점이 열렸어요!** 오늘 하루만 \`/상점\` 에서 살 수 있어요!${out.tiers?.includes('rare') ? '\n💎 **희귀 칸**이 열렸어요 — 하이퍼볼·특급향로!' : ''}${out.tiers?.includes('legend') ? '\n🌈 **전설 칸**이 열렸어요 — 왕실 간식·전설의 꿀·무지개 부적!' : ''}` : ''),
+            (out.special ? `\n\n✨ **특별 상점이 열렸어요!** 오늘 하루만 \`/상점\` 에서 살 수 있어요!${out.tiers?.includes('rare') ? '\n💎 **희귀 칸**이 열렸어요 — 하이퍼볼·특급향로!' : ''}${out.tiers?.includes('legend') ? '\n🌈 **전설 칸**이 열렸어요 — 왕실 간식·전설의 꿀·무지개 부적·신화의 부적·스킬 위치 변경권!' : ''}` : ''),
           color: 0x57f287,
           footer: { text: '출석은 한국 시간 0시에 초기화돼요.' },
         },
@@ -9080,7 +9140,7 @@ function refreshDerived() {
   fill(LOCATION_LIST, Object.values(LOCATIONS).sort((a, b) => a.minLevel - b.minLevel));
   fill(POTIONS, items.filter((i) => i.heal).sort((a, b) => a.heal - b.heal));
   fill(CATCH_ITEMS, items.filter((i) => i.catchItem));
-  fill(USABLE_ITEMS, [...POTIONS, ...items.filter((i) => i.boost || i.speedup || i.catchItem || i.incense || i.ball)]);
+  fill(USABLE_ITEMS, [...POTIONS, ...items.filter((i) => i.boost || i.speedup || i.catchItem || i.skillSlot || i.skillReroll || i.skillSwap || i.incense || i.ball)]);
   fill(SHOP_ITEMS, items.filter((i) => i.price && !i.special));
   fill(SPECIAL_SHOP_ITEMS, items.filter((i) => i.price && i.special));
   WILD_COUNT = Object.values(PETS).filter((p) => !p.starter).length;
@@ -9134,7 +9194,7 @@ const admin = createConfigManager({
   ATTENDANCE_STREAK_GOLD_MAX: { get: () => ATTENDANCE_STREAK_GOLD_MAX, set: (v) => { ATTENDANCE_STREAK_GOLD_MAX = v; }, section: "출석체크 📅", desc: "연속 출석 보너스 골드 상한" },
     SPECIAL_SHOP_CHANCE: { get: () => SPECIAL_SHOP_CHANCE, set: (v) => { SPECIAL_SHOP_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 ✨특별 상점 일반 칸이 열릴 확률 (0.25 = 25%)" },
   SPECIAL_RARE_CHANCE: { get: () => SPECIAL_RARE_CHANCE, set: (v) => { SPECIAL_RARE_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 💎희귀 칸(하이퍼볼·특급향로)이 나올 확률 (0.1 = 10%)" },
-  SPECIAL_LEGEND_CHANCE: { get: () => SPECIAL_LEGEND_CHANCE, set: (v) => { SPECIAL_LEGEND_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 🌈전설 칸(왕실 간식·전설의 꿀·무지개 부적)이 나올 확률 (0.03 = 3%)" },
+  SPECIAL_LEGEND_CHANCE: { get: () => SPECIAL_LEGEND_CHANCE, set: (v) => { SPECIAL_LEGEND_CHANCE = v; }, section: "출석체크 📅", desc: "출석체크를 할 때마다 🌈전설 칸(왕실 간식·전설의 꿀·무지개 부적·신화의 부적·스킬 위치 변경권)이 나올 확률 (0.03 = 3%)" },
     DEX_GOLD_MULT: { get: () => DEX_GOLD_MULT, set: (v) => { DEX_GOLD_MULT = v; }, section: "도감 보상 🎁", desc: "골드 = (챕터에서 가장 강한 펫을 이겼을 때 평균 골드) × 이 값" },
     DUEL_MAX_ROUNDS: { get: () => DUEL_MAX_ROUNDS, set: (v) => { DUEL_MAX_ROUNDS = v; }, section: "유저 대결 🥊", desc: "이 라운드 안에 안 끝나면 남은 체력 비율로 승부를 가려요" },
     DUEL_CHALLENGE_TTL_MS: { get: () => DUEL_CHALLENGE_TTL_MS, set: (v) => { DUEL_CHALLENGE_TTL_MS = v; }, section: "유저 대결 🥊", desc: "대결 신청은 이 시간(5분) 안에 수락해야 해요" },
