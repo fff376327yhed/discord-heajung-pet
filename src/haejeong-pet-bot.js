@@ -7165,6 +7165,21 @@ async function skillGoalAutocomplete(interaction, focusedName) {
   );
 }
 
+// 🆕 "아이템" 칸: 가진 아이템을 먼저, 그다음 나머지를 보여줘요 (이름이나 id 를 입력하면 걸러줘요)
+async function useItemAutocomplete(interaction) {
+  const user = getUser(interaction);
+  const player = await getPlayerCached(user.id);
+  const norm = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, '');
+  const typed = norm(getOption(interaction, '아이템'));
+  const have = (i) => player?.inventory?.[i.id] ?? 0;
+  const list = USABLE_ITEMS
+    .filter((i) => !typed || norm(i.name).includes(typed) || norm(i.short).includes(typed) || i.id.includes(typed))
+    .sort((a, b) => (have(b) > 0) - (have(a) > 0));
+  return autocompleteResult(
+    list.slice(0, 25).map((i) => ({ name: `${i.emoji} ${i.name}${have(i) > 0 ? ` (보유 ${have(i)}개)` : ''}`.slice(0, 100), value: i.id })),
+  );
+}
+
 function rerollGoalText(goal) {
   const parts = [];
   if (goal.minTier > 0) parts.push(`${tierStars(goal.minTier)} 이상`);
@@ -7233,7 +7248,7 @@ const use = {
         name: '아이템',
         description: '무엇을 쓸까요? (비우면 가득 찰 때까지 회복약을 알아서 골라 써요)',
         required: false,
-        choices: USABLE_ITEMS.map((i) => ({ name: `${i.emoji} ${i.name}`, value: i.id })),
+        autocomplete: true, // 🆕 아이템이 25개를 넘어서 고정 선택지 대신 자동완성 목록으로 보여줘요 (가진 아이템이 먼저 떠요)
       },
       { type: 4, name: '수량', description: '한 번에 몇 개 쓸까요? 칸을 누르면 쓸 수 있는 최대 개수가 떠요 (비우면 1개)', required: false, autocomplete: true },
       { type: 5, name: '최대', description: '켜면 가진 만큼 최대로 써요', required: false },
@@ -7480,6 +7495,7 @@ const use = {
   async autocomplete(interaction) {
     const focused = interaction.data.options?.find((o) => o.focused)?.name;
     if (focused === '수량') return qtyAutocomplete(interaction, '사용');
+    if (focused === '아이템') return useItemAutocomplete(interaction);
     if (focused && focused.startsWith('목표스킬')) return skillGoalAutocomplete(interaction, focused);
     return petAutocomplete(interaction, '대상');
   },
