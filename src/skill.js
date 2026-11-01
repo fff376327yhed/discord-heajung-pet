@@ -259,7 +259,7 @@ const U = (id, name, emoji, tier, fx, flavor) => add(id, name, emoji, tier, fx, 
 // 📏 위력 기준: ★1 1.3~1.45 · ★2 1.5~1.8 · ★3 2.0~2.3 · ★4 2.5~3.0 · ★5 3.1~3.8 (연타기는 총 배율 기준, 부가 효과가 붙으면 조금 낮아요)
 G('fire_spark', '불씨', '🔥', 1, { pow: 1.4, dot: ['burn', 0.05, 2, 0.3] });
 G('fireball', '화염구', '☄️', 3, { pow: 2.0, dot: ['burn', 0.05, 3, 0.5] });
-G('inferno', '업화', '🌋', 5, { pow: 3.2, dot: ['burn', 0.08, 3, 1] });
+G('inferno', '업화', '🌋', 5, { pow: 2.8, dot: ['burn', 0.08, 3, 1], flashover: 0.8 });
 G('ember_jab', '불찌르기', '🔥', 1, { pow: 1.25, dot: ['burn', 0.04, 2, 0.4] });
 G('flame_wheel', '화륜', '🛞', 2, { pow: 1.5, dot: ['burn', 0.04, 3, 0.5] });
 G('sear', '지지기', '🍳', 2, { pow: 1.2, dot: ['burn', 0.05, 3, 0.6] });
@@ -267,7 +267,7 @@ G('blazing_kick', '작열차기', '🦶', 3, { pow: 2.1, dot: ['burn', 0.05, 3, 
 G('magma_burst', '용암분출', '🌋', 4, { pow: 2.8, dot: ['burn', 0.07, 3, 0.6] });
 G('water_gun', '물총', '💧', 1, { pow: 1.35, atkDown: [0.1, 2] });
 G('tidal_wave', '파도타기', '🏄', 3, { pow: 2.0, atkDown: [0.15, 3] });
-G('tsunami', '해일', '🌊', 5, { pow: 3.1, atkDown: [0.25, 3], stun: 0.25 });
+G('tsunami', '해일', '🌊', 5, { pow: 2.8, atkDown: [0.25, 3], stun: 0.25, wash: 1 });
 G('bubble_burst', '거품폭발', '🫧', 1, { pow: 1.25, stun: 0.1 });
 G('tide_crash', '조수충돌', '🌊', 2, { pow: 1.6, atkDown: [0.12, 2] });
 G('geyser', '간헐천', '⛲', 4, { pow: 2.7, stun: 0.2 });
@@ -278,24 +278,24 @@ G('thorn_lash', '가시채찍', '🌹', 1, { pow: 1.2, dot: ['bleed', 0.03, 2, 0
 G('root_crush', '뿌리짓밟기', '🌱', 3, { pow: 2.1, stun: 0.2 });
 G('spore_cloud', '포자구름', '🍄', 2, { pow: 0.9, dot: ['poison', 0.05, 3, 0.8] });
 G('pollen_storm', '꽃가루폭풍', '🌼', 3, { pow: 1.0, hits: 2, atkDown: [0.25, 2] });
-G('solar_beam', '태양광선', '☀️', 5, { pow: 3.3, pierce: 0.3 });
+G('solar_beam', '태양광선', '☀️', 5, { pow: 3.0, pierce: 0.3, melt: [0.1, 0.4, 4] });
 G('spark', '스파크', '⚡', 1, { pow: 1.4, stun: 0.15 });
 G('thunder', '번개', '🌩️', 3, { pow: 2.1, stun: 0.25 });
-G('thunderstorm', '뇌우', '⛈️', 5, { pow: 3.0, stun: 0.4 });
+G('thunderstorm', '뇌우', '⛈️', 5, { pow: 2.6, stun: 0.4, shock: [0.5, 0.12] });
 G('lightning_fang', '번개송곳니', '⚡', 2, { pow: 1.5, stun: 0.2 });
 G('static_field', '정전기장', '🔌', 2, { pow: 0.9, hits: 2, stun: 0.1 });
 G('thunder_hammer', '뇌격망치', '🔨', 4, { pow: 2.9, stun: 0.35 });
 G('ion_burst', '이온폭발', '💥', 3, { pow: 1.9, drainMana: 20 });
 G('frost_touch', '서리손', '❄️', 1, { pow: 1.3, defDown: [0.1, 2] });
 G('ice_shard', '얼음송곳', '🧊', 3, { pow: 2.1, defDown: [0.2, 3] });
-G('blizzard', '눈보라', '🌨️', 5, { pow: 3.0, stun: 0.3, defDown: [0.25, 3] });
+G('blizzard', '눈보라', '🌨️', 5, { pow: 3.0, stun: 0.2, defDown: [0.25, 3], coldSnap: true });
 G('ice_fang', '얼음송곳니', '🦷', 2, { pow: 1.5, defDown: [0.2, 2] });
 G('frozen_spike', '얼음가시', '🧊', 2, { pow: 1.4, stun: 0.15 });
 G('hail_storm', '우박폭풍', '🌨', 4, { pow: 0.8, hits: 4, defDown: [0.1, 2] });
-G('glacier_crush', '빙하붕괴', '🏔️', 5, { pow: 3.4, defDown: [0.3, 3], stun: 0.2 });
+G('glacier_crush', '빙하붕괴', '🏔️', 5, { pow: 3.2, defDown: [0.3, 3], stun: 0.2, iceArmor: 0.3 });
 G('gust', '돌풍', '💨', 1, { pow: 1.3, crit: 0.15 });
 G('wind_blade', '바람칼날', '🍃', 3, { pow: 0.95, hits: 2, crit: 0.1 });
-G('tornado', '토네이도', '🌪️', 5, { pow: 1.2, hits: 3, crit: 0.1 });
+G('tornado', '토네이도', '🌪️', 5, { pow: 0.7, hitsRange: [3, 6], hitPows: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0], crit: 0.1 });
 G('gale_slash', '질풍베기', '⚡', 2, { pow: 1.5, crit: 0.15 });
 G('cyclone', '회오리', '🌪', 3, { pow: 1.1, hits: 2 });
 G('feather_dart', '깃털화살', '🪶', 2, { pow: 0.55, hits: 3 });
@@ -303,7 +303,7 @@ G('talon_dive', '급강하발톱', '🦅', 3, { pow: 2.3, crit: 0.1 });
 G('gale_wing', '날개강타', '🪽', 3, { pow: 2.1, crit: 0.15 });
 G('pebble', '자갈던지기', '🪨', 1, { pow: 1.35 });
 G('earthquake', '지진', '🌍', 3, { pow: 2.2 });
-G('meteor_fall', '운석낙하', '🌠', 5, { pow: 3.3, stun: 0.2 });
+G('meteor_fall', '운석낙하', '🌠', 5, { pow: 2.6, stun: 0.2, shards: [1.1, 2] });
 G('boulder_toss', '바위던지기', '🪨', 2, { pow: 1.6 });
 G('stone_fist', '돌주먹', '✊', 1, { pow: 1.5, defDown: [0.1, 2] });
 G('quake_stomp', '지각밟기', '👣', 3, { pow: 2.1, stun: 0.2 });
@@ -317,12 +317,12 @@ G('shadow_bite', '그림자깨물기', '🌚', 2, { pow: 1.5, drain: 0.25 });
 G('dark_pulse', '어둠의파동', '🌘', 3, { pow: 2.1, drain: 0.25 });
 G('night_slash', '밤의베기', '🌃', 3, { pow: 2.1, crit: 0.2 });
 G('soul_strike', '영혼타격', '💠', 3, { pow: 1.8, drainMana: 15 });
-G('eclipse_ray', '일식광선', '🌘', 5, { pow: 3.3, pierce: 0.4, atkDown: [0.2, 3] });
-G('void_collapse', '공허붕괴', '🕳️', 5, { pow: 3.3, pierce: 0.5 });
+G('eclipse_ray', '일식광선', '🌘', 5, { pow: 3.0, pierce: 0.4, atkDown: [0.2, 3], eclipse: 3 });
+G('void_collapse', '공허붕괴', '🕳️', 5, { pow: 2.8, pierce: 0.5, voidEat: 0.12 });
 G('void_shot', '공허탄', '🌑', 3, { pow: 2.0, pierce: 0.3 });
 G('poison_sting', '독침', '☠️', 1, { pow: 1.1, dot: ['poison', 0.05, 3, 0.6] });
 G('toxic_fog', '독안개', '🧪', 3, { pow: 1.2, dot: ['poison', 0.06, 4, 0.7] });
-G('plague', '대역병', '🦠', 5, { pow: 2.2, dot: ['poison', 0.09, 4, 1], atkDown: [0.2, 3] });
+G('plague', '대역병', '🦠', 5, { pow: 2.0, dot: ['poison', 0.08, 4, 1], atkDown: [0.2, 3], plagueScale: 0.3 });
 G('acid_spit', '산성침', '🧪', 2, { pow: 1.1, defDown: [0.2, 3], dot: ['poison', 0.04, 3, 0.4] });
 G('hex_bolt', '저주탄', '🪄', 2, { pow: 1.2, dot: ['poison', 0.05, 3, 0.5] });
 G('spirit_siphon', '영혼흡수', '👻', 3, { pow: 1.7, drain: 0.5 });
@@ -348,7 +348,7 @@ G('armor_break', '방어파괴', '🪓', 2, { pow: 1.4, defDown: [0.3, 3] });
 G('berserk', '광폭화', '😤', 3, { pow: 2.5, recoil: 0.15 });
 G('reckless', '무모한 돌격', '🐂', 2, { pow: 1.8, recoil: 0.12 });
 G('last_stand', '배수진', '🏴', 4, { pow: 3.2, recoil: 0.25 });
-G('all_in', '전력투구', '💥', 5, { pow: 3.8, recoil: 0.3 });
+G('all_in', '전력투구', '💥', 5, { pow: 3.4, allIn: [0.6, 0.3, 3] });
 G('bleed_slash', '출혈참', '🩸', 2, { pow: 1.2, dot: ['bleed', 0.05, 3, 0.6] });
 G('pufferburst', '가시부풀기', '🐡', 2, { pow: 1.1, recoil: 0.03, dot: ['bleed', 0.04, 3, 0.5] });
 G('counter_claw', '반격발톱', '🐾', 2, { pow: 1.4, recoil: 0.04 });
@@ -368,14 +368,14 @@ G('lunar_rest', '달빛휴식', '🌙', 3, { heal: 0.3, cleanse: true });
 G('fairy_dust', '요정가루', '🧚', 3, { heal: 0.2, cleanse: true, atkUp: [0.2, 2] });
 G('sanctuary', '성역', '⛪', 4, { heal: 0.4, shield: 0.25 });
 G('rejuvenate', '회춘', '✨', 4, { heal: 0.4, regen: [0.06, 3] });
-G('phoenix_tears', '불사조의 눈물', '🕊️', 5, { heal: 0.7, cleanse: true });
+G('phoenix_tears', '불사조의 눈물', '🕊️', 5, { heal: 0.5, cleanse: true, cleanseHeal: 0.1 });
 G('regen_seed', '회복의 씨앗', '🌱', 2, { regen: [0.08, 4] });
 G('rain_mend', '빗물회복', '🌧️', 2, { regen: [0.05, 3] });
 G('spring_water', '샘물', '⛲', 3, { regen: [0.1, 4], cleanse: true });
 G('hot_spring', '온천욕', '♨️', 3, { regen: [0.08, 3], cleanse: true });
 G('vampire_bite', '흡혈', '🧛', 2, { pow: 1.5, drain: 0.4 });
 G('life_drain', '생명흡수', '🩸', 3, { pow: 1.6, drain: 0.6 });
-G('soul_feast', '영혼연회', '👻', 5, { pow: 2.8, drain: 0.8 });
+G('soul_feast', '영혼연회', '👻', 5, { pow: 2.8, drain: 1.0, feastMax: [0.5, 0.3], feastAtk: [0.08, 0.3, 5] });
 G('blood_pact', '피의계약', '🩸', 4, { pow: 2.2, drain: 0.6, recoil: 0.05 }); // 🛠️ 예전엔 pow 가 없어서 흡혈이 안 되는 버그가 있었어요
 
 // ───────── 일반 스킬: 방어 ─────────
@@ -401,7 +401,7 @@ G('fortress', '요새화', '🏰', 4, { guard: [0.65, 3], defUp: [0.3, 3] });
 G('mirror_shield', '거울방패', '🪞', 4, { shield: 0.3, guard: [0.3, 2] });
 G('steel_scale', '강철비늘', '🔩', 4, { defUp: [0.6, 3] });
 G('bubble_dome', '물방울돔', '🔵', 4, { shield: 0.3, regen: [0.04, 3] });
-G('adamant', '금강불괴', '💎', 5, { guard: [0.7, 3], shield: 0.3 });
+G('adamant', '금강불괴', '💎', 5, { guard: [0.4, 3], shield: 0.3, ironSkin: [0.1, 3] });
 
 // ───────── 일반 스킬: 강화 ─────────
 G('power_up', '힘주기', '💪', 1, { atkUp: [0.3, 3] });
@@ -639,7 +639,7 @@ P('pufferfish', 'sig_pufferfish', '뾰족 폭발', '🐡', 2, { pow: 1.7, recoil
 P('octopus', 'sig_octopus', '먹물 연막', '🐙', 3, { evade: 2, atkDown: [0.3, 3], heal: 0.1 }, '새까만 먹물 속으로 쏙 숨어요.');
 P('octopus', 'sig_octopus2', '빨판 조이기', '🌀', 3, { pow: 1.9, stun: 0.3, drain: 0.2 }, '여덟 개 다리로 꽁꽁 감아요.');
 P('whale', 'sig_whale', '고래 노래', '🐋', 4, { heal: 0.45, healOverflow: 0.4, regen: [0.06, 3], mana: 15, cd: 4 }, '깊고 느린 노래가 바다를 울려요.');
-P('whale', 'sig_whale2', '대양의 꼬리치기', '🌊', 5, { pow: 2.6, spdDown: [0.6, 2], manaSiphon: [0.5, 50, 0.5], cd: 6 }, '바다 전체가 흔들리는 꼬리치기! 상대의 기운이 파도에 휩쓸려 와요.');
+P('whale', 'sig_whale2', '대양의 꼬리치기', '🌊', 5, { pow: 2.4, deep: 0.006, spdDown: [0.6, 2], manaSiphon: [0.5, 50, 0.5], cd: 6 }, '바다의 깊이만큼 묵직해요. 내 마나가 많이 남아 있을수록 꼬리치기가 세지고, 상대의 기운도 파도에 쓸려가요.');
 P('turtle', 'sig_turtle', '등껍질 수비', '🐢', 3, { guard: [0.6, 3], regen: [0.07, 3] }, '등껍질 속에서 천천히 숨을 골라요.');
 P('mermaid', 'sig_mermaid', '인어의 자장가', '🧜', 4, { drowsy: 2, drainMana: 20, heal: 0.15, cd: 4 }, '달콤한 노랫소리에 스르르 잠이 와요.');
 P('turtle', 'sig_turtle2', '거북 박치기', '🐢', 2, { pow: 1.6, defUp: [0.3, 2] }, '느리지만 묵직하게 들이받아요.');
@@ -651,6 +651,7 @@ P('magma_slime', 'sig_magma_slime', '용암 튀기기', '🟠', 3, { pow: 1.7, d
 P('salamander', 'sig_salamander', '불꽃 꼬리채찍', '🦎', 3, { pow: 1.2, hits: 2, dot: ['burn', 0.04, 3, 0.5] }, '꼬리를 두 번 휘둘러요.');
 P('flame_lord', 'sig_flame_lord', '화염 군림', '👹', 5, { pow: 2.2, dot: ['burn', 0.03, 2, 1], reign: { turns: 3, max: 3, pct: 0.02, fire: 0.2 }, cd: 6 }, '불꽃의 왕이 내려보면 움직일 때마다 타올라요.');
 P('flame_lord', 'sig_flame_lord2', '마왕의 포효', '😈', 4, { pow: 2.0, rage: [0.15, 0.9], stun: 0.3, cd: 4 }, '화산이 부르르 떨리는 포효!');
+P('flame_lord', 'sig_flame_lord3', '낙인의 연쇄', '🔗', 5, { pow: 1.6, dot: ['burn', 0.05, 3, 1], brandChain: { hitPow: 0.5, cap: 5 }, cd: 5 }, '불로 지진 낙인은 조용히 쌓이다가, 어느 순간 한꺼번에 터져요.');
 P('fire_dragon', 'sig_fire_dragon', '용왕의 업화', '🐉', 5, { pow: 2.8, pierce: 0.3, dot: ['burn', 0.08, 3, 1], dragonFlame: { burn: 0.15, trueMul: 1.5, low: 0.3, lowMult: 1.6, minHp: 0.25 }, cd: 7 }, '내 체력을 태워서라도 모든 것을 재로 만드는 용왕의 불꽃.');
 P('fire_dragon', 'sig_fire_dragon2', '용의 위엄', '👑', 4, { atkUp: [0.6, 4], guard: [0.5, 3], reflect: [0.3, 3], cd: 5 }, '날개를 펴면 하늘이 붉게 물들어요.');
 // 안개 늪
@@ -658,7 +659,7 @@ P('frog', 'sig_frog', '개굴 합창', '🐸', 2, { pow: 1.5, stun: 0.35 }, '개
 P('snake', 'sig_snake', '독니 일격', '🐍', 3, { pow: 1.8, dot: ['poison', 0.05, 4, 0.9] }, '송곳니에서 맹독이 퍼져요.');
 P('croc', 'sig_croc', '죽음의 회전', '🐊', 3, { pow: 2.3, defDown: [0.25, 3], recoil: 0.04 }, '물고 빙글빙글! 놓치는 법이 없어요.');
 P('wisp', 'sig_wisp', '길잃은 불빛', '🕯️', 4, { lamp: [0.05, 25, 3], cd: 4 }, '따라가다 보면 어느새 낭떠러지...');
-P('witch', 'sig_witch', '늪 마녀의 저주', '🧙', 5, { atkDown: [0.5, 5], defDown: [0.5, 5], spdDown: [0.5, 5], powDown: [0.5, 5], manaDown: [0.5, 5], dot: ['poison', 0.15, 3, 0.75], cd: 8 }, '보글보글 끓는 솥에서 저주가 피어올라요.');
+P('witch', 'sig_witch', '늪 마녀의 저주', '🧙', 5, { atkDown: [0.3, 4], defDown: [0.3, 4], spdDown: [0.3, 4], powDown: [0.3, 4], dot: ['poison', 0.1, 3, 0.8], swampBloom: [2, 0.025], cd: 8 }, '늪은 한번 빠지면 점점 깊어져요. 상대에게 걸린 나쁜 효과가 전부 더 오래가고, 많이 걸릴수록 늪에서 독기가 피어올라요.');
 P('witch', 'sig_witch2', '마녀의 영약', '🧪', 4, { potion: 2, cleanse: true, cd: 4 }, '정체불명 영약, 효과는 확실해요.');
 // 불볕 사막
 P('camel', 'sig_camel', '혹 저장고', '🐪', 2, { heal: 0.35, mana: 15 }, '혹에 저장해 둔 영양분으로 힘을 내요.');
@@ -667,6 +668,7 @@ P('scarab', 'sig_scarab', '황금 광택', '🪲', 3, { defUp: [0.6, 3], pow: 2.
 P('lion', 'sig_lion', '사막의 왕 포효', '🦁', 4, { pow: 2.0, firstBonus: [1.5, 0.9, 10], cd: 4 }, '사막이 쩌렁쩌렁 울려요.');
 P('mummy', 'sig_mummy', '파라오의 저주', '⚰️', 5, { pow: 1.8, pharaoh: { turns: 5, flip: 0.8, rot: 0.02, shield: 0.5 }, cd: 7 }, '붕대가 풀리며 오래된 저주가 퍼져요. 치유는 상처가 되어요.');
 P('mummy', 'sig_mummy2', '붕대 감기', '🧻', 3, { shield: 0.3, heal: 0.25 }, '다친 곳을 꽁꽁 싸매요.');
+P('mummy', 'sig_mummy3', '불멸의 저주', '🧟', 5, { undyingHex: [0.25, 0.2, 4], cd: 6 }, '오래된 저주는 시간이 지나도 풀리지 않아요. 직접 나서서 때려야만 풀려요.');
 P('sandworm', 'sig_sandworm', '모래 삼키기', '🐛', 5, { pow: 3.2, exec: 1.7, stun: 0.25, swallow: [3, 0.3, 0.7], cd: 8 }, '땅속에서 솟구쳐 통째로 삼켜요. 내 스킬 하나까지 삼켜서 3턴 동안 매 턴 저절로 터뜨려요.');
 // 얼음 설원
 P('penguin', 'sig_penguin', '배치기 미끄럼', '🐧', 2, { pow: 1.9, stun: 0.25 }, '쭈우욱~ 미끄러져 쾅!');
@@ -692,11 +694,13 @@ P('sun_god', 'sig_sun_god2', '일출의 가호', '🌅', 5, { sunrise: { turns: 
 P('shadow', 'sig_shadow', '그림자 삼키기', '👤', 3, { pow: 2.2, drain: 0.4 }, '발밑 그림자가 기운을 삼켜요.');
 P('void_eye', 'sig_void_eye', '허공의 응시', '👁️', 4, { stun: 0.65, defDown: [0.35, 4], drainMana: 30, truePct: 0.06, cd: 4 }, '눈이 마주친 순간, 몸이 굳어요.');
 P('star_whale', 'sig_star_whale', '별빛 파도', '🐳', 4, { pow: 2.4, shieldDrain: [0.5, 0.4], mana: 15, cd: 3 }, '반짝이는 파도가 아군은 안고 적은 밀어내요.');
-P('comet', 'sig_comet', '혜성 충돌', '☄️', 5, { pow: 3.3, recoil: 0.1, stun: 0.3 }, '긴 꼬리를 끌고 쾅!');
+P('comet', 'sig_comet', '혜성 충돌', '☄️', 5, { pow: 2.4, impact: [0.6, 1.5], recoil: 0.1, stun: 0.3 }, '속도가 곧 위력! 상대보다 빠를수록 충돌이 커지고, 느리면 불꽃이 꺼져요.');
+P('comet', 'sig_comet2', '귀환 궤도', '🛰️', 5, { orbit: [1.1, 0.25, 0.2, 3], cd: 6 }, '한 번 궤도에 오르면, 잊고 있어도 때가 되면 또 떨어져요.');
 P('void_dragon', 'sig_void_dragon', '공허의 숨결', '🌑', 5, { truePct: 0.35, drainMana: 9999, berserk: 2, cd: 7 }, '닿은 곳이 사라져요. 사라진 자리에서 광기가 깨어나요.');
 P('void_dragon', 'sig_void_dragon2', '차원 비늘', '🕳️', 4, { transfer: [0.35, 3], evade: 2, cd: 5 }, '비늘 틈으로 공격이 사라져요.');
 P('chaos_lord', 'sig_chaos_lord', '혼돈의 소용돌이', '😈', 5, { pow: 0.8, hits: 2, chaos: { count: 3, hp: 0.05 }, cd: 7 }, '무슨 일이 일어날지 아무도 몰라요. 최소한 하나는 내 편이에요.');
 P('chaos_lord', 'sig_chaos_lord2', '군주의 오만', '👿', 5, { pride: [2, 5, 3, 2] }, '"모든 것이 내 뜻대로." 2턴 동안 상대의 방어·스피드·공격력은 의미가 없고, 그 뒤 5턴 동안 나를 향한 스킬은 되돌아가요.');
+P('chaos_lord', 'sig_chaos_lord3', '운명 재현', '🎲', 5, { fateReplay: true, cost: 60, cd: 6 }, '운이 좋았던 그 순간을, 한 번 더. 이번 싸움에서 가장 행운이었던 장면을 그대로 되살려요.');
 P('creator', 'sig_creator', '천지창조', '🌌', 5, { genesis: { turns: 3, convert: 5, manaUp: 30 }, cd: 99 }, '별이 태어나는 순간, 세상의 상성이 뒤집혀요.');
 P('creator', 'sig_creator2', '태초의 숨결', '✨', 5, { rewind: { back: 3, cap: 0.7, cdTop: 3, immune: 2 }, cd: 99 }, '모든 것이 처음으로 돌아가요.');
 // 트릭스터 극장
@@ -717,11 +721,13 @@ P('joker', 'sig_joker2', '속임수 패', '🂡', 5, { trickster: { boost: 1.2 }
 P('zeta_larva', 'sig_zeta_larva', '산성 침', '🧪', 3, { pow: 1.8, dot: ['poison', 0.03, 3, 0.5] }, '꿈틀꿈틀 기어와서 따끔한 산성 침을 톡! 쏘아요.');
 P('ufo_drone', 'sig_ufo_drone', '광선 납치', '🛸', 4, { pow: 1.8, stun: 0.4, drainMana: 20, cd: 3 }, '푸른 빛줄기가 내려오면 몸이 둥실… 기운까지 쏙 빨려 올라가요.');
 P('tentacle', 'sig_tentacle', '촉수 휘감기', '🦑', 4, { pow: 2.2, spdDown: [0.3, 3], defDown: [0.2, 3], cd: 3 }, '끈적한 촉수가 다리를 칭칭! 움직임도 방어도 둔해져요.');
-P('gray_alien', 'sig_gray_alien', '정신 지배 광선', '👽', 5, { pow: 3.0, stun: 0.3, drainMana: 25, cd: 6 }, '커다란 까만 눈이 반짝! 머릿속이 멍해지고 기운이 빠져나가요.');
+P('gray_alien', 'sig_gray_alien', '정신 지배 광선', '👽', 5, { pow: 2.4, drainMana: 25, mindCtl: [1, 3], cd: 6 }, '커다란 까만 눈이 번쩍! 상대가 다음에 쓰는 공격 스킬은 엉뚱하게 자기 자신을 향해요.');
 P('gray_alien', 'sig_gray_alien2', '기억 조작', '🧠', 4, { pow: 1.4, stealMana: 25, atkDown: [0.3, 3], cd: 4 }, '어? 내가 뭘 하려고 했더라… 마나를 슬쩍 가져가요.');
+P('gray_alien', 'sig_gray_alien3', '영혼 교환', '👽', 5, { soulSwap: 2, cd: 7 }, '몸이 바뀌면, 싸우는 방식도 바뀌어요.');
 P('xeno_queen', 'sig_xeno_queen', '여왕의 산성 폭풍', '👾', 5, { pow: 2.4, dot: ['poison', 0.07, 3, 1], defDown: [0.3, 3], healCut: [0.5, 3], detonate: 1, cd: 7 }, '여왕이 포효하면 하늘에서 초록 산성비가 쏟아져요. 이미 스며든 독은 한꺼번에 터지고, 갑옷은 녹아내리고, 상처는 아물지 않아요.');
 P('xeno_queen', 'sig_xeno_queen2', '알 부화', '🥚', 4, { pow: 0.8, dot: ['poison', 0.05, 4, 1], clone: [0.35, 0.7, 3], cloneBoom: 1.0, cd: 5 }, '톡, 톡! 알에서 독을 품은 새끼들이 쏟아져 나와 같이 싸워요. 마지막엔 펑!');
-P('star_devourer', 'sig_star_devourer', '성운 삼키기', '🌀', 5, { pow: 3.2, drain: 0.25, stun: 0.2, manaSiphon: [0.6, 60, 0.4], steal: ['atk', 0.3, 3], cd: 7 }, '별빛 구름을 통째로 꿀꺽! 삼킨 만큼 마나도, 힘도 내 것이 돼요.');
+P('xeno_queen', 'sig_xeno_queen3', '불멸의 알', '🥚', 5, { dot: ['poison', 0.04, 5, 1], parasiteEgg: [0.22, 5], cd: 6 }, '가만히 두면 조용한 독이지만, 지우려 드는 순간 되레 터져버려요.');
+P('star_devourer', 'sig_star_devourer', '성운 삼키기', '🌀', 5, { pow: 2.8, drain: 0.25, stun: 0.2, manaSiphon: [0.6, 60, 0.4], manaShield: 1.5, steal: ['atk', 0.3, 3], cd: 7 }, '별빛 구름을 통째로 꿀꺽! 삼킨 상대의 마나는 별빛 보호막이 돼요.');
 P('star_devourer', 'sig_star_devourer2', '중력 붕괴', '🕳️', 4, { spdDown: [0.4, 3], defDown: [0.3, 3], powDown: [0.3, 3], drainMana: 30, cd: 4 }, '몸이 무겁게 짓눌려요. 발도, 방패도, 스킬의 힘도 가라앉아요.');
 P('slime_ayoung', 'sig_ayoung', '외계 액괴 대폭주', '🫠', 5, { pow: 3.2, drain: 0.3, dot: ['poison', 0.08, 3, 1], steal: ['def', 0.4, 3], truePct: 0.05, healCut: [0.5, 3], cd: 9 }, '우주 끝에서 밀려온 보랏빛 액괴가 와르르! 닿는 순간 방어가 녹아내리고, 녹은 기운은 전부 아영의 힘이 돼요.');
 P('slime_ayoung', 'sig_ayoung2', '분열 점액막', '🫧', 5, { shield: 0.25, regen: [0.05, 4], guard: [0.3, 3], cleanse: true, clone: [0.45, 0.9, 4], cloneBoom: 1.5, reflectDebuff: 3, cd: 9 }, '말랑한 몸이 둘로 셋으로 갈라졌다가 다시 합쳐져요. 나쁜 기운은 쏙 녹여 상대에게 되돌리고, 분열체는 마지막에 펑!');
@@ -730,14 +736,18 @@ P('slime_ayoung', 'sig_ayoung2', '분열 점액막', '🫧', 5, { shield: 0.25, 
 P('piglet', 'sig_piglet', '꿀꿀 박치기', '🐽', 3, { pow: 1.9, stun: 0.2 }, '작은 몸이지만 박치기는 진심이에요! 꽥!');
 P('mud_boar', 'sig_mud_boar', '진흙 투척', '🐗', 4, { pow: 1.8, defDown: [0.25, 3], cd: 3 }, '철벅! 진흙을 끼얹어 미끌미끌하게 만들어요.');
 P('golden_hog', 'sig_golden_hog', '황금 돌진', '🥇', 4, { pow: 2.2, pierce: 0.2, cd: 3 }, '반짝이는 엄니로 그대로 들이받아요. 광이 나서 눈이 부셔요!');
-P('jewel_boar', 'sig_jewel_boar', '보석 가시', '💎', 5, { pow: 2.8, crit: 0.25, cd: 5 }, '등에 돋은 보석 가시가 사방으로 번쩍여요.');
+P('jewel_boar', 'sig_jewel_boar', '보석 가시', '💎', 5, { pow: 2.2, crit: 0.25, thorns: { n: 3, per: 0.03, turns: 4 }, cd: 5 }, '등의 보석 가시가 상대 몸에 박혀요. 가시 박힌 상대는 나를 때릴 때마다 스스로 다쳐요.');
 P('jewel_boar', 'sig_jewel_boar2', '보석 광택', '✨', 4, { shield: 0.3, defUp: [0.3, 3] }, '몸의 보석이 빛나며 단단한 막을 둘러요.');
-P('treasure_hog', 'sig_treasure_hog', '보물 눈사태', '💰', 5, { pow: 1.5, hits: 2, stun: 0.25, cd: 4 }, '쌓아둔 보물이 와르르 쏟아지며 상대를 덮쳐요.');
+P('jewel_boar', 'sig_jewel_boar3', '결정 흡수', '💎', 5, { crystalVault: [3, 0.1], cd: 6 }, '맞을수록 세지는 역설. 디버프는 전부 결정 속으로.');
+P('treasure_hog', 'sig_treasure_hog', '보물 눈사태', '💰', 5, { pow: 1.5, hits: 2, stun: 0.25, coinRain: 0.04, cd: 4 }, '쏟아진 금화는 주워 담아야죠! 맞힌 만큼 이번 전투 골드 보상이 쌓여요 (트레이너의 펫만).');
 P('treasure_hog', 'sig_treasure_hog2', '보물 수호', '🛡️', 4, { shield: 0.35, regen: [0.06, 3], cd: 4 }, '보물 더미 속에 몸을 숨기고 천천히 회복해요.');
-P('pig_general', 'sig_pig_general', '돈가 돌격', '⚔️', 5, { pow: 3.0, recoil: 0.08, stun: 0.3, cd: 5 }, '장군의 돌진에 땅이 쿵쿵 흔들려요.');
+P('treasure_hog', 'sig_treasure_hog3', '보물 각성', '🎁', 5, { lootReserve: true, cost: 60, cd: 99 }, '이긴 뒤에 받을 첫 보상을 미리 찜해 둬요. 쌓아둔 보물이 두 배로 늘어나요.');
+P('pig_general', 'sig_pig_general', '돈가 돌격', '⚔️', 5, { pow: 2.6, trample: [3, 0.2], recoil: 0.08, stun: 0.3, cd: 5 }, '장군의 돌진은 방어진부터 짓밟아요. 상대의 좋은 효과를 깨뜨릴수록 돌격이 세져요.');
 P('pig_general', 'sig_pig_general2', '장군의 호령', '📯', 4, { atkUp: [0.5, 3], mana: 15 }, '우렁찬 꿀꿀 호령에 사기가 치솟아요.');
-P('golden_pig_boss', 'sig_golden_pig_boss', '황금의 포효', '👑', 5, { pow: 3.2, pierce: 0.35, truePct: 0.05, healCut: [0.5, 3], cd: 8 }, '온몸에서 황금빛이 뿜어져 나오며 모든 걸 꿰뚫어요.');
-P('golden_pig_boss', 'sig_golden_pig_boss2', '양승민의 재림', '🐷', 5, { heal: 0.4, regen: [0.07, 4], atkUp: [0.45, 4], defUp: [0.3, 4], cd: 8 }, '전설의 돼지가 황금빛 기운을 두르고 다시 일어서요.');
+P('pig_general', 'sig_pig_general3', '결사의 불꽃', '🔥', 5, { burnPact: [0.08, 0.15], cd: 99 }, '한 번 불이 붙으면, 꺼질 때까지 멈추지 않아요.');
+P('golden_pig_boss', 'sig_golden_pig_boss', '황금의 포효', '👑', 5, { pow: 2.8, pierce: 0.35, gapTrue: [0.35, 0.2, 0.03], cd: 8 }, '황금빛 포효가 체력의 격차를 그대로 꿰뚫어요. 상대가 나보다 튼튼할수록 방어 무시 피해가 커져요.');
+P('golden_pig_boss', 'sig_golden_pig_boss2', '양승민의 재림', '🐷', 5, { healLost: 0.5, hitCap: [0.2, 4], cd: 8 }, '전설의 돼지가 다시 일어나요. 잃은 체력의 절반을 되찾고, 황금 갑옷이 한 방에 큰 피해를 막아줘요.');
+P('golden_pig_boss', 'sig_golden_pig_boss3', '최후의 황금', '🏆', 5, { goldSave: true, cost: 70, cd: 99 }, '가장 빛나던 순간을 황금 속에 가둬 둬요. 쓰러지는 순간, 그때로 통째로 돌아가요.');
 
 // 스킬 속성 배정 (여기에 없는 스킬은 무속성이에요 · 전용기는 펫 속성을 따라가요)
 const ELEM_SKILLS = {
@@ -891,6 +901,53 @@ export function skillEffectLines(sk) {
   if (sk.venom) { const c = sk.venom; t.push(`🦖 ${c.turns}턴간 내 공격마다 독 스택 (기본 공격 +${c.basic} · 스킬 +${c.skill}) · ${c.pop}스택이면 **맹독 폭발**: 쌓인 독이 앞으로 줄 피해의 ×${c.popMult} 를 한 번에 (방어 무시) + 회복 -${P100(c.healCut[0])} (${c.healCut[1]}턴)`); }
   if (sk.cd) t.push(sk.cd >= 90 ? '⏳ 전투당 1회' : `⏳ 쿨타임 ${sk.cd}턴`);
   if (sk.cleanse) t.push('내 상태이상(화상·독·출혈·약화) 제거');
+  // 🆕 12차 확장 (완전 신규 매커니즘 1차 배치)
+  if (sk.melt) t.push(`☀️ 맞힐 때마다 상대 **방어력이 녹아내려요**: 방어력 -${P100(sk.melt[0])}씩 쌓여요 (최대 -${P100(sk.melt[1])} · ${sk.melt[2]}턴 · 연속으로 쓸수록 상대가 무너져요)`);
+  if (sk.feastAtk) t.push(`👻 쓸 때마다 **영혼이 쌓여 공격력 +${P100(sk.feastAtk[0])}** (최대 +${P100(sk.feastAtk[1])} · ${sk.feastAtk[2]}턴)`);
+  if (sk.flashover) t.push('🌋 상대에게 **화상이 없으면 불씨를 깊게(×1.5 · +1턴) 심어요** → 다음에 쓰면 그 화상이 한꺼번에 폭발해요 (깔고 → 터뜨리는 콤보)');
+  if (sk.wash) t.push('🌊 상대에게 **보호막이 없으면 파도가 발을 묶어요** (스피드 -40% 3턴 · 내 마나 +15)');
+  if (sk.coldSnap) t.push('🌨️ 방어가 멀쩡한 상대는 **발이 묶여요** (스피드 -25% 3턴) → 방어가 깎인 상대엔 기절 확정');
+  if (sk.eclipse) t.push('🌘 상대가 쓴 스킬이 없으면 **어둠이 상대 마나 25를 삼켜요**');
+  if (sk.plagueScale) t.push('🦠 상대에게 나쁜 효과가 하나도 없으면 **상처가 곪아 회복 -30%** (3턴)');
+  if (sk.cleanseHeal) t.push('🕊️ 정화할 나쁜 효과가 없으면 눈물이 **최대 체력 15% 보호막**이 돼요');
+  if (sk.voidEat) t.push('🕳️ 삼킬 좋은 효과가 없으면 **상대 마나 30을 삼키고 위력 +10%**');
+  if (sk.trample) t.push('⚔️ 짓밟을 좋은 효과가 없으면 **기세를 올려 방어력 +25%** (3턴)');
+  if (sk.lens) t.push(`☀️ 상대 **방어력이 단단할수록 더 깊이 꿰뚫어요**: 관통 = 기본 + (상대 방어 ÷ 내 공격) × ${P100(sk.lens[0])} (최대 ${P100(sk.lens[1])})`);
+  if (sk.coldSnap) t.push('🌨️ 이미 **방어력이 깎인 상대는 얼어붙어 기절 확정**');
+  if (sk.iceArmor) t.push(`🏔️ 준 피해의 **${P100(sk.iceArmor)}**가 부서진 얼음 보호막으로 내게 돌아와요 (최대 체력의 30%까지)`);
+  if (sk.shards) t.push(`🌠 **${sk.shards[1]}턴 뒤** 운석 파편이 한 번 더 떨어져요 (위력 ${P100(sk.shards[0])} · 전투가 끝나기 전까지)`);
+  if (sk.eclipse) t.push(`🌘 상대가 **방금 쓴 스킬의 쿨타임 +${sk.eclipse}** (어둠으로 덮어 봉인)`);
+  if (sk.allIn) t.push(`💥 내 **체력 비율만큼 위력 +${P100(sk.allIn[0])}까지** · 쓰고 나면 ${sk.allIn[2]}턴 동안 탈진(공격력 -${P100(sk.allIn[1])})`);
+  if (sk.feastMax) t.push(`👻 흡수가 **최대 체력을 넘치면 넘친 양의 ${P100(sk.feastMax[0])}만큼 최대 체력이 늘어요** (전투 중 최대 +${P100(sk.feastMax[1])})`);
+  if (sk.ironSkin) t.push(`💎 ${sk.ironSkin[1]}턴 동안 **최대 체력의 ${P100(sk.ironSkin[0])} 이하 피해는 완전히 튕겨내요**`);
+  if (sk.flashover) t.push(`🌋 상대에게 걸린 **화상의 남은 피해 ${P100(sk.flashover)}를 지금 한꺼번에** 입히고 화상을 태워 없애요 (그 뒤 새 화상을 걸어요)`);
+  if (sk.wash) t.push(`🌊 상대의 **보호막을 씻어내고**, 씻어낸 양의 ${P100(sk.wash)}만큼 방어 무시 피해를 추가로 줘요`);
+  if (sk.shock) t.push(`⚡ 상대 **마나의 ${P100(sk.shock[0])}**만큼 방어 무시 감전 피해 (최대 체력의 ${P100(sk.shock[1])}까지) · 마나가 많은 상대일수록 아파요 · 상대 마나 -30%`);
+  if (sk.voidEat) t.push(`🕳️ 상대의 **좋은 효과·분신·비둘기를 전부 삼켜요** · 삼킨 개수당 위력 +${P100(sk.voidEat)} (최대 5개)`);
+  if (sk.plagueScale) t.push(`🦠 상대에게 걸린 **나쁜 효과 종류 1개당 독 피해 +${P100(sk.plagueScale)}**`);
+  if (sk.cleanseHeal) t.push(`🕊️ 내게 걸린 **나쁜 효과 1종류당 추가 회복 +${P100(sk.cleanseHeal)}** (정화는 회복 뒤에)`);
+  if (sk.swampBloom) t.push(`🧙 상대에게 걸린 나쁜 효과(약화·지속피해)의 지속시간이 전부 **+${sk.swampBloom[0]}턴**, 걸린 종류당 최대 체력의 ${P100(sk.swampBloom[1])} 방어 무시 피해`);
+  if (sk.deep) t.push(`🌊 **남은 마나가 많을수록** 위력 증가 (마나 1당 +${P100(sk.deep)}, 최대 150까지)`);
+  if (sk.manaShield) t.push(`🌀 빨아들인 상대 마나 × ${sk.manaShield} 만큼 **보호막** (최대 체력의 35%까지)`);
+  if (sk.impact) t.push(`☄️ 위력이 **내 스피드 ÷ 상대 스피드** 비율로 변해요 (×${sk.impact[0]} ~ ×${sk.impact[1]}) · 빠를수록 세요`);
+  if (sk.thorns) t.push(`🌵 상대 몸에 **가시 ${sk.thorns.n}개**를 박아요 · ${sk.thorns.turns}턴 동안 상대가 나를 때릴 때마다 최대 체력의 ${P100(sk.thorns.per)} **방어 무시 자해** (가시 1개 소모)`);
+  if (sk.coinRain) t.push(`💰 맞힌 타마다 **이번 전투 골드 보상 +${P100(sk.coinRain)}** (트레이너의 펫만 · 한도 있음)`);
+  if (sk.trample) t.push(`⚔️ 먼저 상대의 좋은 효과를 **최대 ${sk.trample[0]}개** 짓밟고, 깨뜨린 개수당 위력 +${P100(sk.trample[1])}`);
+  if (sk.gapTrue) t.push(`👑 **체력 격차 × ${P100(sk.gapTrue[0])}** 만큼 방어 무시 피해 (최소 최대 체력의 ${P100(sk.gapTrue[2])} · 최대 ${P100(sk.gapTrue[1])}) — 상대 체력이 내 체력보다 많을수록 커져요`);
+  if (sk.healLost) t.push(`🐷 **잃은 체력의 ${P100(sk.healLost)}**를 회복해요 (많이 다쳤을수록 많이 나아요)`);
+  if (sk.hitCap) t.push(`👑 ${sk.hitCap[1]}턴 동안 **한 번에 받는 피해가 최대 체력의 ${P100(sk.hitCap[0])}를 넘지 못해요**`);
+  if (sk.mindCtl) t.push(`👽 ${sk.mindCtl[1]}턴 안에 상대가 쓰는 **다음 공격 스킬 ${sk.mindCtl[0]}번**이 상대 자신을 향해요`);
+  if (sk.crystalVault) t.push(`💎 ${sk.crystalVault[0]}턴 동안 나에게 들어오는 기절·약화·지속피해를 **저장**(적용 안 됨) · 끝나면 저장된 개수 × 상대 최대 체력의 ${P100(sk.crystalVault[1])} 방어 무시 피해로 되돌려요`);
+  if (sk.orbit) t.push(`☄️ 이후 ${sk.orbit[3]}턴마다 **저절로 낙하**(전투가 끝날 때까지 반복): 공격력의 ${P100(sk.orbit[0])} 피해 (방어 ${P100(sk.orbit[1])} 무시, 기절 ${P100(sk.orbit[2])})`);
+  if (sk.brandChain) t.push(`🔗 쌓인 **낙인 스택**만큼 지금 동시에 터뜨려요 (1스택당 공격력의 ${P100(sk.brandChain.hitPow)}, 최대 ${sk.brandChain.cap}연타) · 화상을 걸 때마다 스택 +1`);
+  if (sk.undyingHex) t.push(`🧟 적 공격력 -${P100(sk.undyingHex[0])} · 방어력 -${P100(sk.undyingHex[1])} — 턴으로는 안 풀리고, 적이 나를 **${sk.undyingHex[2]}번** 때려야 풀려요`);
+  if (sk.parasiteEgg) t.push(`🥚 적이 정화 효과를 쓰면 **즉시 부화**해 방어 무시로 최대 체력의 ${P100(sk.parasiteEgg[0])} 피해 (${sk.parasiteEgg[1]}턴 안에 안 터지면 사라져요)`);
+  if (sk.lootReserve) t.push(`🎁 이번 전투에서 **다음에 얻는 보상 하나**(가장 먼저 들어오는 것: 승리하면 골드, 포획하면 경험치)가 **${LOOT_RESERVE_MULT}배**가 돼요 (전투 중에만 쓸 수 있어요 · 이기거나 잡아야 받아요)`);
+  if (sk.goldSave) t.push(`🏆 시전 순간의 체력·마나·버프·디버프를 통째로 **저장**해 둬요 → 이번 전투에서 내가 쓰러지면 부활 대신 그 상태 그대로 **되돌아가요** (1회 · 체력은 최대 체력의 ${P100(GOLD_SAVE_CFG.minHp)} 아래로는 안 내려가요)`);
+  if (sk.fateReplay) t.push(`🎲 이번 전투에서 나에게 일어난 **행운**(급소·대박·기절 성공·지속피해 성공·회피) 중 가장 값어치 큰 것 하나를 골라 **그대로 재현**해요 (피해는 상대 최대 체력의 ${P100(FATE_CFG.dmgCap)}까지 · 한 번 재현한 행운은 사라져요)`);
+  // 🆕 12차 확장 (완전 신규 매커니즘 2차 배치)
+  if (sk.burnPact) t.push(`🔥 **멈출 수 없는 도화선**: 매 턴 최대 체력의 ${P100(sk.burnPact[0])}씩 자해하는 대신, 매 턴 공격력이 ${P100(sk.burnPact[1])}씩 **복리로** 불어나요 (전투가 끝나거나 쓰러질 때까지 계속)`);
+  if (sk.soulSwap) t.push(`👽 **신체 강탈**: ${sk.soulSwap}턴 동안 나와 상대의 공격력·방어력·스피드를 **완전히** 맞바꿔요 (서로의 스킬 위력도 바뀐 스탯 기준)`);
   return t;
 }
 
@@ -902,8 +959,8 @@ export const tierStars = (t) => '★'.repeat(Math.max(1, Math.min(5, t)));
 export function skillCategory(sk) {
   if (sk.pet) return '전용기';
   if (sk.pow || sk.bomb || sk.detonate) return '공격';
-  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward || sk.priority || sk.clone || sk.reflect || sk.reflectDebuff || sk.copy || sk.revive || sk.skillImmune || sk.cdReset || sk.devilDeal || sk.catchPro || sk.fightBuff || sk.allElem || sk.whoIs || sk.statRoll?.[1] === 'self') return '강화';
-  if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp || sk.steal || sk.buffXfer || sk.joker || sk.curse || sk.curseGrant || sk.lockSkills || sk.statRoll?.[1] === 'foe') return '약화';
+  if (sk.atkUp || sk.defUp || sk.mana || sk.echo || sk.convert || sk.ward || sk.priority || sk.clone || sk.reflect || sk.reflectDebuff || sk.copy || sk.revive || sk.skillImmune || sk.cdReset || sk.devilDeal || sk.catchPro || sk.fightBuff || sk.allElem || sk.whoIs || sk.statRoll?.[1] === 'self' || sk.crystalVault || sk.ironSkin || sk.healLost || sk.hitCap || sk.orbit || sk.brandChain || sk.burnPact || sk.soulSwap || sk.lootReserve || sk.goldSave || sk.fateReplay) return '강화';
+  if (sk.atkDown || sk.defDown || sk.stun || sk.dot || sk.drainMana || sk.stealMana || sk.swapHp || sk.steal || sk.buffXfer || sk.joker || sk.curse || sk.curseGrant || sk.lockSkills || sk.statRoll?.[1] === 'foe' || sk.undyingHex || sk.parasiteEgg) return '약화';
   return '회복·방어';
 }
 
@@ -985,8 +1042,8 @@ export function grantSkills(inst, rng = Math.random, gradeOrder = GRADE_TIER_BAS
 // st(상태): { dots:[{kind,pct,turns}], stun, atkUp, atkDown, defUp, defDown, guard, shield, evade, regen }
 export const newSide = () => ({});
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-export const effAtk = (X) => (X.atk + (X.st.defToAtk?.amt ?? 0)) * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0), 0.2, 4) * (X.st.burst?.mult ?? 1) * (X.st.statMod?.atk ?? 1) * (1 + (X.st.sunrise?.atk ?? X.st.sunset?.atk ?? 0)) * (X.st.prideNull ? 0 : 1); // 👿 군주의 오만에 무시당하면 공격력 0 · 🌅 일출의 가호 누적
-export const effDef = (X) => (X.st.defToAtk || X.st.prideNull ? 0 : X.def) * clamp(1 + (X.st.defUp?.pct ?? 0) - (X.st.defDown?.pct ?? 0), 0.2, 4) * (X.st.statMod?.def ?? 1);
+export const effAtk = (X) => (X.atk + (X.st.defToAtk?.amt ?? 0)) * clamp(1 + (X.st.atkUp?.pct ?? 0) - (X.st.atkDown?.pct ?? 0) - (X.st.undyingHex?.atk ?? 0), 0.2, 4) * (X.st.burst?.mult ?? 1) * (X.st.statMod?.atk ?? 1) * (1 + (X.st.sunrise?.atk ?? X.st.sunset?.atk ?? 0)) * (X.st.prideNull ? 0 : 1) * (X.st.burnPact?.mult ?? 1); // 👿 군주의 오만에 무시당하면 공격력 0 · 🌅 일출의 가호 누적 · ⚰️ 불멸의 저주(undyingHex) · 🔥 결사의 불꽃(burnPact)
+export const effDef = (X) => (X.st.defToAtk || X.st.prideNull ? 0 : X.def) * clamp(1 + (X.st.defUp?.pct ?? 0) - (X.st.defDown?.pct ?? 0) - (X.st.undyingHex?.def ?? 0), 0.2, 4) * (X.st.statMod?.def ?? 1);
 export const effSpd = (X) => (X.spd ?? 0) * clamp(1 + (X.st.spdUp?.pct ?? 0) - (X.st.spdDown?.pct ?? 0) - (X.st.frost ? X.st.frost.n * X.st.frost.spd : 0), 0.2, 4) * (X.st.statMod?.spd ?? 1); // ❄️ 서리: 스택당 스피드 감소
 
 // 내가 먼저 움직이는가? (priority 가 한쪽만 있으면 그쪽이 먼저, 둘 다/둘 다 없으면 스피드 비교, 같으면 내가 먼저)
@@ -1077,6 +1134,18 @@ export function afterHit(X, Y, dmg, log, viaSkill = false) {
       log.push(`　🎯 **사냥 표식 폭발!** ${X.name}에게 최대 체력의 ${P100(mk.pct)} **${n}** 고정 피해`);
     }
   }
+  if (Y.st.thorns && Y.hp > 0 && dmg > 0 && !Y.st.skillImmune) { // 🌵 보석 가시: 가시 박힌 쪽이 때릴 때마다 스스로 다쳐요
+    const th = Y.st.thorns;
+    const n = Math.max(1, Math.round(Y.max * th.per));
+    Y.hp = Math.max(0, Y.hp - n);
+    th.n -= 1;
+    log.push(`　🌵 ${Y.name}의 몸에 박힌 보석 가시가 파고들어요! **${n}** 방어 무시 피해 (남은 가시 ${Math.max(0, th.n)}개)`);
+    if (th.n <= 0) delete Y.st.thorns;
+  }
+  if (Y.st.undyingHex) { // 🧟 불멸의 저주: Y가 X를 때릴 때마다(=시전자가 맞을 때마다) Y에게 걸린 저주가 옅어져요
+    const u = Y.st.undyingHex;
+    if (--u.hitsLeft <= 0) { delete Y.st.undyingHex; log.push(`　🧟 ${Y.name}에게 걸렸던 불멸의 저주가 드디어 풀렸어요!`); }
+  }
   X.st.turnTaken = (X.st.turnTaken ?? 0) + dmg;
   X.st.hitCount = (X.st.hitCount ?? 0) + 1; // 😈 이번 전투에서 맞은 횟수 (마왕의 포효)
   if (Y.st?.devil) Y.st.devil.dealt += dmg; // 😈 악마의 거래: 내가 준 피해 누적
@@ -1118,7 +1187,7 @@ export function berserkFinish(st, foe, rng, log, viaSkill = false) {
 
 export function mitigate(X, dmg, rng = Math.random, opts = {}) { // opts.basic: 기본 공격이면 true (비둘기의 도발이 달라져요)
   const st = X.st;
-  if (st.evade > 0) { st.evade -= 1; return { dmg: 0, note: ' (🌀 회피!)' }; }
+  if (st.evade > 0) { st.evade -= 1; recordLuck(st, 'evade', dmg); return { dmg: 0, note: ' (🌀 회피!)' }; }
   if (st.berserk && dmg > 0 && dmg <= st.berserk.cap) return { dmg: 0, note: ' (🔥 광폭화: 약한 피해 무시!)' }; // 한 번에 들어오는 피해가 한도(최대 체력의 30%) 이하면 통째로 무시
   let note = '';
   if (st.frozen && dmg > 0) { dmg = Math.round(dmg * FROZEN_CFG.dmgMult); note += ` (🧊 얼음: ×${FROZEN_CFG.dmgMult})`; } // 얼어 있으면 받는 피해가 커져요
@@ -1140,7 +1209,12 @@ export function mitigate(X, dmg, rng = Math.random, opts = {}) { // opts.basic: 
   }
   if (st.coinflip) {
     if (rng() < 0.5) { dmg = Math.round(dmg * 1.5); note += ' (🎲 모 아니면 도: 1.5배!)'; } // 🛠️ 2배 → 1.5배 (기댓값 ×0.75 가 되는 도박형 방어)
-    else { dmg = 0; note += ' (🎲 모 아니면 도: 0!)'; }
+    else { recordLuck(st, 'evade', dmg); dmg = 0; note += ' (🎲 모 아니면 도: 0!)'; }
+  }
+  if (st.ironSkin && dmg > 0 && dmg <= Math.round(X.max * st.ironSkin.pct)) return { dmg: 0, note: ' (💎 금강불괴: 튕겨냈어요!)' }; // 약한 피해는 통째로 무효
+  if (st.hitCap && dmg > 0) { // 👑 황금 갑옷: 한 번에 들어오는 피해에 상한
+    const cap = Math.max(1, Math.round(X.max * st.hitCap.pct));
+    if (dmg > cap) { note += ` (👑 황금 갑옷: ${dmg} → ${cap})`; dmg = cap; }
   }
   if (st.guard && dmg > 0) { dmg = Math.max(1, Math.round(dmg * (1 - st.guard.pct))); note += ' (🛡️ 방어)'; }
   if (st.sunCharge && dmg > 0) { dmg = Math.max(1, Math.round(dmg * (1 - st.sunCharge.guard))); note += ' (☀️ 충전 중 감쇄)'; }
@@ -1176,7 +1250,7 @@ const heal = (X, n) => {
 
 // ───────── 🆕 배치 3 헬퍼 ─────────
 // 스킬로 "적에게 가는" 효과 칸들 — 상대가 스킬 면역이면 castSkill 이 이 칸들을 지워요
-const HOSTILE_KEYS = ['winter', 'pharaoh', 'reign', 'manaSiphon', 'dragonFlame', 'spdDown', 'drowsy', 'mark', 'lamp', 'pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'stealSpd', 'turnCut', 'healCut', 'atkDown', 'defDown', 'powDown', 'manaDown', 'stun', 'dot', 'drainMana', 'freeze', 'swapHp', 'buffXfer', 'joker', 'curseGrant', 'lockSkills'];
+const HOSTILE_KEYS = ['winter', 'pharaoh', 'reign', 'manaSiphon', 'dragonFlame', 'spdDown', 'drowsy', 'mark', 'lamp', 'pow', 'truePct', 'bomb', 'detonate', 'stealMana', 'steal', 'stealSpd', 'turnCut', 'healCut', 'atkDown', 'defDown', 'powDown', 'manaDown', 'stun', 'dot', 'drainMana', 'freeze', 'swapHp', 'buffXfer', 'joker', 'curseGrant', 'lockSkills', 'thorns', 'mindCtl', 'swampBloom', 'melt', 'eclipse', 'shards', 'voidEat', 'wash', 'shock', 'flashover', 'plagueScale'];
 export const ROLL_CAP = { 1: 1.3, 2: 1.5, 3: 1.8, 4: 2.2, 5: 3 }; // 🎰 등급별 능력치 변동 상한 (배수)
 const STAT_LABEL = { atk: '⚔️ 공격력', def: '🧱 방어력', spd: '👟 스피드' };
 export const cdLeft = (st, id) => st?.cds?.[id] ?? 0; // ⏳ 남은 쿨타임 (0 이면 쓸 수 있어요)
@@ -1299,6 +1373,76 @@ export function revertCurseSlots(skills, st) {
   return changed;
 }
 
+// 🎁 보물 각성: 다음에 얻는 보상 하나를 배수로 (봇이 보상을 줄 때 맨 처음 들어오는 것에 takeLootReserve 를 곱해요)
+export const LOOT_RESERVE_MULT = 2;
+export function takeLootReserve(st) {
+  if (!st?.lootReserve) return 1;
+  delete st.lootReserve;
+  return LOOT_RESERVE_MULT;
+}
+
+// 🏆 최후의 황금: 시전 순간을 저장해 두고, 쓰러지면 그때로 완전히 되돌아가요
+export const GOLD_SAVE_CFG = { minHp: 0.25 }; // 되돌아갈 때 체력 최소 비율 (저장 때 체력이 너무 낮으면 바로 또 쓰러져서)
+// 되감기에서 건드리지 않는 칸: 전투 진행 기록 + 바깥 능력치(최대마나·최대체력·몸 바꾸기)와 얽힌 칸
+const GOLD_KEEP = ['cds', 'hist', 'hitCount', 'snowCount', 'fightBuff', 'catchPro', 'maxBonus', 'manaBonus', 'manaMaxUp', 'manaDown', 'soulSwap', 'swallowSaved', 'prideUsed', 'lastLaughUsed', 'brandStack', 'luck', 'last', 'act', 'goldSave', 'goldUsed', 'lootReserve'];
+const jsonCopy = (v) => JSON.parse(JSON.stringify(v));
+function snapGold(A) {
+  const st = {};
+  for (const [k, v] of Object.entries(A.st)) if (!GOLD_KEEP.includes(k) && typeof v !== 'function') st[k] = jsonCopy(v);
+  return { hp: A.hp, mana: Math.round(A.mana), st };
+}
+function goldenRewind(X, log) {
+  const g = X.st?.goldSave;
+  if (!g || X.hp > 0) return false;
+  delete X.st.goldSave;
+  X.st.goldUsed = true;
+  for (const k of Object.keys(X.st)) if (!GOLD_KEEP.includes(k)) delete X.st[k]; // 현재 상태 싹 지우고
+  Object.assign(X.st, jsonCopy(g.st)); // 저장해 둔 상태(버프·디버프 전부)로
+  X.hp = clamp(Math.max(g.hp, Math.round(X.max * GOLD_SAVE_CFG.minHp)), 1, X.max);
+  X.mana = Math.min(g.mana, X.manaMax ?? g.mana);
+  log.push(`🏆 ${X.name}의 몸이 황금빛으로 물들며 **저장해 둔 그 순간으로 되돌아갔어요**! 체력 ${X.hp}/${X.max} · 마나 ${Math.round(X.mana)} · 버프·디버프도 그때 그대로 (1회)`);
+  return true;
+}
+
+// 🎲 운명 재현: 나에게 일어난 행운을 기록해 뒀다가 가장 값어치 큰 하나를 되살려요
+export const FATE_CFG = { keep: 10, dmgCap: 0.35 }; // keep: 기억하는 행운 개수 · dmgCap: 재현 피해 상한(상대 최대 체력 비율)
+export function recordLuck(st, kind, score, data = {}) { // kind: crit | jackpot | stun | dot | evade (봇의 기본 공격 급소도 이걸로 기록할 수 있어요)
+  if (!st || !(score > 0)) return;
+  const L = (st.luck ??= []);
+  L.push({ kind, score: Math.round(score), ...data });
+  if (L.length > FATE_CFG.keep) { L.sort((a, b) => b.score - a.score); L.length = FATE_CFG.keep; }
+}
+export function fatePick(st, foeImmune = false) {
+  const L = (st?.luck ?? []).filter((e) => !foeImmune || e.kind === 'evade'); // 상대가 스킬 면역이면 내게 쓰는 행운(회피)만
+  return L.length ? L.reduce((a, b) => (b.score > a.score ? b : a)) : null;
+}
+function castFate(A, B, rng, log) {
+  const ev = fatePick(A.st, !!B.st.skillImmune);
+  if (!ev) return;
+  A.st.luck.splice(A.st.luck.indexOf(ev), 1); // 한 번 재현한 행운은 사라져요
+  const label = { crit: '💥 급소', jackpot: '🎰 대박', stun: '💫 기절 성공', dot: '☠️ 지속피해 성공', evade: '🌀 회피' }[ev.kind] ?? '🍀 행운';
+  log.push(`　🎲 이번 싸움 가장 운 좋았던 순간: **${label}** (값어치 ${ev.score}) — 그대로 재현해요!`);
+  if (ev.kind === 'evade') { A.st.evade = (A.st.evade ?? 0) + 1; log.push('　🌀 그때처럼 다음 공격을 한 번 완전히 피해요!'); return; }
+  if (B.hp <= 0) return;
+  if (ev.kind === 'crit' || ev.kind === 'jackpot') {
+    const n = Math.max(1, Math.min(ev.dmg ?? ev.score, Math.round(B.max * FATE_CFG.dmgCap)));
+    const hit = mitigate(B, n, rng);
+    B.hp = Math.max(0, B.hp - hit.dmg);
+    log.push(`　${ev.kind === 'crit' ? '💥' : '🎰'} 그 순간이 다시 ${B.name}에게 꽂혀요! **${hit.dmg}** 데미지${hit.note}`);
+    afterHit(B, A, hit.dmg, log, true);
+  } else if (ev.kind === 'stun') {
+    if (B.st.debuffImmune || B.st.sunCharge) log.push(`　🛡️ ${B.name}은(는) 기절하지 않는 상태라 막혔어요`);
+    else { B.st.stun = 1; log.push(`　💫 ${B.name}(이)가 다시 **기절**했어요!`); }
+  } else if (ev.kind === 'dot' && ev.dot) {
+    if (B.st.debuffImmune) log.push(`　🛡️ ${B.name}은(는) 나쁜 효과에 면역이라 막혔어요`);
+    else {
+      B.st.dots = (B.st.dots ?? []).filter((d) => d.kind !== ev.dot[0]);
+      B.st.dots.push({ kind: ev.dot[0], pct: ev.dot[1], turns: ev.dot[2] });
+      log.push(`　${DOT[ev.dot[0]] ?? ev.dot[0]} ${B.name}에게 ${ev.dot[2]}턴 동안 다시!`);
+    }
+  }
+}
+
 // 🪽 부활: 쓰러졌고 부활 효과가 남아 있으면 되살려요 (남은 횟수가 0 이 되면 효과 사라짐)
 // 🐛 모래 삼키기: 삼킨 동안 쓰러지기 직전에 전투당 1회 최대 체력이 늘고 체력 비율로 일어나요 (부활이 먼저 쓰이고, 부활이 없을 때 여기로 와요)
 function sandLastStand(X, log) {
@@ -1320,7 +1464,7 @@ function sandLastStand(X, log) {
 
 export function tryRevive(X, log, foe = null) {
   const r = X.st?.revive;
-  if (!r || X.hp > 0) return sandLastStand(X, log);
+  if (!r || X.hp > 0) return sandLastStand(X, log) || goldenRewind(X, log); // 부활 → 모래 삼키기 → 최후의 황금 순서
   const blast = r.blast;
   const blastElem = r.elem;
   let gain = 0;
@@ -1368,6 +1512,7 @@ const flushQ = (X, log) => { // 🪦 heal() 안에서 쌓아 둔 글(파라오�
 const pct1 = (x) => `${+(x * 100).toFixed(1)}%`;
 
 // 내 나쁜 효과를 전부 지우고 지운 개수를 돌려줘요
+const debuffCount = (st) => new Set((st.dots ?? []).map((d) => d.kind)).size + ['atkDown', 'defDown', 'spdDown', 'powDown', 'manaDown', 'healCut', 'stun', 'frozen'].filter((k) => st[k]).length; // 상대에게 걸린 나쁜 효과 종류 수
 function purgeDebuffs(st) {
   let n = new Set((st.dots ?? []).map((d) => d.kind)).size;
   st.dots = [];
@@ -1596,7 +1741,12 @@ export function castSkill(sk, A, B, rng, log) {
   if (sk.pride && A.st.prideUsed) return fizzle('이번 전투에서 이미 군림했어요…');
   if (sk.lastLaugh && A.st.lastLaughUsed) return fizzle('이번 전투에서 이미 웃었어요…');
   if (sk.devilDeal && A.st.devil) return fizzle('이미 악마와 거래 중이에요…');
-  if ((sk.catchPro || sk.fightBuff) && !(A.fight && A.st === A.fight.mySt)) return fizzle('이 스킬은 트레이너의 펫만 쓸 수 있어요…'); // 🆕 배치 5: 포획·보상 스킬은 내 쪽만
+  if (sk.burnPact && A.st.burnPact) return fizzle('이미 도화선이 타오르고 있어요…');
+  if (sk.soulSwap && (A.st.soulSwap || B.st.soulSwap)) return fizzle('이미 몸이 뒤바뀐 상태예요…');
+  if (sk.goldSave && (A.st.goldSave || A.st.goldUsed)) return fizzle('이미 황금 속에 순간을 저장해 뒀어요…');
+  if (sk.lootReserve && A.st.lootReserve) return fizzle('이미 보상을 찜해 뒀어요…');
+  if (sk.fateReplay && !fatePick(A.st, !!B.st.skillImmune)) return fizzle('재현할 행운이 아직 없어요…');
+  if ((sk.catchPro || sk.fightBuff || sk.lootReserve) && !(A.fight && A.st === A.fight.mySt)) return fizzle('이 스킬은 트레이너의 펫만 쓸 수 있어요…'); // 🆕 배치 5: 포획·보상 스킬은 내 쪽만
   if (sk.curseGrant && !A.st.cursed) { revertCurseSlots(A.skills, A.st); return fizzle('부여할 저주가 사라졌어요…'); }
   if (sk.dud) { log.push('　🃏 조커 카드… 아무 일도 일어나지 않아요'); return; }
   if (sk.trickster && !trickSrc(B)) return fizzle('복제할 스킬이 없어요…');
@@ -1611,6 +1761,11 @@ export function castSkill(sk, A, B, rng, log) {
     A.mana -= m;
     log.push(`　🕯️ ${A.name}에게 달린 불빛이 깜빡여요! 최대 체력의 ${P100(A.st.lamp.pct)} **${n}** 고정 피해 + 마나 -${m}`);
     if (A.hp <= 0) return;
+  }
+  if (A.st.mindCtl && sk.pow && !sk.echoed && !sk.copied && !A.st.skillImmune) { // 👽 정신 지배: 공격 스킬이 엉뚱하게 자기 자신을 향해요
+    if (--A.st.mindCtl.uses <= 0) delete A.st.mindCtl;
+    log.push(`　👽 **정신 지배!** ${A.name}의 ${sk.name}이(가) 엉뚱하게 ${A.name} 자신을 향해요!`);
+    B = A;
   }
   if (!sk.echoed) A.st.act = ['heal', 'regen', 'shield', 'guard', 'atkUp', 'defUp', 'burstAtk', 'revive', 'atkRegen', 'evade', 'potion'].some((k) => sk[k]) ? 'read' : 'other'; // 👁️ 내가 마지막에 한 행동 종류 (급강하 폭격의 "읽기"용)
   if (!sk.echoed) A.st.last = sk.copied ? sk.srcId : sk.id; // 🆕 "마지막에 쓴 스킬" 기록 (복사용)
@@ -1713,8 +1868,10 @@ export function castSkill(sk, A, B, rng, log) {
       log.push(`　😤 아플수록 강해져요! (데미지 ×${m.toFixed(2)})`);
     }
   }
+  let jackpot = false;
   if (sk.gamble) {
     if (rng() < sk.gamble[0]) {
+      jackpot = true;
       mult *= sk.gamble[1];
       log.push(`　🎲 **대박!** (데미지 ×${sk.gamble[1]})`);
     } else {
@@ -1754,6 +1911,98 @@ export function castSkill(sk, A, B, rng, log) {
     A.hp -= dragonBurn;
     log.push(`　🔥 체력 **${dragonBurn}** 을(를) 태워 업화를 지폈어요!`);
     if (B.hp / B.max <= c.low) { mult *= c.lowMult; log.push(`　🐉 상대가 약해졌어요! 위력 ×${c.lowMult}`); }
+  }
+  if (sk.impact) { // ☄️ 혜성 충돌: 내 스피드 ÷ 상대 스피드
+    const ratio = clamp(effSpd(A) / Math.max(1, effSpd(B)), sk.impact[0], sk.impact[1]);
+    mult *= ratio;
+    log.push(`　☄️ 스피드 비율 **${ratio.toFixed(2)}** → 충돌 위력 ×${ratio.toFixed(2)}${ratio >= sk.impact[1] ? ' (최대!)' : ratio <= sk.impact[0] ? ' (최소…)' : ''}`);
+  }
+  if (sk.trample && !immune) { // ⚔️ 돈가 돌격: 좋은 효과를 짓밟고 개수당 위력 증가
+    const k = destroyBuffs(B, sk.trample[0], rng);
+    if (k > 0) { mult *= 1 + k * sk.trample[1]; log.push(`　⚔️ ${B.name}의 좋은 효과 ${k}개를 짓밟았어요! (위력 +${P100(k * sk.trample[1])})`); }
+    else {
+      A.st.defUp = { pct: Math.max(A.st.defUp?.pct ?? 0, 0.25), turns: Math.max(A.st.defUp?.turns ?? 0, 4) };
+      log.push('　⚔️ 짓밟을 게 없어서 대신 기세를 올려요! 방어력 +25% (3턴)');
+    }
+  }
+  if (sk.lens) { // ☀️ 태양광선: 단단할수록 더 깊이 꿰뚫어요
+    const r = effDef(B) / Math.max(1, effAtk(A));
+    const p = Math.min(sk.lens[1], (sk.pierce ?? 0) + r * sk.lens[0]);
+    sk = { ...sk, pierce: p };
+    log.push(`　☀️ 집광! 상대 방어가 단단한 만큼 더 깊이 꿰뚫어요 (관통 ${P100(p)})`);
+  }
+  if (sk.coldSnap && sk.stun && B.st.defDown && !immune) { // 🌨️ 눈보라: 방어가 무너진 상대는 얼어붙어요
+    sk = { ...sk, stun: 1 };
+    log.push(`　🌨️ 방어가 무너진 ${B.name}은(는) 눈보라에 얼어붙어요! 기절 확정`);
+  }
+  if (sk.coldSnap && !immune && !B.st.defDown && !B.st.debuffImmune) { // 🌨️ 눈보라 1단계: 발을 묶고 방어를 깎아요
+    B.st.spdDown = { pct: Math.max(B.st.spdDown?.pct ?? 0, 0.25), turns: Math.max(B.st.spdDown?.turns ?? 0, 4) };
+    log.push(`　🌨️ 눈보라에 ${B.name}의 발이 묶여요! 스피드 -25% (3턴) — 방어가 깎인 뒤 다시 맞으면 기절해요`);
+  }
+  if (sk.allIn) { // 💥 전력투구: 체력이 가득할수록 위력 증가
+    const hr = clamp(A.hp / A.max, 0, 1);
+    const m = 1 + hr * sk.allIn[0];
+    mult *= m;
+    log.push(`　💥 전부 쏟아부어요! 체력 ${Math.round(hr * 100)}% → 위력 ×${m.toFixed(2)}`);
+  }
+  if (sk.deep) { // 🌊 대양의 꼬리치기: 남은 마나가 많을수록 묵직해요
+    const m = Math.min(A.mana, 150);
+    const dm = 1 + m * sk.deep;
+    mult *= dm;
+    log.push(`　🌊 수심이 깊어요! 남은 마나 ${Math.round(m)} → 위력 ×${dm.toFixed(2)}`);
+  }
+  if (sk.flashover && !immune && sk.dot && !(B.st.dots ?? []).some((d) => d.kind === 'burn')) { // 🌋 업화 1단계: 불씨를 깊게 심어요
+    sk = { ...sk, dot: [sk.dot[0], sk.dot[1] * 1.5, sk.dot[2] + 1, sk.dot[3]] };
+    log.push('　🌋 불씨를 깊게 심어요! (화상 ×1.5 · +1턴) — 다음 업화에서 한꺼번에 폭발해요');
+  }
+  if (sk.flashover && !immune) { // 🌋 업화: 상대의 화상을 한꺼번에 폭발
+    const bd = (B.st.dots ?? []).filter((d) => d.kind === 'burn');
+    if (bd.length) {
+      const tot = bd.reduce((s, d) => s + B.max * d.pct * d.turns, 0);
+      const n = Math.max(1, Math.round(tot * sk.flashover));
+      B.st.dots = B.st.dots.filter((d) => d.kind !== 'burn');
+      B.hp = Math.max(0, B.hp - n);
+      dealt += n;
+      log.push(`　🌋 ${B.name}의 화상이 한꺼번에 폭발해요! 방어 무시 **${n}** 피해`);
+    }
+  }
+  if (sk.wash && !immune && !(B.st.shield > 0) && !B.st.debuffImmune) { // 🌊 해일: 보호막이 없으면 파도가 발을 묶어요
+    B.st.spdDown = { pct: Math.max(B.st.spdDown?.pct ?? 0, 0.4), turns: Math.max(B.st.spdDown?.turns ?? 0, 4) };
+    A.mana = Math.min(A.manaMax ?? A.mana + 15, A.mana + 15);
+    log.push(`　🌊 파도가 ${B.name}의 발을 묶어요! 스피드 -40% (3턴) · 내 마나 +15`);
+  }
+  if (sk.wash && !immune && B.st.shield > 0) { // 🌊 해일: 보호막을 씻어내요
+    const s = B.st.shield;
+    const n = Math.max(1, Math.round(s * sk.wash));
+    B.st.shield = 0;
+    B.hp = Math.max(0, B.hp - n);
+    dealt += n;
+    log.push(`　🌊 ${B.name}의 보호막 ${s}을(를) 씻어냈어요! 방어 무시 **${n}** 피해`);
+  }
+  if (sk.voidEat && !immune) { // 🕳️ 공허붕괴: 좋은 효과를 전부 삼켜요
+    let k = destroyBuffs(B, 9, rng);
+    if (B.st.clone) { delete B.st.clone; k++; }
+    if (B.st.pigeon) { delete B.st.pigeon; k++; }
+    const u = Math.min(k, 5);
+    if (u > 0) { mult *= 1 + u * sk.voidEat; log.push(`　🕳️ ${B.name}의 좋은 효과 ${k}개를 공허가 삼켰어요! (위력 +${P100(u * sk.voidEat)})`); }
+    else {
+      const m = Math.min(B.mana, 30);
+      B.mana -= m;
+      mult *= 1.1;
+      log.push(`　🕳️ 삼킬 효과가 없어서 대신 마나 ${m}을(를) 삼켰어요! (위력 +10%)`);
+    }
+  }
+  if (sk.plagueScale && sk.dot && !immune && debuffCount(B.st) === 0) { // 🦠 나쁜 효과가 없으면 상처가 곪아요
+    sk = { ...sk, healCut: [0.3, 3] };
+    log.push('　🦠 역병이 상처를 곪게 해요! 회복 -30% (3턴)');
+  }
+  if (sk.plagueScale && sk.dot && !immune) { // 🦠 대역병: 걸린 나쁜 효과가 많을수록 독이 독해져요
+    const c = debuffCount(B.st);
+    if (c > 0) {
+      const f = 1 + c * sk.plagueScale;
+      sk = { ...sk, dot: [sk.dot[0], sk.dot[1] * f, sk.dot[2], sk.dot[3]] };
+      log.push(`　🦠 ${B.name}에게 걸린 나쁜 효과 ${c}종이 역병의 먹이가 돼요! 독 피해 ×${f.toFixed(2)}`);
+    }
   }
   let pureN = 0;
   if (sk.pureCharge) { // 🌈 순결의 돌진: 나쁜 효과를 전부 떨치고, 지운 개수당 위력 증가
@@ -1827,8 +2076,53 @@ export function castSkill(sk, A, B, rng, log) {
       B.hp = Math.max(0, B.hp - hit.dmg);
       dealt += hit.dmg;
       log.push(`　${hits > 1 ? `${i + 1}타 ` : ''}${crit ? '💥 급소! ' : ''}${B.name}에게 **${hit.dmg}** 데미지${hit.note}`);
+      if (crit && !A.st.devil && hit.dmg > 0) recordLuck(A.st, 'crit', hit.dmg, { dmg: hit.dmg }); // 🎲 운명 재현이 기억해요 (악마의 거래 확정 급소는 행운이 아니에요)
       afterHit(B, A, hit.dmg, log, true); // 🆕 반사·받은 피해 기록
     }
+  }
+  if (jackpot && dealt > 0) recordLuck(A.st, 'jackpot', dealt, { dmg: dealt });
+  if (sk.coinRain && landed > 0 && A.fight && A.st === A.fight.mySt) { // 💰 보물 눈사태: 맞힌 타마다 골드 보상이 쌓여요
+    const fb = (A.st.fightBuff ??= {});
+    fb.gold = Math.min(FIGHT_BUFF_CAP.gold ?? 1, (fb.gold ?? 0) + landed * sk.coinRain);
+    log.push(`　💰 금화가 ${landed}번 쏟아졌어요! 이번 전투 골드 보상 **+${P100(landed * sk.coinRain)}** (지금까지 ${fightBuffText(fb, ['gold'])})`);
+  }
+  if (sk.melt && landed > 0 && B.hp > 0 && !immune && !B.st.debuffImmune) { // ☀️ 태양광선: 맞힐수록 방어력이 녹아내려요
+    const cur = B.st.defDown?.pct ?? 0;
+    const nxt = Math.min(sk.melt[1], cur + sk.melt[0]);
+    B.st.defDown = { pct: nxt, turns: Math.max(B.st.defDown?.turns ?? 0, sk.melt[2] + 1) };
+    log.push(`　☀️ ${B.name}의 방어력이 녹아내려요! -${P100(nxt)} (${sk.melt[2]}턴 · 쌓일수록 무너져요)`);
+  }
+  if (sk.iceArmor && dealt > 0) { // 🏔️ 빙하붕괴: 부서진 얼음이 보호막으로
+    const capAmt = Math.round(A.max * 0.3);
+    const add = Math.min(capAmt - (A.st.shield ?? 0), Math.round(dealt * sk.iceArmor));
+    if (add > 0) { A.st.shield = (A.st.shield ?? 0) + add; log.push(`　🏔️ 부서진 얼음이 내 몸을 감싸요! 🔰 보호막 +${add}`); }
+  }
+  if (sk.eclipse && !immune && B.st.last && SKILLS[B.st.last]) { // 🌘 일식광선: 방금 쓴 스킬을 어둠으로 덮어요
+    const id = B.st.last;
+    (B.st.cds ??= {})[id] = (B.st.cds[id] ?? 0) + sk.eclipse;
+    log.push(`　🌘 ${B.name}이(가) 방금 쓴 ${SKILLS[id].emoji} **${SKILLS[id].name}**이(가) 어둠에 덮였어요! 쿨타임 +${sk.eclipse}`);
+  }
+  if (sk.eclipse && !immune && !(B.st.last && SKILLS[B.st.last])) { // 🌘 덮을 스킬이 없으면 마나를 삼켜요
+    const m = Math.min(B.mana, 25);
+    B.mana -= m;
+    log.push(`　🌘 덮을 스킬이 없어서 어둠이 ${B.name}의 마나 ${m}을(를) 삼켰어요`);
+  }
+  if (sk.shards && !immune && A.hp > 0) { // 🌠 운석낙하: 파편이 뒤따라 떨어져요
+    A.st.shards = { pow: sk.shards[0], turns: sk.shards[1] + 1, elem: skElem };
+    log.push(`　🌠 하늘에서 운석 파편이 따라 내려와요! ${sk.shards[1]}턴 뒤 한 번 더 떨어져요`);
+  }
+  if (sk.allIn) { // 💥 전력투구 뒤 탈진
+    A.st.atkDown = { pct: Math.max(A.st.atkDown?.pct ?? 0, sk.allIn[1]), turns: sk.allIn[2] + 1 };
+    log.push(`　😮‍💨 전부 쏟아부어 탈진했어요… ${sk.allIn[2]}턴 동안 공격력 -${P100(sk.allIn[1])}`);
+  }
+  if (sk.shock && B.hp > 0 && !immune && B.mana > 0) { // ⚡ 뇌우: 상대 마나를 타고 흐르는 전기
+    const m = B.mana;
+    const n = Math.max(1, Math.round(Math.min(B.max * sk.shock[1], m * sk.shock[0])));
+    const l = Math.round(m * 0.3);
+    B.hp = Math.max(0, B.hp - n);
+    B.mana = Math.max(0, B.mana - l);
+    dealt += n;
+    log.push(`　⚡ 마나를 타고 전기가 흘러요! 방어 무시 **${n}** 피해 · 마나 -${l}`);
   }
   if (sk.truePct && B.hp > 0) {
     const n = Math.max(1, Math.round(B.max * sk.truePct));
@@ -1836,16 +2130,33 @@ export function castSkill(sk, A, B, rng, log) {
     dealt += n;
     log.push(`　🎯 방어 무시 고정 피해 **${n}** (최대체력의 ${P100(sk.truePct)})`);
   }
+  if (sk.gapTrue && B.hp > 0 && !immune) { // 👑 황금의 포효: 체력 격차만큼 방어 무시 피해
+    const [frac, capP, floorP] = sk.gapTrue;
+    const gap = Math.max(0, B.hp - A.hp);
+    const n = Math.max(1, Math.round(clamp(gap * frac, B.max * floorP, B.max * capP)));
+    B.hp = Math.max(0, B.hp - n);
+    dealt += n;
+    log.push(`　👑 체력 격차 ${gap}를 꿰뚫는 포효! 방어 무시 **${n}** 피해`);
+  }
   if (sk.dragonFlame && dragonBurn > 0 && B.hp > 0) { // 🐉 태운 체력의 일부가 방어 무시 피해로
     const n = Math.max(1, Math.round(dragonBurn * sk.dragonFlame.trueMul));
     B.hp = Math.max(0, B.hp - n);
     dealt += n;
     log.push(`　🐉 태운 불꽃이 ${B.name}에게 **${n}** 방어 무시 피해!`);
   }
+  const siphonB4 = B.mana;
   if (sk.manaSiphon) { // 🌊 상대 마나 흡수
     const [frac, cap] = sk.manaSiphon;
     const n = Math.min(cap, Math.floor(B.mana * frac));
     if (n > 0) { B.mana -= n; A.mana = Math.min(A.manaMax, A.mana + n); log.push(`　🌊 ${B.name}의 마나 **${n}** 을(를) 파도로 삼켜 내 마나로!`); }
+  }
+  if (sk.manaShield && !immune) { // 🌀 성운 삼키기: 삼킨 마나가 보호막이 돼요
+    const got = Math.max(0, siphonB4 - B.mana);
+    if (got > 0) {
+      const add = Math.min(Math.round(got * sk.manaShield), Math.round(A.max * 0.35));
+      A.st.shield = Math.min(Math.round(A.max * 0.35), (A.st.shield ?? 0) + add);
+      log.push(`　🌀 삼킨 마나 ${got}이(가) 별빛 보호막으로! 🔰 +${add}`);
+    }
   }
   if (sk.pureCharge && B.hp > 0 && !immune) { // 🌈 상대의 좋은 효과 파괴
     const k = destroyBuffs(B, pureN > 0 ? 1 : sk.pureCharge.noneBreak, rng);
@@ -1857,7 +2168,23 @@ export function castSkill(sk, A, B, rng, log) {
     A.st.berserk = { turns: sk.berserk + 1, cap: Math.round(A.max * BERSERK_CFG.ignore), atkLeft: true, skillLeft: true };
     log.push(`　🔥 **광폭화**! ${sk.berserk}턴 동안 최대 체력의 ${P100(BERSERK_CFG.ignore)} 이하 피해 무시 (${A.st.berserk.cap} 이하) · 다음 기본 공격·공격 스킬 위력 +${P100(BERSERK_CFG.bonus)} · 공격할 때마다 ${P100(BERSERK_CFG.hpChance)} 확률로 상대 체력 ${BERSERK_CFG.hpTo}`);
   }
-  if (sk.drain && dealt > 0) { const n = heal(A, dealt * sk.drain); if (n) log.push(`　🩸 체력 +${n}`); }
+  if (sk.feastAtk && dealt > 0) { // 👻 영혼연회: 영혼이 쌓일수록 공격력이 올라요
+    const nxt = Math.min(sk.feastAtk[1], (A.st.atkUp?.pct ?? 0) + sk.feastAtk[0]);
+    A.st.atkUp = { pct: nxt, turns: Math.max(A.st.atkUp?.turns ?? 0, sk.feastAtk[2] + 1) };
+    log.push(`　👻 영혼이 쌓여요! 공격력 +${P100(nxt)} (${sk.feastAtk[2]}턴)`);
+  }
+  if (sk.drain && dealt > 0) {
+    const want = Math.round(dealt * sk.drain * (1 - (A.st.healCut?.pct ?? 0)));
+    const n = heal(A, dealt * sk.drain);
+    if (n) log.push(`　🩸 체력 +${n}`);
+    if (sk.feastMax && want > n) { // 👻 영혼연회: 넘친 영혼은 최대 체력이 돼요
+      const used = A.st.feastGain ?? 0;
+      const gain = Math.max(0, Math.min(Math.round((want - n) * sk.feastMax[0]), Math.round(A.max * sk.feastMax[1]) - used));
+      if (gain > 0) { A.max += gain; A.hp += gain; A.st.maxBonus = (A.st.maxBonus ?? 0) + gain; A.st.feastGain = used + gain; log.push(`　👻 넘친 영혼이 몸이 돼요! 최대 체력 **+${gain}** (이번 전투 동안)`); }
+      const sh = Math.min(Math.round(A.max * 0.3) - (A.st.shield ?? 0), Math.round((want - n - gain) * 0.6));
+      if (sh > 0) { A.st.shield = (A.st.shield ?? 0) + sh; log.push(`　👻 남은 영혼은 보호막이 돼요! 🔰 +${sh}`); }
+    }
+  }
   if (readHit && B.hp > 0) {
     let n = 0;
     for (const k of ['atkUp', 'defUp', 'spdUp', 'guard', 'regen', 'burst', 'priority', 'reflect', 'coinflip']) if (B.st[k]) { delete B.st[k]; n++; }
@@ -1891,6 +2218,22 @@ export function castSkill(sk, A, B, rng, log) {
   if (sk.recoil) {
     const n = Math.min(A.hp - 1, Math.round(A.max * sk.recoil));
     if (n > 0) { A.hp -= n; log.push(`　💢 반동으로 -${n}`); }
+  }
+  if (sk.healLost) { // 🐷 양승민의 재림: 잃은 체력의 일부를 회복
+    const n = heal(A, (A.max - A.hp) * sk.healLost);
+    log.push(`　🐷 잃은 체력의 ${P100(sk.healLost)}를 되찾았어요! 체력 +${n}`);
+  }
+  if (sk.ironSkin) {
+    A.st.ironSkin = { pct: sk.ironSkin[0], turns: sk.ironSkin[1] + 1 };
+    log.push(`　💎 **금강불괴!** ${sk.ironSkin[1]}턴 동안 최대 체력의 ${P100(sk.ironSkin[0])} 이하 피해는 튕겨내요`);
+  }
+  if (sk.hitCap) {
+    A.st.hitCap = { pct: sk.hitCap[0], turns: sk.hitCap[1] + 1 };
+    log.push(`　👑 **황금 갑옷!** ${sk.hitCap[1]}턴 동안 한 번에 받는 피해가 최대 체력의 ${P100(sk.hitCap[0])}를 넘지 못해요`);
+  }
+  if (sk.cleanseHeal) { // 🕊️ 불사조의 눈물: 정화될 나쁜 효과마다 추가 회복
+    const c = debuffCount(A.st);
+    if (c > 0) { const n = heal(A, A.max * sk.cleanseHeal * c); log.push(`　🕊️ 나쁜 효과 ${c}가지가 눈물에 녹아요! 체력 +${n}`); } else { const sh = Math.round(A.max * 0.15); A.st.shield = (A.st.shield ?? 0) + sh; log.push(`　🕊️ 씻어낼 아픔이 없어서 눈물이 보호막이 돼요! 🔰 +${sh}`); }
   }
   if (sk.heal) {
     const want = Math.round(A.max * sk.heal * (1 - (A.st.healCut?.pct ?? 0))); // 회복감소를 먼저 적용해요
@@ -1957,6 +2300,46 @@ export function castSkill(sk, A, B, rng, log) {
     log.push(`　🔁 ${sk.speedRev}턴 동안 **속도 역전**! 스피드가 낮은 쪽이 먼저 움직여요`);
   }
   if (sk.ward) { A.st.ward = { turns: sk.ward }; log.push(`　🔮 ${sk.ward}턴 동안 속성 약점을 막아주는 방벽이 쳐졌어요`); }
+  // 🆕 12차 확장 (완전 신규 매커니즘 1차 배치):
+  if (sk.burnPact) { // 🔥 타오르는 카운트다운: 매 턴 최대 체력 % 자해(멈출 수 없음) 대신 공격력이 턴마다 복리로 불어나요
+    A.st.burnPact = { hp: sk.burnPact[0], step: sk.burnPact[1], mult: 1 };
+    log.push(`　🔥 **도화선**에 불이 붙었어요! 매 턴 최대 체력의 ${P100(sk.burnPact[0])}씩 타들어가는 대신, 턴마다 공격력이 ${P100(sk.burnPact[1])}씩 복리로 불어나요 (멈출 수 없어요)`);
+  }
+  if (sk.soulSwap) { // 👽 신체 강탈: N턴 동안 나와 상대의 공격력·방어력·스피드를 완전히 맞바꿔요
+    const turns = sk.soulSwap;
+    const origA = { atk: A.atk, def: A.def, spd: A.spd };
+    const origB = { atk: B.atk, def: B.def, spd: B.spd };
+    A.atk = origB.atk; A.def = origB.def; A.spd = origB.spd;
+    B.atk = origA.atk; B.def = origA.def; B.spd = origA.spd;
+    A.st.soulSwap = { turns: turns + 1, orig: origA };
+    B.st.soulSwap = { turns: turns + 1, orig: origB };
+    log.push(`　👽 **신체 강탈!** ${turns}턴 동안 ${A.name}과(와) ${B.name}의 공격력·방어력·스피드가 완전히 뒤바뀌어요!`);
+  }
+  if (sk.crystalVault) { // 💎 굴절 저장소: 기절·약화·지속피해 디버프를 N턴 동안 저장했다가 한 번에 되돌려요
+    A.st.crystalVault = { turns: sk.crystalVault[0], stored: 0, mult: sk.crystalVault[1] };
+    log.push(`　💎 **굴절 저장소**가 열렸어요! ${sk.crystalVault[0]}턴 동안 들어오는 기절·약화·지속피해가 전부 결정에 저장돼요`);
+  }
+  if (sk.orbit) { // ☄️ 영구 공전: 이후 interval 턴마다 저절로 낙하해요 (전투가 끝날 때까지)
+    const [pow, pierce, stun, interval] = sk.orbit;
+    A.st.orbit = { pow, pierce, stun, interval, turns: interval, elem: sk.elem };
+    log.push(`　☄️ **귀환 궤도**에 올랐어요! 이후 ${interval}턴마다 저절로 낙하해요 (전투가 끝날 때까지)`);
+  }
+  if (sk.brandChain) { // 🔗 낙인의 연쇄: 쌓인 스택만큼 지금 터뜨리고, 이번 시전으로 쌓일 화상은 뒤에서 새로 셈
+    const bc = sk.brandChain;
+    const stack = Math.min(bc.cap, A.st.brandStack ?? 0);
+    if (stack > 0 && B.hp > 0 && !B.st.skillImmune) {
+      let total = 0;
+      for (let i = 0; i < stack && B.hp > 0; i++) {
+        const base = Math.max(effAtk(A) * 0.25, effAtk(A) - effDef(B) * 0.5) * bc.hitPow * elemClash(skElem, B, { attacker: A }).mult * (0.85 + rng() * 0.3);
+        const hit = mitigate(B, Math.max(1, Math.round(base)));
+        B.hp = Math.max(0, B.hp - hit.dmg);
+        total += hit.dmg;
+        afterHit(B, A, hit.dmg, log);
+      }
+      log.push(`　🔗 **낙인의 연쇄!** 쌓여 있던 낙인 ${stack}개가 동시에 터져요! ${B.name}에게 총 **${total}** 피해`);
+      A.st.brandStack = 0;
+    } else if (B.st.skillImmune && (A.st.brandStack ?? 0) > 0) log.push(`　🧿 ${B.name}은(는) 스킬 면역! 쌓인 낙인이 불발됐어요`);
+  }
   // 🆕 2차 확장: 마나 늘리기 · 공격력 폭주 · 디버프→버프 · 모아니면도 · 방어력→공격력
   if (sk.manaMaxUp) {
     A.manaMax += sk.manaMaxUp[0];
@@ -2017,6 +2400,9 @@ export function castSkill(sk, A, B, rng, log) {
     log.push(`　😇 ${c.turns}턴 동안 받은 피해의 ${P100(c.rate)}를 돌려받아요! (총 ${A.st.angelRefund.left}까지 · 넘친 회복은 보호막)`);
   }
   if (sk.chaos) castChaos(sk, A, B, rng, log, immune);
+  if (sk.lootReserve) { A.st.lootReserve = true; log.push(`　🎁 **보물 각성!** 이번 전투에서 처음 들어오는 보상이 ${LOOT_RESERVE_MULT}배가 돼요 (이기거나 잡아야 받아요)`); }
+  if (sk.goldSave) { A.st.goldSave = snapGold(A); log.push(`　🏆 이 순간을 황금 속에 **저장**했어요! (체력 ${A.hp}/${A.max} · 마나 ${Math.round(A.mana)} · 지금의 버프·디버프) — 쓰러지면 이때로 되돌아가요`); }
+  if (sk.fateReplay) castFate(A, B, rng, log);
   if (sk.whoIs) { A.st.whoIs = { pct: sk.whoIs[0], turns: sk.whoIs[1] }; log.push(`　🎭 ${sk.whoIs[1]}턴 동안 상대의 공격이 ${P100(sk.whoIs[0])} 확률로 상대 자신에게 들어가요!`); }
   if (sk.catchPro) { // 🪢 포획 전문가: 유효 턴 동안 도망을 막고 포획률 상승 (붙잡았을 때의 제한 턴 연장은 catchProHold 가 해요)
     const dur = catchProTurns(sk);
@@ -2081,7 +2467,18 @@ export function castSkill(sk, A, B, rng, log) {
   }
   if (firstMana) { A.mana += firstMana; log.push(`　🔋 선공 보너스 마나 +${firstMana}`); }
   if (sk.mana) { const n = Math.min(sk.mana, SKILL_CFG.manaMax + 1000); A.mana += n; log.push(`　🔋 마나 +${n}`); }
-  if (sk.cleanse) { A.st.dots = []; delete A.st.atkDown; delete A.st.defDown; delete A.st.stun; delete A.st.frozen; log.push('　✨ 나쁜 상태가 사라졌어요'); }
+  if (sk.cleanse) {
+    A.st.dots = []; delete A.st.atkDown; delete A.st.defDown; delete A.st.stun; delete A.st.frozen;
+    log.push('　✨ 나쁜 상태가 사라졌어요');
+    if (A.st.parasiteEgg) { // 🥚 불멸의 알: 정화하려는 순간 역으로 터져요
+      const egg = A.st.parasiteEgg;
+      delete A.st.parasiteEgg;
+      const n = Math.max(1, Math.round(A.max * egg.pct));
+      A.hp = Math.max(0, A.hp - n);
+      log.push(`　🥚 정화하려 하자 숨어 있던 **기생 알**이 즉시 부화해 터졌어요! 방어 무시 **${n}** 피해`);
+      afterHit(A, B, n, log);
+    }
+  }
   if (sk.potion) { // 🧪 마녀의 영약: 6가지 중 서로 다른 N개
     const foeOk = !B.st.skillImmune && B.hp > 0;
     const pool = [
@@ -2173,9 +2570,36 @@ export function castSkill(sk, A, B, rng, log) {
       log.push(cut ? `　⏳ ${B.name}의 좋은 효과 지속시간이 ${sk.turnCut}턴 줄었어요!` : '　💨 줄일 효과가 없었어요…');
     }
     // 🔮 거울 장막: 디버프를 쓴 쪽에게 되돌려요
-    const hasDebuff = sk.winter || sk.pharaoh || sk.reign || sk.freeze || sk.spdDown || sk.drowsy || sk.healCut || sk.atkDown || sk.powDown || sk.manaDown || (sk.defDown && sk.defDown[0] > 0) || sk.stun || sk.dot || sk.drainMana || sk.curseGrant || sk.lockSkills;
+    const hasDebuff = sk.winter || sk.pharaoh || sk.reign || sk.freeze || sk.spdDown || sk.drowsy || sk.healCut || sk.atkDown || sk.powDown || sk.manaDown || (sk.defDown && sk.defDown[0] > 0) || sk.stun || sk.dot || sk.drainMana || sk.curseGrant || sk.lockSkills || sk.thorns || sk.mindCtl || sk.swampBloom;
     const T = B.st.reflectDebuff && hasDebuff ? A : B;
     if (T !== B) log.push(`　🔮 ${B.name}의 거울 장막! 디버프가 ${A.name}에게 되돌아가요!`);
+    // 💎 굴절 저장소: 기절·약화(공방↓)·지속피해가 T에게 들어오면 적용 대신 결정에 저장
+    if (T.st.crystalVault) {
+      const vaultKinds = [sk.stun && 'stun', sk.atkDown && 'atkDown', (sk.defDown && sk.defDown[0] > 0) && 'defDown', sk.dot && 'dot'].filter(Boolean);
+      if (vaultKinds.length) {
+        T.st.crystalVault.stored += vaultKinds.length;
+        log.push(`　💎 ${T.name}의 굴절 저장소가 디버프를 흡수했어요! (저장 ${T.st.crystalVault.stored}개)`);
+        sk = { ...sk };
+        for (const k of vaultKinds) { if (k === 'defDown') sk.defDown = [0, sk.defDown[1]]; else delete sk[k]; }
+      }
+    }
+    if (sk.thorns) { // 🌵 보석 가시
+      T.st.thorns = { n: sk.thorns.n, per: sk.thorns.per, turns: sk.thorns.turns + 1 };
+      log.push(`　🌵 ${T.name}의 몸에 **보석 가시 ${sk.thorns.n}개**가 박혔어요! ${A.name}을(를) 때릴 때마다 스스로 다쳐요`);
+    }
+    if (sk.mindCtl) { // 👽 정신 지배
+      T.st.mindCtl = { uses: sk.mindCtl[0], turns: sk.mindCtl[1] + 1 };
+      log.push(`　👽 ${T.name}의 정신이 흔들려요! ${sk.mindCtl[1]}턴 안에 쓰는 다음 공격 스킬은 자기 자신을 향해요`);
+    }
+    if (sk.undyingHex) { // 🧟 불멸의 저주: 턴이 아니라 "상대가 나(시전자)를 때린 횟수"로 옅어져요
+      const [ap, dp, hits] = sk.undyingHex;
+      T.st.undyingHex = { atk: ap, def: dp, hitsLeft: hits };
+      log.push(`　🧟 ${T.name}에게 **불멸의 저주**! 공격력 -${P100(ap)} · 방어력 -${P100(dp)} — ${A.name}을(를) **${hits}번** 때려야 풀려요 (턴으로는 안 풀려요)`);
+    }
+    if (sk.parasiteEgg) { // 🥚 불멸의 알: 상대가 정화를 쓰면 즉시 부화해 터져요
+      T.st.parasiteEgg = { pct: sk.parasiteEgg[0], turns: sk.parasiteEgg[1] + 1 };
+      log.push(`　🥚 ${T.name}에게 **기생 알**을 심었어요… 정화 효과를 쓰면 즉시 부화해 터져요`);
+    }
     if (sk.winter) { // ❄️ 영원한 겨울
       const c = sk.winter;
       T.st.winter = { ...c, hitDone: false };
@@ -2212,13 +2636,28 @@ export function castSkill(sk, A, B, rng, log) {
       }
       log.push(`　🔽 ${T.name} 마나 ${before} → ${T.mana} · ${sk.manaDown[1]}턴 동안 최대 마나 ${T.manaMax}`);
     }
-    if (sk.stun && rng() < sk.stun) { T.st.stun = 1; log.push(`　💫 ${T.name}(이)가 **기절**했어요!`); }
+    if (sk.stun && rng() < sk.stun) {
+      T.st.stun = 1;
+      log.push(`　💫 ${T.name}(이)가 **기절**했어요!`);
+      if (T === B && sk.stun < 1) recordLuck(A.st, 'stun', effAtk(A) * 1.5);
+    }
     if (sk.freeze) { T.st.frozen = { turns: sk.freeze }; log.push(`　🧊 ${T.name}(이)가 **꽁꽁 얼었어요**! (최대 ${sk.freeze}턴 · 행동할 때마다 ${P100(FROZEN_CFG.breakChance)} 확률로 깨져요 · 얼어 있는 동안 받는 피해 ×${FROZEN_CFG.dmgMult})`); }
     if (sk.dot && sk.needHit && landed === 0) log.push(`　💨 한 대도 안 맞아서 ${DOT[sk.dot[0]] ?? sk.dot[0]}은(는) 걸리지 않았어요`);
     else if (sk.dot && rng() < sk.dot[3]) {
       T.st.dots = (T.st.dots ?? []).filter((d) => d.kind !== sk.dot[0]);
       T.st.dots.push({ kind: sk.dot[0], pct: sk.dot[1], turns: sk.dot[2] });
       log.push(`　${DOT[sk.dot[0]] ?? sk.dot[0]} ${T.name}에게 ${sk.dot[2]}턴 동안!`);
+      if (T === B && sk.dot[3] < 1) recordLuck(A.st, 'dot', B.max * sk.dot[1] * sk.dot[2], { dot: [...sk.dot.slice(0, 3)] });
+      if (sk.brandChain && sk.dot[0] === 'burn') { A.st.brandStack = (A.st.brandStack ?? 0) + 1; log.push(`　🔗 낙인 스택 **${A.st.brandStack}**`); } // 🔗 낙인의 연쇄: 화상을 걸 때마다 스택 적립
+    }
+    if (sk.swampBloom) { // 🧙 늪 마녀의 저주: 나쁜 효과가 더 오래가고, 많이 걸릴수록 독기가 피어올라요
+      let ext = 0;
+      for (const k of ['atkDown', 'defDown', 'spdDown', 'powDown', 'manaDown', 'healCut']) if (T.st[k]?.turns) { T.st[k].turns += sk.swampBloom[0]; ext++; }
+      for (const d of T.st.dots ?? []) { d.turns += sk.swampBloom[0]; ext++; }
+      const c = debuffCount(T.st);
+      const n = Math.max(1, Math.round(T.max * sk.swampBloom[1] * c));
+      T.hp = Math.max(0, T.hp - n);
+      log.push(`　🧙 늪이 깊어져요! ${T.name}의 나쁜 효과 ${ext}개가 +${sk.swampBloom[0]}턴 · 독기가 피어올라 (${c}종) 방어 무시 **${n}** 피해`);
     }
     if (sk.lockSkills) { T.st.sealed = { turns: 9999, perm: true }; log.push(`　🔏 ${T.name}의 스킬이 **이번 전투 동안 영구 봉인**됐어요!`); }
     if (sk.drainMana) { const n = Math.min(T.mana, sk.drainMana); T.mana -= n; if (n) log.push(`　🔻 ${T.name} 마나 -${n}`); }
@@ -2282,6 +2721,12 @@ export function tickSide(X, log, gainMana = true, foe = null) {
       delete st.bomb;
     }
   }
+  if (st.burnPact && X.hp > 0) { // 🔥 타오르는 카운트다운: 멈출 수 없는 자해 + 복리로 불어나는 공격력
+    const n = Math.max(1, Math.round(X.max * st.burnPact.hp));
+    X.hp = Math.max(0, X.hp - n);
+    st.burnPact.mult *= 1 + st.burnPact.step;
+    log.push(`🔥 타오르는 도화선… ${X.name} 체력 -${n} (공격력 ×${st.burnPact.mult.toFixed(2)})`);
+  }
   tryRevive(X, log, foe); // 🪽 지속 피해로 쓰러졌다면 부활
   if (st.dive) { // 🦅 벼락 급강하: 시한폭탄처럼 내 행동과 별개로 낙하 (낙하 전에 쓰러지면 취소)
     if (X.hp <= 0) { delete st.dive; log.push(`🦅 ${X.name}이(가) 쓰러져서 낙하가 취소됐어요`); }
@@ -2305,6 +2750,59 @@ export function tickSide(X, log, gainMana = true, foe = null) {
   if (st.sunCharge) { // ☀️ 태양의 심판: 충전이 끝나면 내리쳐요 (충전 중 쓰러지면 취소)
     if (X.hp <= 0) { delete st.sunCharge; log.push(`☀️ ${X.name}이(가) 쓰러져서 모은 햇빛이 흩어졌어요`); }
     else if (--st.sunCharge.turns <= 0) fireSun(X, foe, log);
+  }
+  if (st.crystalVault && X.hp > 0) { // 💎 굴절 저장소: 턴이 다 되면 저장된 디버프 개수만큼 방어 무시로 되돌려요
+    if (--st.crystalVault.turns <= 0) {
+      const v = st.crystalVault;
+      delete st.crystalVault;
+      if (v.stored <= 0) log.push(`💎 ${X.name}의 굴절 저장소가 조용히 닫혔어요 (저장된 디버프 없음)`);
+      else if (!foe || foe.hp <= 0) { /* 상대가 이미 쓰러졌으면 할 일 없음 */ }
+      else if (foe.st?.skillImmune) log.push(`🧿 ${foe.name}은(는) 스킬 면역! 굴절 저장소의 반격이 막혔어요`);
+      else {
+        const n = Math.max(1, Math.round(foe.max * v.mult * v.stored));
+        foe.hp = Math.max(0, foe.hp - n);
+        log.push(`💎 ${X.name}의 **굴절 저장소**가 터져요! 저장된 디버프 ${v.stored}개 × 방어 무시 **${n}** 피해를 ${foe.name}에게!`);
+        afterHit(foe, X, n, log);
+      }
+    }
+  }
+  if (st.shards && X.hp > 0 && --st.shards.turns <= 0) { // 🌠 운석낙하: 파편이 한 번 더 떨어져요
+    const d = st.shards;
+    delete st.shards;
+    if (foe && foe.hp > 0) {
+      if (foe.st?.skillImmune) log.push(`🧿 ${foe.name}은(는) 스킬 면역! ${X.name}의 운석 파편이 빗나갔어요`);
+      else {
+        const atk = effAtk(X);
+        const base = Math.max(atk * 0.25, atk - effDef(foe) * 0.5) * d.pow * elemClash(d.elem ?? 'normal', foe, { attacker: X }).mult * (0.85 + Math.random() * 0.3);
+        const hit = mitigate(foe, Math.max(1, Math.round(base)));
+        foe.hp = Math.max(0, foe.hp - hit.dmg);
+        log.push(`🌠 ${X.name}의 **운석 파편**이 떨어져요! ${foe.name}에게 **${hit.dmg}** 데미지${hit.note}`);
+        afterHit(foe, X, hit.dmg, log);
+      }
+    }
+  }
+  if (st.orbit && X.hp > 0 && --st.orbit.turns <= 0) { // ☄️ 귀환 궤도: interval 턴마다 저절로 낙하 (전투가 끝날 때까지 반복)
+    const d = st.orbit;
+    d.turns = d.interval;
+    if (foe && foe.hp > 0) {
+      if (foe.st?.skillImmune) log.push(`🧿 ${foe.name}은(는) 스킬 면역! ${X.name}의 궤도가 빗나갔어요`);
+      else {
+        const atk = effAtk(X);
+        const stab = d.elem && d.elem !== 'normal' && effElems(X).includes(d.elem) ? ELEM_CFG.stab : 1;
+        const base = Math.max(atk * 0.25, atk - effDef(foe) * (1 - d.pierce) * 0.5) * d.pow * elemClash(d.elem ?? 'normal', foe, { attacker: X }).mult * stab * (0.85 + Math.random() * 0.3);
+        const hit = mitigate(foe, Math.max(1, Math.round(base)));
+        foe.hp = Math.max(0, foe.hp - hit.dmg);
+        log.push(`☄️ ${X.name}의 **귀환 궤도**가 다시 낙하해요! ${foe.name}에게 **${hit.dmg}** 데미지${hit.note}`);
+        afterHit(foe, X, hit.dmg, log);
+        if (foe.hp > 0 && Math.random() < d.stun) { foe.st.stun = 1; log.push(`　💫 ${foe.name}(이)가 **기절**했어요!`); }
+      }
+    }
+  }
+  if (st.parasiteEgg && --st.parasiteEgg.turns <= 0) { delete st.parasiteEgg; log.push(`🥚 ${X.name}의 기생 알이 부화하지 못하고 조용히 사그라들었어요`); } // 🥚 터지지 않고 기간이 다 지나면 그냥 사라져요
+  if (st.soulSwap && --st.soulSwap.turns <= 0) { // 👽 신체 강탈 종료: 원래 몸으로 돌아와요
+    X.atk = st.soulSwap.orig.atk; X.def = st.soulSwap.orig.def; X.spd = st.soulSwap.orig.spd;
+    delete st.soulSwap;
+    log.push(`👽 ${X.name}이(가) 원래 몸으로 돌아왔어요!`);
   }
   if (st.trumpet) { // 👼 심판의 나팔
     if (X.hp <= 0) { delete st.trumpet; log.push(`👼 ${X.name}이(가) 쓰러져서 나팔이 멈췄어요`); }
@@ -2405,7 +2903,7 @@ export function tickSide(X, log, gainMana = true, foe = null) {
   }
   if (st.pendingBoom && foe) { const n = st.pendingBoom; delete st.pendingBoom; cloneBoomOn(X, foe, n, log); } // 🎆 쓰러진 분신의 폭발이 남아 있으면 지금
   if (st.clone?.boom && st.clone.turns <= 1 && foe) { const n = st.clone.boom; st.clone.boom = 0; cloneBoomOn(X, foe, n, log); } // 🎆 분신이 끝나는 순간 폭발
-  for (const k of ['atkUp', 'atkDown', 'powDown', 'berserk', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro', 'allElem', 'whoIs', 'lamp', 'huntMark', 'transfer', 'shieldCounter', 'speedRev', 'prideNull', 'prideReflect', 'genesis', 'debuffImmune', 'angelRefund', 'reign', 'pharaoh', 'venom', 'frostImmune']) {
+  for (const k of ['atkUp', 'atkDown', 'powDown', 'berserk', 'defUp', 'defDown', 'guard', 'echo', 'convert', 'ward', 'manaRegenUp', 'burst', 'coinflip', 'defToAtk', 'healCut', 'spdUp', 'spdDown', 'priority', 'reflect', 'reflectDebuff', 'clone', 'statMod', 'skillImmune', 'sealed', 'cursed', 'catchPro', 'allElem', 'whoIs', 'lamp', 'huntMark', 'transfer', 'shieldCounter', 'speedRev', 'prideNull', 'prideReflect', 'genesis', 'debuffImmune', 'angelRefund', 'reign', 'pharaoh', 'venom', 'frostImmune', 'thorns', 'hitCap', 'mindCtl', 'ironSkin']) {
     if (st[k] && !st[k].perm && --st[k].turns <= 0) delete st[k]; // perm(영구 봉인)은 줄지 않아요
   }
   for (const id of Object.keys(st.cds ?? {})) if (--st.cds[id] <= 0) delete st.cds[id]; // ⏳ 쿨타임 감소
@@ -2481,7 +2979,8 @@ export function rollWildSkills(petId, rng = Math.random, elite = false) {
 export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
   if (wild.st?.sealed) return null; // 🔒 조커로 봉인되면 기본 공격만 해요
   const options = (skillIds ?? []).map((id) => SKILLS[id]).filter((sk) => sk && sk.cost <= wild.mana && cdLeft(wild.st, sk.id) <= 0
-    && !(sk.joker && wild.fight?.jokerUsed) && !(sk.devilDeal && wild.st?.devil) && !(sk.curseGrant && !wild.st?.cursed) && !sk.catchPro && !sk.fightBuff && !sk.lockSkills);
+    && !(sk.joker && wild.fight?.jokerUsed) && !(sk.devilDeal && wild.st?.devil) && !(sk.curseGrant && !wild.st?.cursed) && !sk.catchPro && !sk.fightBuff && !sk.lockSkills
+    && !sk.lootReserve && !(sk.goldSave && (wild.st?.goldSave || wild.st?.goldUsed)) && !(sk.fateReplay && !fatePick(wild.st, !!me.st?.skillImmune)));
   if (!options.length) return null; // 배운 스킬이 없거나 마나가 모자라면 기본 공격
 
   const myRatio = wild.hp / wild.max;
@@ -2501,12 +3000,20 @@ export function pickWildSkill(skillIds, wild, me, rng = Math.random) {
     if (sk.curseGrant) s += 5; // 🪬 저주부여는 기회가 한 번이라 바로 써요
     else if (sk.curse) s -= 2; // 🧿 자기 저주는 살짝 꺼려요
     if (sk.devilDeal || sk.joker) s += 1;
+    if (sk.goldSave) s += myRatio >= 0.5 ? 3 : -3; // 🏆 체력이 넉넉할 때 저장해야 값져요
+    if (sk.fateReplay) s += 2;
     if (sk.rewind) s += myRatio <= 0.45 ? 7 : -6; // ✨ 위험할 때만 되감아요
     if (sk.angelRefund) s += myRatio <= 0.7 ? 3 : -1;
     if (sk.sunVerdict || sk.trumpet) s += 2.5;
     if (sk.sunrise || sk.genesis) s += 2;
     if (sk.trickster) s += me.st?.last ? 3 : -6;
     if (sk.winter || sk.pharaoh || sk.reign) s += me.st?.[sk.winter ? 'winter' : sk.pharaoh ? 'pharaoh' : 'reign'] ? -5 : 2;
+    if (sk.healLost) s += myRatio <= 0.6 ? 4 : -3; // 🐷 많이 다쳤을 때 써요
+    if (sk.hitCap) s += wild.st?.hitCap ? -5 : 1.5;
+    if (sk.gapTrue) s += me.hp > wild.hp ? 2 : 0; // 👑 상대가 더 튼튼할 때 더 값져요
+    if (sk.mindCtl) s += me.st?.mindCtl ? -5 : 2;
+    if (sk.thorns) s += me.st?.thorns ? -4 : 2;
+    if (sk.impact) s += effSpd(wild) >= effSpd(me) ? 2 : -1;
     if (sk.dragonFlame && myRatio < 0.4) s -= 4;
     if (sk.cost > wild.mana * 0.8) s -= 1; // 너무 비싸면 살짝 아껴요
     return s;
@@ -2572,6 +3079,11 @@ export function statusText(st = {}) {
   if (st.transfer) t.push(`🕳️ 피해 전이 ${Math.round(st.transfer.pct * 100)}% ${st.transfer.turns}턴`);
   if (st.shieldCounter) t.push(`❄️ 서리 반격 대기 ${st.shieldCounter.turns}턴`);
   if (st.dive) t.push(`🦅 낙하 대기 ${st.dive.turns}턴`);
+  if (st.ironSkin) t.push(`💎 금강불괴 (최대 체력의 ${Math.round(st.ironSkin.pct * 100)}% 이하 피해 무효 · ${st.ironSkin.turns}턴)`);
+  if (st.shards) t.push(`🌠 운석 파편 ${st.shards.turns}턴 뒤 낙하`);
+  if (st.thorns) t.push(`🌵 보석 가시 ${st.thorns.n}개 (${st.thorns.turns}턴 · 때리면 자해)`);
+  if (st.hitCap) t.push(`👑 황금 갑옷 (한 번에 최대 ${Math.round(st.hitCap.pct * 100)}% · ${st.hitCap.turns}턴)`);
+  if (st.mindCtl) t.push(`👽 정신 지배 (다음 공격 스킬이 나 자신에게 · ${st.mindCtl.turns}턴)`);
   if (st.lamp) t.push(`🕯️ 불빛 ${st.lamp.turns}턴`);
   if (st.hitCount) t.push(`💢 맞은 횟수 ${st.hitCount}`);
   if (st.snowCount) t.push(`⛄ 눈덩이 ${st.snowCount}회`);
@@ -2588,6 +3100,17 @@ export function statusText(st = {}) {
   if (st.pharaoh) t.push(`⚰️ 파라오의 저주 ${st.pharaoh.turns}턴`);
   if (st.venom) t.push(`🦖 맹독 ${st.venom.turns}턴`);
   if (st.venomN) t.push(`☠️ 독 스택 ${st.venomN}`);
+  if (st.crystalVault) t.push(`💎 굴절 저장소 ${st.crystalVault.turns}턴 · 저장된 디버프 ${st.crystalVault.stored}개`);
+  if (st.burnPact) t.push(`🔥 도화선 공격력 ×${st.burnPact.mult.toFixed(2)} (매 턴 체력 -${Math.round(st.burnPact.hp * 100)}%)`);
+  if (st.orbit) t.push(`☄️ 귀환 궤도 · ${st.orbit.turns}턴 뒤 낙하 (${st.orbit.interval}턴 주기)`);
+  if (st.soulSwap) t.push(`👽 신체 강탈 ${st.soulSwap.turns}턴 (능력치 맞바뀜)`);
+  if (st.brandStack) t.push(`🔗 낙인 스택 ${st.brandStack}`);
+  if (st.undyingHex) t.push(`🧟 불멸의 저주 (공격력 -${Math.round(st.undyingHex.atk * 100)}% · 방어력 -${Math.round(st.undyingHex.def * 100)}% · ${st.undyingHex.hitsLeft}번 맞혀야 풀림)`);
+  if (st.parasiteEgg) t.push(`🥚 기생 알 ${st.parasiteEgg.turns}턴 (정화하면 터져요)`);
+  if (st.lootReserve) t.push(`🎁 보상 예약 (처음 받는 보상 ×${LOOT_RESERVE_MULT})`);
+  if (st.goldSave) t.push(`🏆 황금 저장됨 (쓰러지면 체력 ${st.goldSave.hp}로 복귀)`);
+  if (st.goldUsed) t.push('🏆 최후의 황금 사용함');
+  if (st.luck?.length) t.push(`🎲 기억한 행운 ${st.luck.length}개 (최고 ${Math.max(...st.luck.map((e) => e.score))})`);
   for (const [id, n] of Object.entries(st.cds ?? {})) {
     if (!SKILLS[id]) continue;
     if (n >= 90) t.push(SKILLS[id].dud ? '🃏 스킬 칸 하나가 조커 카드로 바뀜' : `✅ ${SKILLS[id].name} 사용함 (전투당 1회)`);

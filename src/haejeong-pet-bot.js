@@ -52,6 +52,8 @@ import {
   catchProHold, // 🆕 배치 5: 포획 전문가 (도망 붙잡기)
   fightBuffOf, // 🆕 배치 5: 전투 중 버프 값
   fightBuffText,
+  takeLootReserve, // 🎁 보물 각성: 처음 받는 보상 배수
+  recordLuck, // 🎲 운명 재현: 기본 공격 급소도 행운으로 기록
 } from './skill.js';
 
 const SLOT_IDX = Array.from({ length: SLOT_COUNT }, (_, i) => i); // 스킬 슬롯 번호들 (0~4)
@@ -1865,7 +1867,7 @@ function stopAutoHunt(player) {
 }
 
 // ✨ 자동사냥에서 내 펫이 안 쓰는 스킬: 내 체력을 깎거나(반동·도박·저주…), 전투 밖 규칙이 필요하거나(조커·포획 전문가·전투 버프…), 자동으로는 의미가 없는 것
-const AUTO_SKILL_BANNED = ['recoil', 'gamble', 'curse', 'curseGrant', 'devilDeal', 'joker', 'catchPro', 'fightBuff', 'lockSkills', 'copy', 'coinflip', 'defToAtk', 'statRoll', 'echo', 'mercy', 'dragonFlame', 'chaos'];
+const AUTO_SKILL_BANNED = ['recoil', 'gamble', 'curse', 'curseGrant', 'devilDeal', 'joker', 'catchPro', 'fightBuff', 'lockSkills', 'copy', 'coinflip', 'defToAtk', 'statRoll', 'echo', 'mercy', 'dragonFlame', 'chaos', 'lootReserve'];
 const autoSkillOk = (sk, me) => !!sk && sk.cost <= me.mana && cdLeft(me.st, sk.id) <= 0 && !AUTO_SKILL_BANNED.some((k) => sk[k]);
 // 🆕 눈덩이(설인)·깜짝 상자(광대)처럼 "쓸수록/카드 운에 따라 세지는" 스킬의 위력 보정 (자동사냥 계산용 · worst=true 면 최대치)
 const autoSkillBoost = (sk, me, worst = false) => (sk.snowball ? Math.min(sk.snowball[2], sk.snowball[0] + sk.snowball[1] * (me.st?.snowCount ?? 0)) : 1) * (sk.jackBox ? (worst ? 2 : 1.25) : 1);
@@ -3064,6 +3066,8 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
     let expGain = Math.round(PETS[petId].expYield * loc.expMultiplier * 1.5) + (isNew ? 25 : 0);
     const fb = ex.battle?.mySt?.fightBuff ?? {}; // 🆕 전투 중 버프 (경험치 · 장비 획득률)
     if (fb.exp) expGain = Math.round(expGain * (1 + fb.exp));
+    const lootMult = takeLootReserve(ex.battle?.mySt); // 🎁 보물 각성: 처음 받는 보상(포획은 경험치) 배수
+    if (lootMult > 1) expGain = Math.round(expGain * lootMult);
     const trainerBoost = takeBoost(player, 'trainerExp'); // 🚀 포획 경험치에도 트레이너 부스트가 붙어요
     if (trainerBoost) expGain = Math.round(expGain * (1 + BOOST_PCT));
     const before = player.level;
@@ -3073,7 +3077,7 @@ function attemptCatch(player, id, now = Date.now(), rng = Math.random) {
     player.exploration = null;
     return {
       drops: awardEquipDrops(player, ex.encounter, loc, 'catch', rng, 1 + (fb.equip ?? 0)), // 🎁 장비 드롭 (전투 버프로 확률 증가)
-      buffLines: fightBuffText(fb, ['exp', 'equip']) ? [`📈 전투 버프 적용! ${fightBuffText(fb, ['exp', 'equip'])}`] : [],
+      buffLines: [...(fightBuffText(fb, ['exp', 'equip']) ? [`📈 전투 버프 적용! ${fightBuffText(fb, ['exp', 'equip'])}`] : []), ...(lootMult > 1 ? [`🎁 보물 각성! 경험치가 ${lootMult}배로 들어왔어요`] : [])],
       kind: 'caught', commit: true, petId, level, isNew, expGain, locationId, trainerBoost, boostsLeft: { ...(player.boosts ?? {}) },
       levelsGained: result.levelsGained, newLevel: player.level, unlocked, ballsLeft: balls - 1,
     };
@@ -3249,6 +3253,7 @@ function myAttack(c, b, log, rng) {
   const raw = Math.max(1, Math.round(raw0 * bzm));
   const hit = mitigate({ st: b.wildSt }, raw, rng, { basic: true }); // 🕊️ 기본 공격 표시 (비둘기 도발)
   b.wildHp = Math.max(0, b.wildHp - hit.dmg);
+  if (crit && !dv && hit.dmg > 0) recordLuck(b.mySt, 'crit', hit.dmg, { dmg: hit.dmg }); // 🎲 운명 재현이 기억해요
   log.push(`${c.myPet.emoji} ${c.myName}의 공격! ${crit ? '💥 급소! ' : ''}${c.wildPet.name}에게 **${hit.dmg}** 데미지${weak ? ' 😈 **악마의 거래: 약점 확정!**' : clash.note}${hit.note}${bzm > 1 ? ' 🔥 **광폭화!**' : ''}`);
   reactHit(c, b, false, hit.dmg, log);
   const bzFoe = { name: c.wildPet.name, hp: b.wildHp, st: b.wildSt }; // 🔥 광폭화 중이면 확률로 상대 체력이 5만 남아요
@@ -3444,6 +3449,8 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
     if (fb.exp) trainerExp = Math.round(trainerExp * (1 + fb.exp));
     if (fb.petExp) petExp = Math.round(petExp * (1 + fb.petExp));
     const buffText = fightBuffText(fb, ['exp', 'petExp', 'gold', 'equip']);
+    const lootMult = takeLootReserve(b.mySt); // 🎁 보물 각성: 처음 받는 보상(승리는 골드) 배수
+    if (lootMult > 1) gold = Math.round(gold * lootMult);
 
     const trainerBoost = takeBoost(player, 'trainerExp');
     const petBoost = takeBoost(player, 'petExp');
@@ -3460,7 +3467,7 @@ function finishTurn(player, ex, c, log, now, rng, myManaGain = false) {
     player.exploration = null;
     return {
       drops: awardEquipDrops(player, wildInfo, loc, 'win', rng, 1 + (fb.equip ?? 0)), // 🎁 장비 드롭 (전투 버프로 확률 증가)
-      buffLines: buffText ? [`📈 전투 버프 적용! ${buffText}`] : [],
+      buffLines: [...(buffText ? [`📈 전투 버프 적용! ${buffText}`] : []), ...(lootMult > 1 ? [`🎁 보물 각성! 골드가 ${lootMult}배로 들어왔어요 (+${gold}G)`] : [])],
       kind: 'won', commit: true, log, locationId,
       wildPetId: wildInfo.petId, wildLevel: wildInfo.level,
       myPetId: main.petId, myName,
